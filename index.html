@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" href="https://via.placeholder.com/70x70">
+    <link rel="stylesheet" href="pico.red.min.css">
+    <meta charset="utf-8">
+    <meta name="description" content="Apple Music to Universal Scrobbler Converter">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apple Music Play History Converter</title>
+    <style>
+      body {
+        padding: 5%;
+      }
+      .article-padding {
+        padding: 10%;
+      }
+    </style>
+</head>
+<body>
+    <header class="container">
+        <h1>Apple Music Play History Converter</h1>
+        <p>Convert Apple Music play history to a format that's ready to import to <a href="https://last.fm">Last.fm</a>. Currently compatible with <a href="https://universalscrobbler.com/" target="_blank">Universal Scrobbler</a>.</p>
+        <p><mark>Everything happens in your browser. None of your data leaves the page.</mark></p>
+        <h2>Request Your Full Listening History</h2>
+        <ul>
+        
+         <li>Go to <a href="privacy.apple.com">privacy.apple.com</a>. Sign in with your Apple ID.</li>
+         <li>Request a copy of your data: Select "Apple Media Services" under the data categories.</li>
+         <li>Wait for Apple to prepare your data and send you a link to download it.</li>
+         <li>Extract the ZIP Archive and look for 3 files:
+          <code>Apple Music - Play History Daily Tracks.csv</code>, 
+          <code>Apple Music - Recently Played Tracks.csv</code>, and
+          <code>Apple Music Play Activity.csv</code>
+        </li>
+        </ul>
+        <hr>
+        <h2>Using the Converter</h2>
+        <p>This converter takes an Apple Music CSV file and converts it using the <a href="https://www.papaparse.com/">Papa Parse</a> JS Library. It will try to detect your file format based on the file name of your CSV. The output CSV will have each row in the format with no header row:</p>
+        <pre><code>'{artist}', '{track}', '{album}', '{timestamp}', '{album artist}', '{duration}'</code></pre>
+        <p>The tracks will be reverse timestamped based on their duration, ending with the current timestamp. If duration is not specified, a default track length of 3 minutes is assumed.</p>
+    </header>
+    <main class="grid container">
+        <article class="component article-padding">
+            <h3>Input CSV</h3>
+            <form>
+                <article>
+                  <header>Select Apple Music CSV</header>
+                  <input type="file" id="input-file" accept=".csv">
+                </article>
+                <article>
+                  <header>Select File Type</header>
+                  <div>
+                      <input type="radio" id="play-history" name="file-type" value="play-history">
+                      <label for="play-history">Play History Daily Tracks</label>
+                  </div>
+                  <div>
+                      <input type="radio" id="recently-played" name="file-type" value="recently-played">
+                      <label for="recently-played">Recently Played Tracks</label>
+                  </div>
+                  <div>
+                      <input type="radio" id="play-activity" name="file-type" value="play-activity">
+                      <label for="play-activity">Play Activity</label>
+                      <div style="font-size: .75rem; margin: 15px 15px;">
+                        <input type="checkbox" id="itunes-api-check" name="itunes-api-check">
+                        <label for="itunes-api-check" data-tooltip="Enable to auto-determine blank Artist. May fail due to API limits.">Enable iTunes API checking</label>
+                      </div>
+                  </div>
+                </article>
+                <br>         
+                <button id="convert-button" type="button" disabled>Convert</button>
+                <progress id="progress-bar" value="0" max="100"></progress>
+                <small id="timer-display"></small>
+                <small id="file-type-message"></small>
+                <small id="file-info-message"></small>
+            </form>
+              
+        </article>
+        <article class="overflow-auto article-padding">
+            <h3>Output CSV</h3>
+            <textarea id="output-text" rows="10" readonly></textarea>
+            <small id="result-message"></small>
+            <br>
+            <button id="copy-button">Copy to Clipboard</button>
+            <button id="save-button">Save as CSV</button>
+            <br><br>
+            <p>Paste the output in the "Scrobble Manually in Bulk" section on <a href="https://universalscrobbler.com/" target="_blank">Universal Scrobbler</a> to scrobble your tracks.</p>
+        </article>
+    </main>
+    <main class="container">
+      <article>
+        <header>
+          <h3>Converted Data Preview</h3>
+          <p>Get glimpse of your converted data to quickly verify the structure and content of the output.</p>
+          <small>Please note that the preview is limited to displaying only the initial 15 rows. Access the complete converted data in the "Output CSV".</small>
+        </header>
+        <div class="overflow-auto">
+          <table id="csv-table" class="striped">
+              <thead>
+                  <tr>
+                      <th>Artist</th>
+                      <th>Track</th>
+                      <th>Album</th>
+                      <th>Timestamp</th>
+                      <th>Album Artist</th>
+                      <th>Duration</th>
+                  </tr>
+              </thead>
+              <tbody></tbody>
+          </table>
+        </div>
+        <div id="expand-container"></div>
+      </article>
+    </main>
+    <footer class="container">
+        <small>
+          <p></p>
+          <p>Made with ❤️ by <a href="https://ashrafali.net">Ashraf</a>. Send 📧 <a href="hello@ashrafali.net">hello@ashrafali.net</a>.</p>
+        </small>
+    </footer>
+    <script src="script.js"></script>
+    <script src="papaparse.min.js"></script>
+</body>
+</html>
