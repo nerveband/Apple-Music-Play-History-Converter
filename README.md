@@ -64,7 +64,7 @@ The converter will process the file and save the converted data as a new CSV fil
 
 ### Option 2: Use the Precompiled Mac App
 
-1. Download the precompiled Mac app from the releases section.
+1. Download the precompiled Mac app from the dist folder.
 2. Double-click the app to run it.
 
 ## Contributing
