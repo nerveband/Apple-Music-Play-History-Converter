@@ -1,0 +1,4 @@
+([('Apple Music History Converter',
+   '/Users/nerveband/wavedepth Dropbox/Ashraf Ali/Mac (2)/Desktop/dist/Apple '
+   'Music History Converter',
+   'EXECUTABLE')],)
