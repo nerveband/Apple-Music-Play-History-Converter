@@ -16,9 +16,9 @@ jobs:
         os: [macos-latest, windows-latest]
         include:
           - os: macos-latest
-            output_name: "Apple Music History Converter"
+            output_name: "Apple Music History Converter-macOS"
           - os: windows-latest
-            output_name: "Apple Music History Converter.exe"
+            output_name: "Apple Music History Converter-Windows.exe"
 
     steps:
     # Initial Setup
@@ -41,14 +41,18 @@ jobs:
     # Build
     - name: Build with PyInstaller
       run: |
-        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter" apple_music_play_history_converter.py
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-macOS" apple_music_play_history_converter.py
+        elif [ "${{ runner.os }}" = "Windows" ]; then
+          pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" apple_music_play_history_converter.py
+        fi
 
     # Package macOS build
     - name: Package macOS build
       if: runner.os == 'macOS'
       run: |
         cd dist
-        zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter"
+        zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter-macOS"
 
     # Artifact Upload
     - name: Upload artifact
@@ -91,7 +95,7 @@ jobs:
             - If you get a security warning, go to System Settings > Privacy & Security and click "Open Anyway"
             
             **Windows (x64)**
-            - Download `Apple Music History Converter.exe`
+            - Download `Apple Music History Converter-Windows.exe`
             - Run the executable
             - If you get a SmartScreen warning, click "More info" and "Run anyway"
             
