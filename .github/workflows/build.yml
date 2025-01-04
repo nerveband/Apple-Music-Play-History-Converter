@@ -18,7 +18,7 @@ jobs:
           - os: macos-latest
             output_name: "Apple Music History Converter-macOS"
           - os: windows-latest
-            output_name: "Apple Music History Converter-Windows.exe"
+            output_name: "Apple Music History Converter-Windows"
 
     steps:
     # Initial Setup
@@ -38,21 +38,21 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas requests pyinstaller
 
-    # Build
-    - name: Build with PyInstaller
-      run: |
-        if [ "${{ runner.os }}" = "macOS" ]; then
-          pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-macOS" apple_music_play_history_converter.py
-        elif [ "${{ runner.os }}" = "Windows" ]; then
-          pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" apple_music_play_history_converter.py
-        fi
-
-    # Package macOS build
-    - name: Package macOS build
+    # Build for macOS
+    - name: Build with PyInstaller (macOS)
       if: runner.os == 'macOS'
+      shell: bash
       run: |
+        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-macOS" apple_music_play_history_converter.py
         cd dist
         zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter-macOS"
+
+    # Build for Windows
+    - name: Build with PyInstaller (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" apple_music_play_history_converter.py
 
     # Artifact Upload
     - name: Upload artifact
