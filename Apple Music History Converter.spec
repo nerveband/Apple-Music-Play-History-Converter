@@ -35,11 +35,11 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['images/icon.icns'],
+    icon=['images/aphc.icns'],
 )
 app = BUNDLE(
     exe,
     name='Apple Music History Converter.app',
-    icon='images/icon.icns',
+    icon='images/aphc.icns',
     bundle_identifier=None,
 )

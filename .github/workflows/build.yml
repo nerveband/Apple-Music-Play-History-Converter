@@ -54,7 +54,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" --icon "images/icon.icns" apple_music_play_history_converter.py
+        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" --icon "images/aphc.icns" apple_music_play_history_converter.py
 
     # Artifact Upload
     - name: Upload artifact
