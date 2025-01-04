@@ -46,13 +46,30 @@ jobs:
       with:
         clean: true
 
-    # Create gitignore to exclude build artifacts
+    # Create gitignore to exclude build artifacts and system files
     - name: Setup gitignore
       shell: bash
       run: |
-        echo "dist/" > .gitignore
-        echo "build/" >> .gitignore
-        echo "*.spec" >> .gitignore
+        cat > .gitignore << 'EOL'
+        dist/
+        build/
+        *.spec
+        Icon?
+        Icon\r
+        Icon*
+        .DS_Store
+        __pycache__/
+        *.pyc
+        EOL
+
+    # Clean existing problematic files
+    - name: Clean problematic files
+      shell: bash
+      run: |
+        find . -type f -name 'Icon?' -delete || true
+        find . -type f -name 'Icon' -delete || true
+        find . -type f -name 'Icon*' -delete || true
+        find . -type f -name '.DS_Store' -delete || true
 
     # Windows Git Configuration
     - name: Configure Git (Windows)
