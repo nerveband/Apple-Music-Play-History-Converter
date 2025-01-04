@@ -45,11 +45,14 @@ jobs:
     - uses: actions/checkout@v4
       with:
         clean: true
-        sparse-checkout: |
-          *
-          !dist/
-          !build/
-          !*.spec
+
+    # Create gitignore to exclude build artifacts
+    - name: Setup gitignore
+      shell: bash
+      run: |
+        echo "dist/" > .gitignore
+        echo "build/" >> .gitignore
+        echo "*.spec" >> .gitignore
 
     # Windows Git Configuration
     - name: Configure Git (Windows)
