@@ -46,9 +46,9 @@ jobs:
       with:
         clean: true
         sparse-checkout: |
-          /*
-          !dist
-          !build
+          *
+          !dist/
+          !build/
           !*.spec
 
     # Windows Git Configuration
