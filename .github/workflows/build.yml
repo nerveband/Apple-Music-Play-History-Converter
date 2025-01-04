@@ -43,16 +43,18 @@ jobs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-macOS" apple_music_play_history_converter.py
+        # Use the spec file for macOS build
+        pyinstaller "Apple Music History Converter.spec"
         cd dist
-        zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter-macOS"
+        # Zip the .app bundle
+        zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter.app"
 
     # Build for Windows
     - name: Build with PyInstaller (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" apple_music_play_history_converter.py
+        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" --icon "images/icon.icns" apple_music_play_history_converter.py
 
     # Artifact Upload
     - name: Upload artifact
