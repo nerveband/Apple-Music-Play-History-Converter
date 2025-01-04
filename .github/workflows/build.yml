@@ -33,7 +33,9 @@ jobs:
         dist/
         build/
         *.spec
+        Icon
         Icon?
+        Icon*
         .DS_Store
         __pycache__/
         *.pyc
@@ -43,7 +45,11 @@ jobs:
     - uses: actions/checkout@v4
       with:
         clean: true
-        filter: 'tree:0'
+        sparse-checkout: |
+          /*
+          !dist
+          !build
+          !*.spec
 
     # Windows Git Configuration
     - name: Configure Git (Windows)
@@ -61,7 +67,9 @@ jobs:
       shell: bash
       run: |
         rm -rf dist/ build/ *.spec || true
-        find . -name "Icon?" -delete || true
+        find . -type f -name 'Icon?' -delete || true
+        find . -type f -name 'Icon' -delete || true
+        find . -type f -name 'Icon*' -delete || true
         find . -name "__pycache__" -exec rm -rf {} + || true
         find . -name "*.pyc" -delete || true
 
@@ -69,11 +77,13 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        if (Test-Path dist) { Remove-Item -Force -Recurse -Path dist -ErrorAction SilentlyContinue }
-        if (Test-Path build) { Remove-Item -Force -Recurse -Path build -ErrorAction SilentlyContinue }
-        Get-ChildItem -Filter "*.spec" -File | Remove-Item -Force -ErrorAction SilentlyContinue
-        Get-ChildItem -Recurse -Filter "__pycache__" -Directory | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-        Get-ChildItem -Recurse -Filter "*.pyc" -File | Remove-Item -Force -ErrorAction SilentlyContinue
+        $ErrorActionPreference = 'SilentlyContinue'
+        if (Test-Path dist) { Remove-Item -Force -Recurse dist }
+        if (Test-Path build) { Remove-Item -Force -Recurse build }
+        Get-ChildItem -Filter "*.spec" -File | Remove-Item -Force
+        Get-ChildItem -Recurse -Filter "Icon*" | Remove-Item -Force
+        Get-ChildItem -Recurse -Filter "__pycache__" -Directory | Remove-Item -Force -Recurse
+        Get-ChildItem -Recurse -Filter "*.pyc" -File | Remove-Item -Force
 
     # Build Environment Setup
     - name: Set up Python
