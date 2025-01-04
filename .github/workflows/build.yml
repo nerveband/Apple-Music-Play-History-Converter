@@ -36,7 +36,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pandas requests pyinstaller sv-ttk
+        pip install pandas requests pyinstaller sv-ttk pillow
 
     # Build for macOS
     - name: Build with PyInstaller (macOS)
@@ -54,7 +54,16 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" --icon "images/aphc.icns" apple_music_play_history_converter.py
+        # Convert icns to ico using Python
+        python -c "
+        from PIL import Image
+        import os
+        if not os.path.exists('images/aphc.ico'):
+            img = Image.open('images/aphc.icns')
+            img.save('images/aphc.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (32, 32), (16, 16)])
+        "
+        # Build with ico file
+        pyinstaller --clean --onefile --windowed --name "Apple Music History Converter-Windows" --icon "images/aphc.ico" apple_music_play_history_converter.py
 
     # Artifact Upload
     - name: Upload artifact
