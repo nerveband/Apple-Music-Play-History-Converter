@@ -13,97 +13,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [macos-latest, windows-latest]
         include:
-          - os: ubuntu-latest
+          - os: macos-latest
             output_name: "Apple Music History Converter"
           - os: windows-latest
             output_name: "Apple Music History Converter.exe"
-          - os: macos-latest
-            output_name: "Apple Music History Converter"
 
     steps:
     # Initial Setup
-    - name: Create .gitignore
-      shell: bash
-      run: |
-        mkdir -p ${{ github.workspace }}
-        cd ${{ github.workspace }}
-        cat > .gitignore << 'EOL'
-        dist/
-        build/
-        *.spec
-        Icon
-        Icon?
-        Icon*
-        .DS_Store
-        __pycache__/
-        *.pyc
-        EOL
-
-    # Source Checkout
     - uses: actions/checkout@v4
       with:
         clean: true
-
-    # Create gitignore to exclude build artifacts and system files
-    - name: Setup gitignore
-      shell: bash
-      run: |
-        cat > .gitignore << 'EOL'
-        dist/
-        build/
-        *.spec
-        Icon?
-        Icon\r
-        Icon*
-        .DS_Store
-        __pycache__/
-        *.pyc
-        EOL
-
-    # Clean existing problematic files
-    - name: Clean problematic files
-      shell: bash
-      run: |
-        find . -type f -name 'Icon?' -delete || true
-        find . -type f -name 'Icon' -delete || true
-        find . -type f -name 'Icon*' -delete || true
-        find . -type f -name '.DS_Store' -delete || true
-
-    # Windows Git Configuration
-    - name: Configure Git (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        git config --global core.protectNTFS false
-        git config --global core.autocrlf input
-        git config --global core.safecrlf false
-        git config --system core.longpaths true
-
-    # Clean any existing artifacts
-    - name: Clean workspace (Unix)
-      if: runner.os != 'Windows'
-      shell: bash
-      run: |
-        rm -rf dist/ build/ *.spec || true
-        find . -type f -name 'Icon?' -delete || true
-        find . -type f -name 'Icon' -delete || true
-        find . -type f -name 'Icon*' -delete || true
-        find . -name "__pycache__" -exec rm -rf {} + || true
-        find . -name "*.pyc" -delete || true
-
-    - name: Clean workspace (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        $ErrorActionPreference = 'SilentlyContinue'
-        if (Test-Path dist) { Remove-Item -Force -Recurse dist }
-        if (Test-Path build) { Remove-Item -Force -Recurse build }
-        Get-ChildItem -Filter "*.spec" -File | Remove-Item -Force
-        Get-ChildItem -Recurse -Filter "Icon*" | Remove-Item -Force
-        Get-ChildItem -Recurse -Filter "__pycache__" -Directory | Remove-Item -Force -Recurse
-        Get-ChildItem -Recurse -Filter "*.pyc" -File | Remove-Item -Force
 
     # Build Environment Setup
     - name: Set up Python
@@ -112,13 +33,6 @@ jobs:
         python-version: '3.12'
 
     # Dependencies
-    - name: Install system dependencies (Linux)
-      if: runner.os == 'Linux'
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python3-tk
-
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
@@ -129,12 +43,21 @@ jobs:
       run: |
         pyinstaller --clean --onefile --windowed --name "Apple Music History Converter" apple_music_play_history_converter.py
 
+    # Package macOS build
+    - name: Package macOS build
+      if: runner.os == 'macOS'
+      run: |
+        cd dist
+        zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter"
+
     # Artifact Upload
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.os }}-build
-        path: dist/*
+        path: |
+          dist/*.zip
+          dist/*.exe
         if-no-files-found: error
 
   # Release Creation
@@ -159,9 +82,56 @@ jobs:
           body: |
             **Apple Music History Converter v2.0.1**
             
-            This release includes builds for:
-            - macOS (Apple Silicon/Intel)
-            - Windows (x64)
-            - Linux (x64)
+            ### Downloads and Installation
             
-            Please report any issues in the Issues section.
+            **macOS (Apple Silicon/Intel)**
+            - Download `Apple Music History Converter-macOS.zip`
+            - Extract the zip file
+            - Right-click the app and select "Open" (required for unsigned apps)
+            - If you get a security warning, go to System Settings > Privacy & Security and click "Open Anyway"
+            
+            **Windows (x64)**
+            - Download `Apple Music History Converter.exe`
+            - Run the executable
+            - If you get a SmartScreen warning, click "More info" and "Run anyway"
+            
+            **Linux Users**
+            To compile from source:
+            ```bash
+            # Clone the repository
+            git clone https://github.com/nerveband/Apple-Music-Play-History-Converter.git
+            cd Apple-Music-Play-History-Converter
+            
+            # Create a virtual environment (recommended)
+            python -m venv venv
+            source venv/bin/activate  # On Linux/macOS
+            
+            # Install dependencies
+            pip install pandas requests
+            
+            # Run the script
+            python apple_music_play_history_converter.py
+            ```
+            
+            ### Usage Instructions
+            1. Export your Apple Music Library:
+               - Open Apple Music
+               - Go to File > Library > Export Library
+               - Save the XML file somewhere convenient
+            
+            2. Run the converter:
+               - Launch the application
+               - Click "Select File" to choose your exported XML file
+               - Choose your desired output format
+               - Select where to save the converted file
+               - Click "Convert" to process your library
+            
+            ### Notes
+            - The macOS version is unsigned - follow the instructions above to open it
+            - Windows Defender or SmartScreen may show a warning - this is normal for unsigned applications
+            - For any issues, please create a ticket in the Issues section
+            
+            ### Requirements
+            - macOS 10.15 or later
+            - Windows 10 or later
+            - For Linux: Python 3.8 or later with pandas and requests packages
