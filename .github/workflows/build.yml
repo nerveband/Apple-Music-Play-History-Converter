@@ -75,6 +75,15 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # Delete existing release and tag
+      - name: Delete existing release
+        uses: dev-drprasad/delete-tag-and-release@v1.0
+        with:
+          tag_name: v2.0.1
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          delete_release: true
+
+      # Create new release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
