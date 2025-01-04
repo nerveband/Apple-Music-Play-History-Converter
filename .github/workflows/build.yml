@@ -134,7 +134,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.os }}-build
-        path: dist/${{ matrix.output_name }}
+        path: dist/*
         if-no-files-found: error
 
   # Release Creation
@@ -146,22 +146,22 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/ubuntu-latest-build/*
-            artifacts/windows-latest-build/*
-            artifacts/macos-latest-build/*
+          files: artifacts/*
           draft: true
           prerelease: false
+          name: "v2.0.1"
+          tag_name: "v2.0.1"
           body: |
-            **Apple Music History Converter Release**
+            **Apple Music History Converter v2.0.1**
             
             This release includes builds for:
             - macOS (Apple Silicon/Intel)
-            - Windows (x64) [UNTESTED]
-            - Linux (x64) [UNTESTED]
+            - Windows (x64)
+            - Linux (x64)
             
-            Please note that the Windows and Linux builds are currently untested. If you encounter any issues, please report them in the Issues section. 
+            Please report any issues in the Issues section.
