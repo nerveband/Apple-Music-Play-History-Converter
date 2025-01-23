@@ -1,6 +1,6 @@
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 2.0 built with Python](images/screenshot-v2.jpg)
+![Version 2.1 built with Python](images/screenshot-v2.png)
 
 The Apple Music Play History Converter is a Python-based desktop application that allows you to easily convert your Apple Music play history data into a format compatible with [Last.fm](https://last.fm/) and [Universal Scrobbler](https://universalscrobbler.com/). With this converter, you can analyze your music listening habits and import your data into various music tracking platforms.
 
@@ -17,6 +17,24 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 - Offers save as CSV functionality
 - Processes data in chunks, allowing for efficient handling of large files
 - Completely local processing - no data is sent to any server
+
+## Changelog
+
+### Version 2.1 (March 2024)
+- Added automatic file type detection based on filename
+- Improved handling of mixed data types in CSV files
+- Added popup confirmation when stopping iTunes search to continue conversion
+- Enhanced missing artist detection and counting
+- Added better error handling for API requests
+- Fixed various bugs and improved stability
+
+### Version 2.0 (February 2024)
+- Complete rewrite with new GUI using Tkinter
+- Added support for all Apple Music CSV formats
+- Added iTunes API integration for missing artist lookup
+- Added progress tracking and preview functionality
+- Added pause/resume functionality for API requests
+- Improved error handling and user feedback
 
 ## Technologies Used
 
