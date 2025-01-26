@@ -71,11 +71,15 @@ The converter will process the file and save the converted data as a new CSV fil
 ### Option 1: Run the Python Script
 
 1. Ensure you have Python 3.x installed on your system.
-2. Install the required packages:
+2. For Mac users, install python-tk:
    ```
-   pip install pandas requests
+   brew install python-tk
    ```
-3. Run the script:
+3. Install the required packages:
+   ```
+   pip install -r requirements.txt
+   ```
+4. Run the script:
    ```
    python apple_music_converter.py
    ```
