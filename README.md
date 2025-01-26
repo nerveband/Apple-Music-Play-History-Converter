@@ -73,7 +73,7 @@ The converter will process the file and save the converted data as a new CSV fil
 1. Ensure you have Python 3.x installed on your system.
 2. Install the required packages:
    ```
-   pip install pandas requests
+   pip install -r requirements.txt
    ```
 3. Run the script:
    ```
