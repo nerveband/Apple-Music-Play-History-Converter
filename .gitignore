@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+fresh_venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build artifacts
+*.spec
+dist.zip
+tkinter_hook.py
+
+# App data
+app_data/
+data/
+converted.csv
+_test_csvs/
+
+# Claude files
+claude.md
+.claude/
+
+# Temporary files
+*.tmp
+*.log
+*.pid
+*.seed
+*.coverage
+.nyc_output
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
