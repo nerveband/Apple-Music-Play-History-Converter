@@ -36,75 +36,27 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pandas requests pyinstaller sv-ttk pillow
+        pip install -r requirements.txt
+        pip install pyinstaller
 
     # Build for macOS
     - name: Build with PyInstaller (macOS)
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        # Use the spec file for macOS build
-        pyinstaller "Apple Music History Converter.spec"
-        cd dist
-        # Zip the .app bundle
-        zip -r "Apple Music History Converter-macOS.zip" "Apple Music History Converter.app"
+        # Use the build script from build_artifacts
+        cd build_artifacts
+        chmod +x build_macos.sh
+        ./build_macos.sh
 
     # Build for Windows
     - name: Build with PyInstaller (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        # Convert icns to ico using Python
-        python -c "
-        from PIL import Image
-        import os
-        if not os.path.exists('images/aphc.ico'):
-            img = Image.open('images/aphc.icns')
-            img.save('images/aphc.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (32, 32), (16, 16)])
-        "
-        # Create a Windows spec file with explicit tkinter imports
-        @'
-        # -*- mode: python ; coding: utf-8 -*-
-
-        a = Analysis(
-            ['apple_music_play_history_converter.py'],
-            pathex=[],
-            binaries=[],
-            datas=[],
-            hiddenimports=['tkinter', 'tkinter.ttk', 'sv_ttk', '_tkinter', 'Tkinter'],
-            hookspath=[],
-            hooksconfig={},
-            runtime_hooks=[],
-            excludes=[],
-            noarchive=False,
-        )
-        pyz = PYZ(a.pure)
-
-        exe = EXE(
-            pyz,
-            a.scripts,
-            a.binaries,
-            a.datas,
-            [],
-            name='Apple Music History Converter-Windows',
-            debug=False,
-            bootloader_ignore_signals=False,
-            strip=False,
-            upx=True,
-            upx_exclude=[],
-            runtime_tmpdir=None,
-            console=False,
-            disable_windowed_traceback=False,
-            argv_emulation=False,
-            target_arch=None,
-            codesign_identity=None,
-            entitlements_file=None,
-            icon=['images/aphc.ico'],
-        )
-        '@ | Out-File -FilePath win_build.spec -Encoding utf8
-        
-        # Build with the custom spec file
-        pyinstaller win_build.spec
+        # Use the build script from build_artifacts
+        cd build_artifacts
+        .\build_windows.bat
 
     # Artifact Upload
     - name: Upload artifact
@@ -112,8 +64,9 @@ jobs:
       with:
         name: ${{ matrix.os }}-build
         path: |
-          dist/*.zip
-          dist/*.exe
+          build_artifacts/*.zip
+          build_artifacts/*.exe
+          build_artifacts/*.tar.gz
         if-no-files-found: error
 
   # Release Creation
@@ -127,23 +80,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      # Delete existing release and tag
-      - name: Delete existing release
-        uses: dev-drprasad/delete-tag-and-release@v1.0
-        with:
-          tag_name: v2.0.1
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          delete_release: true
-
       # Create new release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/*
-          draft: true
+          draft: false
           prerelease: false
-          name: "v2.0.1"
-          tag_name: "v2.0.1"
           body: |
             **Apple Music History Converter v2.0.1**
             
