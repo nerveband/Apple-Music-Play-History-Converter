@@ -70,9 +70,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='Apple Music History Converter',
     debug=False,
     bootloader_ignore_signals=False,
@@ -89,16 +88,26 @@ exe = EXE(
     icon='../images/appicon.icns',
 )
 
-app = BUNDLE(
+coll = COLLECT(
     exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='Apple Music History Converter',
+)
+
+app = BUNDLE(
+    coll,
     name='Apple Music History Converter.app',
     bundle_identifier='com.nerveband.apple-music-history-converter',
     icon='../images/appicon.icns',
     info_plist={
         'CFBundleName': 'Apple Music History Converter',
         'CFBundleDisplayName': 'Apple Music History Converter',
-        'CFBundleVersion': '3.1.0',
-        'CFBundleShortVersionString': '3.1.0',
+        'CFBundleVersion': '3.1.1',
+        'CFBundleShortVersionString': '3.1.1',
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,
     }
@@ -108,4 +117,4 @@ app = BUNDLE(
 with open('build_artifacts/build_macos.spec', 'w') as f:
     f.write(spec_content)
 
-print("✅ Generated build_macos.spec")
+print("Generated build_macos.spec")

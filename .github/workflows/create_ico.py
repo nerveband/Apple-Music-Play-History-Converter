@@ -16,6 +16,6 @@ if os.path.exists(png_path):
     
     # Save as .ico with multiple sizes
     img.save(ico_path, format='ICO', sizes=sizes)
-    print(f"✅ Created {ico_path}")
+    print(f"Created {ico_path}")
 else:
-    print(f"❌ Error: {png_path} not found")
+    print(f"Error: {png_path} not found")
