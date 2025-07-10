@@ -40,6 +40,11 @@ jobs:
         pip install pyinstaller
 
     # Build for macOS
+    - name: Generate macOS spec file
+      if: runner.os == 'macOS'
+      run: |
+        python .github/workflows/generate_macos_spec.py
+        
     - name: Build with PyInstaller (macOS)
       if: runner.os == 'macOS'
       shell: bash
@@ -50,6 +55,17 @@ jobs:
         ./build_macos.sh
 
     # Build for Windows
+    - name: Create Windows icon
+      if: runner.os == 'Windows'
+      run: |
+        pip install Pillow
+        python .github/workflows/create_ico.py
+        
+    - name: Generate Windows spec file
+      if: runner.os == 'Windows'
+      run: |
+        python .github/workflows/generate_windows_spec.py
+        
     - name: Build with PyInstaller (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
