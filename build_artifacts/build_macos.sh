@@ -43,6 +43,10 @@ if [ -d "dist/Apple Music History Converter.app" ]; then
     APP_SIZE=$(du -sh "dist/Apple Music History Converter.app" | cut -f1)
     echo "📏 App size: $APP_SIZE"
     
+    # Ad-hoc sign the app bundle (required for proper launch)
+    echo "🔐 Signing app bundle..."
+    codesign --force --deep --sign - "dist/Apple Music History Converter.app"
+    
     # Create zip package
     echo "📦 Creating distribution package..."
     cd dist

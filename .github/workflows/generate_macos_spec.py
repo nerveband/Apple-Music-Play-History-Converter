@@ -118,6 +118,9 @@ app = BUNDLE(
         'NSRequiresAquaSystemAppearance': False,
         'NSPrincipalClass': 'NSApplication',
         'LSApplicationCategoryType': 'public.app-category.utilities',
+        'NSAppleScriptEnabled': True,
+        'CFBundleDevelopmentRegion': 'en',
+        'NSHumanReadableCopyright': 'Copyright 2025',
     }
 )
 '''
