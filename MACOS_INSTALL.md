@@ -4,12 +4,17 @@
 
 Since this app is not signed with an Apple Developer certificate, macOS will show a security warning. Here's how to open it:
 
-### Method 1: Right-click to Open (Recommended)
+### Method 1: Remove Extended Attributes + Right-click (Recommended)
 1. Download and unzip the app
-2. **Right-click** (or Control-click) on the app
-3. Select **Open** from the context menu
-4. Click **Open** in the dialog that appears
-5. The app will now open and be remembered as safe
+2. **Remove extended attributes** (quarantine flags):
+   ```bash
+   xattr -cr "/path/to/Apple Music History Converter.app"
+   ```
+   Replace `/path/to/` with the actual path where you extracted the app
+3. **Right-click** (or Control-click) on the app
+4. Select **Open** from the context menu
+5. Click **Open** in the dialog that appears
+6. The app will now open and be remembered as safe
 
 ### Method 2: Security & Privacy Settings
 1. Try to open the app normally (double-click)
@@ -18,11 +23,43 @@ Since this app is not signed with an Apple Developer certificate, macOS will sho
 4. Click **Open Anyway**
 5. Enter your password if prompted
 
-### Method 3: Terminal Command (Advanced)
-If the above methods don't work, you can remove the quarantine flag:
+### Method 3: Terminal Command Only (Alternative)
+If you prefer using only the terminal:
 ```bash
-xattr -cr "/Applications/Apple Music History Converter.app"
+# Remove quarantine attributes
+xattr -cr "/path/to/Apple Music History Converter.app"
+# Then launch the app
+open "/path/to/Apple Music History Converter.app"
 ```
+
+## Troubleshooting
+
+### App Bounces in Dock and Closes
+If the app briefly appears in the dock but then closes immediately:
+
+1. **First, try the xattr command**:
+   ```bash
+   xattr -cr "/path/to/Apple Music History Converter.app"
+   ```
+
+2. **If that doesn't work, run the executable directly**:
+   ```bash
+   "/path/to/Apple Music History Converter.app/Contents/MacOS/Apple Music History Converter"
+   ```
+
+3. **Check Console for error messages**:
+   - Open Console.app (Applications > Utilities)
+   - Look for crash reports or error messages related to the app
+
+### Still Having Issues?
+If the app bundle continues to fail but the direct executable works, you can create a simple launcher script:
+
+```bash
+#!/bin/bash
+"/path/to/Apple Music History Converter.app/Contents/MacOS/Apple Music History Converter"
+```
+
+Save this as a `.command` file and make it executable with `chmod +x`.
 
 ## Why This Happens
 

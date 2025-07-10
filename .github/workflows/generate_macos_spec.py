@@ -106,10 +106,18 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'Apple Music History Converter',
         'CFBundleDisplayName': 'Apple Music History Converter',
+        'CFBundleExecutable': 'Apple Music History Converter',
+        'CFBundleIdentifier': 'com.nerveband.apple-music-history-converter',
         'CFBundleVersion': '3.1.1',
         'CFBundleShortVersionString': '3.1.1',
+        'CFBundlePackageType': 'APPL',
+        'CFBundleSignature': '????',
+        'CFBundleInfoDictionaryVersion': '6.0',
+        'LSMinimumSystemVersion': '10.15.0',
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,
+        'NSPrincipalClass': 'NSApplication',
+        'LSApplicationCategoryType': 'public.app-category.utilities',
     }
 )
 '''
