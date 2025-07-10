@@ -74,18 +74,7 @@ jobs:
         cd build_artifacts
         .\build_windows.bat
 
-    # Package builds
-    - name: Package macOS build
-      if: runner.os == 'macOS'
-      run: |
-        cd build_artifacts/dist
-        zip -r "../Apple_Music_History_Converter_macOS_v3.1.1.zip" "Apple Music History Converter.app"
-        
-    - name: Package Windows build
-      if: runner.os == 'Windows'
-      run: |
-        cd build_artifacts/dist
-        Compress-Archive -Path "Apple Music History Converter" -DestinationPath "../Apple_Music_History_Converter_Windows_v3.1.1.zip"
+    # Build scripts already handle packaging
 
     # Artifact Upload
     - name: Upload artifact
