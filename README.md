@@ -1,6 +1,6 @@
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 3.0 built with Python](images/screenshot-v3.png)
+![Version 3.1.0 built with Python](images/screenshot-v3.png)
 
 The Apple Music Play History Converter is a Python-based desktop application that allows you to easily convert your Apple Music play history data into a format compatible with [Last.fm](https://last.fm/) and [Universal Scrobbler](https://universalscrobbler.com/). With this converter, you can analyze your music listening habits and import your data into various music tracking platforms.
 
@@ -56,23 +56,27 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 
 ## Installation
 
+### Latest Release: v3.1.0 (January 10, 2025)
+**Critical macOS bug fixes** - Fixed numpy dependency issues and missing application icon.
+
+[Download the latest release →](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
+
 ### Option 1: Pre-built Binaries (Recommended)
 **No Python installation required!** Download the ready-to-run application for your platform:
 
-- **macOS**: Download `Apple_Music_History_Converter_macOS.zip`
+- **macOS**: Download `Apple_Music_History_Converter_macOS.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract and move the `.app` to your Applications folder
   - First launch: Right-click → "Open" (bypasses Gatekeeper)
+  - See [macOS Installation Guide](MACOS_INSTALL.md) for detailed instructions
   
-- **Windows**: Download `Apple_Music_History_Converter_Windows.zip`
+- **Windows**: Download `Apple_Music_History_Converter_Windows.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract and run `Apple Music History Converter.exe`
   - If Windows Defender blocks: Click "More info" → "Run anyway"
   
-- **Linux**: Download `Apple_Music_History_Converter_Linux.tar.gz`
+- **Linux**: Download `Apple_Music_History_Converter_Linux.tar.gz` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract: `tar -xzf Apple_Music_History_Converter_Linux.tar.gz`
   - Make executable: `chmod +x "Apple Music History Converter"`
   - Run: `./Apple\ Music\ History\ Converter`
-
-**All platforms**: Download from the `build_artifacts/` directory or get the combined package `Apple_Music_History_Converter_All_Platforms.zip`
 
 ### Option 2: Run from Source (Advanced Users)
 
