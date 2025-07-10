@@ -61,6 +61,9 @@ a = Analysis(
         'PySide2',
         'PySide6',
     ],
+    module_collection_mode={
+        'pkg_resources': 'pyz',
+    },
     noarchive=False,
     optimize=0,
 )
@@ -103,6 +106,7 @@ app = BUNDLE(
     name='Apple Music History Converter.app',
     bundle_identifier='com.nerveband.apple-music-history-converter',
     icon='../images/appicon.icns',
+    version='3.1.1',
     info_plist={
         'CFBundleName': 'Apple Music History Converter',
         'CFBundleDisplayName': 'Apple Music History Converter',
