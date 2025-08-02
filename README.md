@@ -343,44 +343,80 @@ For persistent issues, please report them with:
 - **Duplicate detection**: Identifies and handles duplicate entries in the data
 - **Smart data mapping**: Automatically maps various Apple Music CSV formats to a unified structure
 
-## Directory Structure
+## Project Structure
 
 ```
 Apple-Music-Play-History-Converter/
-├── apple_music_play_history_converter.py  # Main application file
-├── database_dialogs.py                    # Database setup dialogs
-├── music_search_service.py                # Search provider routing
+├── apple_music_play_history_converter.py  # Main application with GUI
+├── database_dialogs.py                    # Database setup and configuration dialogs
+├── music_search_service.py                # Search provider routing (MusicBrainz/iTunes)
 ├── musicbrainz_manager.py                 # MusicBrainz database management
-├── progress_dialog.py                     # Progress dialog components
-├── run_app.py                             # Application launcher
+├── progress_dialog.py                     # Progress tracking for long operations
+├── run_app.py                             # Application launcher (recommended entry point)
+├── run_tests.py                           # Test suite runner
 ├── requirements.txt                       # Python dependencies
-├── README.md                              # This file
+├── README.md                              # Project documentation
+├── CHANGELOG.md                           # Version history and changes
+├── CLAUDE.md                              # Development and build documentation
+├── MACOS_INSTALL.md                       # macOS-specific installation guide
 ├── LICENSE                                # MIT License
-├── tests/                                 # Test scripts and utilities
-│   ├── README.md                          # Test documentation
-│   ├── test_*.py                          # Individual test files
-│   └── _test_csvs/                        # Test CSV files
-├── demos/                                 # Demonstration scripts
-│   ├── README.md                          # Demo documentation
-│   └── demo_*.py                          # Demo applications
-├── build_artifacts/                       # Build and packaging files
-│   ├── README.md                          # Build documentation
-│   ├── *.spec                             # PyInstaller spec files
-│   └── build/, dist/                      # Build outputs
-├── docs/                                  # Documentation
-│   ├── reports/                           # Status and development reports
-│   └── *.md                               # Additional documentation
-├── images/                                # Screenshots and assets
+├── .gitignore                             # Git ignore rules
+├── .gitattributes                         # Git attributes for file handling
 ├── app_data/                              # Application data directory
-└── data/                                  # MusicBrainz database files
+│   ├── settings.json                      # User preferences and configuration
+│   └── musicbrainz/                       # MusicBrainz database files
+├── build_artifacts/                       # Build scripts and distribution files
+│   ├── build_macos.sh                     # macOS build script (with code signing)
+│   ├── build_linux.sh                     # Linux build script
+│   ├── build_windows.bat                  # Windows build script
+│   ├── build_*.spec                       # PyInstaller specification files
+│   ├── sign_app_developer.sh              # macOS app signing script
+│   ├── entitlements.plist                 # macOS app entitlements
+│   ├── get_team_id.sh                     # Apple Developer team ID utility
+│   ├── Apple_Music_History_Converter_Notarized.zip  # Final macOS distribution
+│   └── README.md                          # Build documentation
+├── tests/                                 # Test suite
+│   ├── test_*.py                          # Individual test modules
+│   ├── _test_csvs/                        # Sample CSV files for testing
+│   └── README.md                          # Test documentation
+├── demos/                                 # Example scripts and workflows
+│   ├── demo_*.py                          # Demonstration applications
+│   └── README.md                          # Demo documentation
+└── images/                                # Application icons and screenshots
+    ├── appicon.icns                       # macOS app icon
+    ├── appicon.ico                        # Windows app icon  
+    ├── appicon.png                        # Generic app icon
+    └── screenshot-*.png                   # Application screenshots
 ```
 
-### Key Files
-- **`run_app.py`**: Recommended way to start the application
-- **`apple_music_play_history_converter.py`**: Main application with GUI
-- **`musicbrainz_manager.py`**: Handles MusicBrainz database download and search
-- **`music_search_service.py`**: Manages search provider selection and routing
-- **`database_dialogs.py`**: Setup dialogs for first-time configuration
+### Core Application Files
+
+| File | Purpose |
+|------|---------|
+| `run_app.py` | **Recommended entry point** - Sets up environment and launches app |
+| `apple_music_play_history_converter.py` | Main application with complete GUI and processing logic |
+| `musicbrainz_manager.py` | MusicBrainz database download, management, and search |
+| `music_search_service.py` | Routes searches between MusicBrainz and iTunes API |
+| `database_dialogs.py` | Setup wizards and configuration dialogs |
+| `progress_dialog.py` | Progress tracking for file processing and downloads |
+
+### Build and Distribution Files
+
+| File | Purpose |
+|------|---------|
+| `build_macos.sh` | Complete macOS build with code signing and notarization |
+| `sign_app_developer.sh` | Manual app signing with Apple Developer ID |
+| `entitlements.plist` | macOS hardened runtime entitlements |
+| `Apple_Music_History_Converter_Notarized.zip` | **Ready-to-distribute macOS app** |
+
+### Documentation Files
+
+| File | Purpose |
+|------|---------|
+| `README.md` | Main project documentation and user guide |
+| `CLAUDE.md` | **Development documentation** - Build process, code signing, architecture |
+| `MACOS_INSTALL.md` | Detailed macOS installation instructions |
+| `CHANGELOG.md` | Version history and feature updates |
 
 ## Building from Source
 
