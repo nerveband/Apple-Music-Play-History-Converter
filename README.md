@@ -64,9 +64,9 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 ### Option 1: Pre-built Binaries (Recommended)
 **No Python installation required!** Download the ready-to-run application for your platform:
 
-- **macOS**: Download `Apple_Music_History_Converter_macOS.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
+- **macOS**: Download `Apple_Music_History_Converter_Notarized.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract and move the `.app` to your Applications folder
-  - First launch: Right-click → "Open" (bypasses Gatekeeper)
+  - **Fully signed and notarized** - opens directly without security warnings
   - See [macOS Installation Guide](MACOS_INSTALL.md) for detailed instructions
   
 - **Windows**: Download `Apple_Music_History_Converter_Windows.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
@@ -382,9 +382,93 @@ Apple-Music-Play-History-Converter/
 - **`music_search_service.py`**: Manages search provider selection and routing
 - **`database_dialogs.py`**: Setup dialogs for first-time configuration
 
+## Building from Source
+
+This section is for developers who want to build the application from source code.
+
+### Prerequisites
+- Python 3.7 or higher
+- For macOS builds: Apple Developer account and Xcode (for code signing)
+
+### Build Commands
+
+#### Build for Current Platform
+```bash
+cd build_artifacts
+python build_all.py
+```
+
+#### Platform-Specific Builds
+
+**macOS (with Code Signing and Notarization)**:
+```bash
+cd build_artifacts
+./build_macos.sh
+```
+This automatically:
+- Builds the app with PyInstaller
+- Signs with your Developer ID (if available)
+- Creates a distribution-ready package
+- For notarization, see the detailed process in [CLAUDE.md](CLAUDE.md)
+
+**Windows**:
+```bash
+cd build_artifacts
+build_windows.bat
+```
+
+**Linux**:
+```bash
+cd build_artifacts
+./build_linux.sh
+```
+
+### macOS Code Signing Setup
+
+For distribution without security warnings, you need:
+
+1. **Apple Developer Program membership**
+2. **Xcode installed** (not just command line tools)
+3. **Developer ID Application certificate**
+
+**Quick Setup**:
+1. Open Xcode → Settings → Accounts
+2. Add your Apple ID
+3. In "Manage Certificates", create "Developer ID Application"
+4. Run `./build_macos.sh` - it will auto-detect and use your certificate
+
+**For Notarization** (removes all security warnings):
+1. Generate app-specific password at https://appleid.apple.com
+2. Run notarization commands (see [CLAUDE.md](CLAUDE.md) for details)
+
+### Build Verification
+```bash
+cd build_artifacts
+python verify_builds.py
+```
+
+### Distribution Packages
+
+After building, you'll find platform-specific packages in `build_artifacts/`:
+- **macOS**: `Apple_Music_History_Converter_Notarized.zip` (signed & notarized)
+- **Windows**: `Apple_Music_History_Converter_Windows.zip`
+- **Linux**: `Apple_Music_History_Converter_Linux.tar.gz`
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+### Development Setup
+1. Clone the repository
+2. Run `python run_app.py` to set up the development environment
+3. Make your changes
+4. Run tests: `python run_tests.py`
+5. Build and test: `cd build_artifacts && python build_all.py`
+
+### Code Signing for Contributors
+If you're contributing and need to test macOS builds:
+- Use `./build_macos.sh` for ad-hoc signed builds (for testing)
+- Full notarization is only needed for public distribution
 
 ## License
 

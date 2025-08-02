@@ -65,9 +65,22 @@ if [ -d "dist/Apple Music History Converter.app" ]; then
         done
     fi
     
-    # Ad-hoc sign the app bundle (required for proper launch)
-    echo "🔐 Signing app bundle..."
-    codesign --force --deep --sign - "dist/Apple Music History Converter.app"
+    # Check if we have a Developer ID certificate available
+    echo "🔐 Checking for signing certificates..."
+    if security find-identity -v -p codesigning | grep -q "Developer ID Application\|Apple Development"; then
+        echo "✅ Developer certificate found - using proper signing"
+        # Run the developer signing script
+        if [ -f "sign_app_developer.sh" ]; then
+            ./sign_app_developer.sh
+        else
+            echo "⚠️  sign_app_developer.sh not found, falling back to ad-hoc signing"
+            codesign --force --deep --sign - "dist/Apple Music History Converter.app"
+        fi
+    else
+        echo "⚠️  No Developer ID found - using ad-hoc signing"
+        echo "   To enable proper signing, set up your Apple Developer account in Xcode"
+        codesign --force --deep --sign - "dist/Apple Music History Converter.app"
+    fi
     
     # Verify the bundle is valid
     echo "✅ Verifying app bundle..."
