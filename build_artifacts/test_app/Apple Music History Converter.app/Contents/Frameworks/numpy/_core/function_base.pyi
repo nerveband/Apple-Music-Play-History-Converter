@@ -1,1 +1,0 @@
-../../../Resources/numpy/_core/function_base.pyi

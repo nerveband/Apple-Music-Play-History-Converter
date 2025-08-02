@@ -1,1 +1,0 @@
-../../../Resources/numpy/random/bit_generator.pyi

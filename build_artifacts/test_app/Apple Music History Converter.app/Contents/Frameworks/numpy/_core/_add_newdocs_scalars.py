@@ -1,1 +1,0 @@
-../../../Resources/numpy/_core/_add_newdocs_scalars.py

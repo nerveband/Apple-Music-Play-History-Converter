@@ -1,1 +1,0 @@
-../../../Resources/pandas/_libs/sparse.pyi

@@ -1,1 +1,0 @@
-../../Resources/numpy/__init__.pxd

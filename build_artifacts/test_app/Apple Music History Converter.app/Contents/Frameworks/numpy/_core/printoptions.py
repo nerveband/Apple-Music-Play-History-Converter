@@ -1,1 +1,0 @@
-../../../Resources/numpy/_core/printoptions.py

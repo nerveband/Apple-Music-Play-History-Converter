@@ -34,15 +34,18 @@ python run_tests.py --file test_app.py
 
 ### Building
 ```bash
-# Build for all platforms
-cd build_artifacts
-python build_all.py
+# Complete build pipeline (create, build, package)
+python build.py all
 
-# Test build environment
-python test_build_environment.py
+# Individual build steps
+python build.py create    # Create app bundle
+python build.py build     # Build the application
+python build.py package   # Package for distribution
 
-# Verify builds
-python verify_builds.py
+# Development and testing
+python build.py dev       # Run in development mode
+python build.py run       # Run the built application
+python build.py clean     # Clean build artifacts
 ```
 
 ### Development Dependencies
@@ -120,11 +123,12 @@ Use `python run_tests.py --category <name>` to run specific test suites.
 
 ## Build System
 
-PyInstaller-based builds for Windows, macOS, and Linux:
-- Handles tkinter dependencies across platforms
-- Includes custom hooks for proper packaging
-- Generates platform-specific executables
-- Automated build verification and packaging
+Briefcase-based builds for Windows, macOS, and Linux:
+- Modern Python packaging using BeeWare's Briefcase
+- Native app bundles for each platform
+- Automatic dependency management and resolution
+- Built-in code signing and notarization support for macOS
+- Clean separation of source code and build artifacts
 
 ### macOS Code Signing and Notarization
 
@@ -154,45 +158,47 @@ PyInstaller-based builds for Windows, macOS, and Linux:
    Should show: `Developer ID Application: Ashraf Ali (7HQVB2S4BX)`
 
 #### Build and Signing Process
-1. **Standard Build**: Run `./build_macos.sh` which automatically:
-   - Builds the app with PyInstaller
-   - Detects available Developer ID certificates
-   - Signs all frameworks and libraries individually
-   - Signs main app bundle with hardened runtime
-   - Creates distribution package using `ditto` (not `zip`)
+1. **Standard Build**: Run `python build.py all` which automatically:
+   - Creates the app bundle with Briefcase
+   - Builds the application with all dependencies
+   - Packages for distribution with automatic signing
+   - Uses configured Developer ID for signing
+   - Applies entitlements for hardened runtime
 
-2. **Manual Signing**: Use `./sign_app_developer.sh` for signing existing builds
-3. **Notarization**: Use `xcrun notarytool` for Apple notarization service
+2. **Manual Signing**: Briefcase handles signing automatically based on pyproject.toml configuration
+3. **Notarization**: Configure in pyproject.toml for automatic notarization during packaging
 
-#### Critical Build Script Details
-- **Signing Identity**: Auto-detects `Developer ID Application: Ashraf Ali (7HQVB2S4BX)`
-- **Team ID**: `7HQVB2S4BX` 
+#### Critical Briefcase Configuration Details
+- **Signing Identity**: Configured in pyproject.toml: `Developer ID Application: Ashraf Ali (7HQVB2S4BX)`
+- **Team ID**: `7HQVB2S4BX`
 - **Bundle ID**: `com.nerveband.apple-music-history-converter`
-- **Entitlements**: Uses `entitlements.plist` for hardened runtime
-- **Distribution**: Uses `ditto -c -k` instead of `zip` to preserve app bundle structure
+- **Entitlements**: Configured directly in pyproject.toml for hardened runtime
+- **Build Location**: `build/apple-music-history-converter/macos/app/`
+- **Package Command**: `briefcase package` handles all signing and distribution
 
-#### Entitlements Required
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
-    <key>com.apple.security.automation.apple-events</key>
-    <true/>
-    <key>com.apple.security.files.user-selected.read-write</key>
-    <true/>
-</dict>
-</plist>
+#### Entitlements Configuration
+Entitlements are now configured directly in `pyproject.toml` under the macOS section:
+```toml
+[tool.briefcase.app.apple-music-history-converter.macOS.entitlement]
+"com.apple.security.cs.allow-unsigned-executable-memory" = true
+"com.apple.security.cs.disable-library-validation" = true
+"com.apple.security.automation.apple-events" = true
+"com.apple.security.files.user-selected.read-write" = true
 ```
 
 #### Notarization Process
+Briefcase handles notarization automatically when packaging if configured in pyproject.toml:
+```toml
+[tool.briefcase.app.apple-music-history-converter.macOS]
+notarize = true
+notarize_team_id = "7HQVB2S4BX"
+notarize_apple_id = "nerveband@gmail.com"
+```
+
+For manual notarization:
 1. **Submit for Notarization**:
    ```bash
-   xcrun notarytool submit Apple_Music_History_Converter_Signed.zip \
+   xcrun notarytool submit "Apple Music History Converter.app" \
      --apple-id nerveband@gmail.com \
      --password "app-specific-password" \
      --team-id 7HQVB2S4BX \

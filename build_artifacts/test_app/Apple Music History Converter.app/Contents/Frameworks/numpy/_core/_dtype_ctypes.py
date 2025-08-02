@@ -1,1 +1,0 @@
-../../../Resources/numpy/_core/_dtype_ctypes.py

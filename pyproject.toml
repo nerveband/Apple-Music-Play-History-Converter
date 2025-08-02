@@ -1,0 +1,134 @@
+[build-system]
+requires = ["briefcase"]
+build-backend = "briefcase.bootstrap"
+
+[project]
+name = "apple-music-history-converter"
+version = "1.3.0"
+description = "Convert Apple Music CSV files to Last.fm compatible format"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Ashraf Ali", email = "nerveband@gmail.com"}
+]
+maintainers = [
+    {name = "Ashraf Ali", email = "nerveband@gmail.com"}
+]
+keywords = ["apple-music", "lastfm", "csv", "converter", "music"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "pandas>=1.3.0",
+    "requests>=2.25.0",
+    "sv-ttk>=2.0.0",
+    "zstandard>=0.15.0",
+    "duckdb>=0.8.0",
+    "psutil>=5.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
+"Bug Tracker" = "https://github.com/nerveband/Apple-Music-Play-History-Converter/issues"
+Repository = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
+
+[tool.briefcase]
+project_name = "Apple Music History Converter"
+bundle = "com.nerveband"
+version = "1.3.0"
+url = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
+license = {file = "LICENSE"}
+author = "Ashraf Ali"
+author_email = "nerveband@gmail.com"
+
+[tool.briefcase.app.apple-music-history-converter]
+formal_name = "Apple Music History Converter"
+description = "Convert Apple Music CSV files to Last.fm compatible format"
+long_description = """A powerful desktop application that converts Apple Music CSV export files into Last.fm compatible format.
+
+Features:
+• Support for multiple Apple Music CSV export formats
+• Dual search providers: MusicBrainz (offline) and iTunes API (online)
+• Fast, accurate track matching with fallback capabilities
+• Modern, user-friendly interface with progress tracking
+• Cross-platform compatibility (Windows, macOS, Linux)
+• Automatic encoding detection for international character sets
+• Pause/resume functionality for large files
+• Detailed processing statistics and error reporting
+"""
+icon = "src/apple_music_history_converter/resources/appicon"
+sources = [
+    "src/apple_music_history_converter",
+]
+requires = [
+    "pandas>=1.3.0",
+    "requests>=2.25.0",
+    "sv-ttk>=2.0.0",
+    "zstandard>=0.15.0",
+    "duckdb>=0.8.0",
+    "psutil>=5.8.0",
+    "std-nslog>=1.0.0; sys_platform=='darwin'",
+]
+
+[tool.briefcase.app.apple-music-history-converter.macOS]
+requires = [
+    "pandas>=1.3.0",
+    "requests>=2.25.0",
+    "sv-ttk>=2.0.0",
+    "zstandard>=0.15.0",
+    "duckdb>=0.8.0",
+    "psutil>=5.8.0",
+    "std-nslog>=1.0.0",
+]
+system_requires = [
+    "python-tk"
+]
+universal_build = true
+signing_identity = "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
+notarize = true
+notarize_team_id = "7HQVB2S4BX"
+notarize_apple_id = "nerveband@gmail.com"
+
+[tool.briefcase.app.apple-music-history-converter.macOS.entitlement]
+"com.apple.security.cs.allow-unsigned-executable-memory" = true
+"com.apple.security.cs.disable-library-validation" = true
+"com.apple.security.automation.apple-events" = true
+"com.apple.security.files.user-selected.read-write" = true
+
+[tool.briefcase.app.apple-music-history-converter.windows]
+requires = [
+    "pandas>=1.3.0",
+    "requests>=2.25.0",
+    "sv-ttk>=2.0.0",
+    "zstandard>=0.15.0",
+    "duckdb>=0.8.0",
+    "psutil>=5.8.0",
+]
+
+[tool.briefcase.app.apple-music-history-converter.linux]
+requires = [
+    "pandas>=1.3.0",
+    "requests>=2.25.0",
+    "sv-ttk>=2.0.0",
+    "zstandard>=0.15.0",
+    "duckdb>=0.8.0",
+    "psutil>=5.8.0",
+]
+system_requires = [
+    "libgirepository1.0-dev",
+    "libcairo2-dev",
+    "libpango1.0-dev",
+    "libgdk-pixbuf2.0-dev",
+]

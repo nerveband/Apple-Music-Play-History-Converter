@@ -1,1 +1,0 @@
-../../Resources/numpy/_globals.pyi

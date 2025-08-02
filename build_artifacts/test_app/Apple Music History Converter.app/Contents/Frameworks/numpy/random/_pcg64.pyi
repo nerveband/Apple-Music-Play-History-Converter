@@ -1,1 +1,0 @@
-../../../Resources/numpy/random/_pcg64.pyi

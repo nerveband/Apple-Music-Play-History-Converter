@@ -2,7 +2,54 @@
 
 All notable changes to Apple Music Play History Converter will be documented in this file.
 
-## [3.2.0] - 2025-08-02
+## [1.3.0] - 2025-08-02
+
+### 🚀 Major Migration: PyInstaller → Briefcase
+
+**This release represents a complete rebuild using BeeWare's Briefcase framework for modern, native app packaging.**
+
+### Added
+- **Briefcase Integration**: Complete migration from PyInstaller to BeeWare's Briefcase
+- **Native App Bundles**: True native applications for macOS, Windows, and Linux
+- **Modern Build System**: New `build.py` script with commands: create, build, package, run, dev, clean
+- **Enhanced Logging**: Added `std-nslog` support for better macOS debugging
+- **Universal macOS Builds**: Automatic Apple Silicon + Intel universal binaries
+- **Improved CI/CD**: New GitHub Actions workflow for Briefcase builds
+- **Package Structure**: Proper Python package organization under `src/apple_music_history_converter/`
+
+### Improved
+- **Build Reliability**: More robust build process with better dependency management
+- **Documentation**: Updated all build instructions for Briefcase workflow
+- **Code Organization**: Clean separation of source code and build artifacts
+- **Cross-Platform Support**: Better Linux support with system package dependencies
+
+### Changed
+- **Build Commands**: New unified build system replaces platform-specific scripts
+- **Project Structure**: Moved to standard Python package layout with `pyproject.toml`
+- **Dependencies**: Streamlined dependency management through Briefcase
+- **App Entry Point**: New Briefcase-compatible entry point with enhanced logging
+
+### Removed
+- **PyInstaller**: Removed all PyInstaller-specific files (.spec, build scripts)
+- **Legacy Build Scripts**: Cleaned up old platform-specific build infrastructure
+- **Duplicate Configuration**: Consolidated configuration into `pyproject.toml`
+
+### Technical Details
+- **Framework**: BeeWare Briefcase v0.3.24
+- **Python Support**: 3.8+ (updated from 3.7+)
+- **Bundle ID**: com.nerveband.apple-music-history-converter
+- **macOS Signing**: Maintains Developer ID Application support
+- **Build Output**: Native DMG for macOS, MSI for Windows, AppImage for Linux
+
+### Migration Benefits
+- ✅ Native app bundles instead of generic executables
+- ✅ Better dependency resolution and management
+- ✅ Simplified build process with unified commands
+- ✅ Modern Python packaging standards
+- ✅ Improved maintainability and future-proofing
+- ✅ Enhanced cross-platform compatibility
+
+## [3.2.0] - 2025-08-02 (Legacy PyInstaller)
 
 ### Added
 - **Apple Developer ID Code Signing**: Full code signing support for macOS builds

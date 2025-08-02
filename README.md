@@ -1,8 +1,10 @@
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 3.1.0 built with Python](images/screenshot-v3.png)
+![Version 1.3.0 built with Briefcase](images/screenshot-v3.png)
 
 The Apple Music Play History Converter is a Python-based desktop application that allows you to easily convert your Apple Music play history data into a format compatible with [Last.fm](https://last.fm/) and [Universal Scrobbler](https://universalscrobbler.com/). With this converter, you can analyze your music listening habits and import your data into various music tracking platforms.
+
+> **🎉 New in v1.3.0**: Migrated to **Briefcase** for modern, native app packaging! Now builds true native applications for macOS, Windows, and Linux using BeeWare's Briefcase framework instead of PyInstaller.
 
 ## Features
 
@@ -430,41 +432,49 @@ Apple-Music-Play-History-Converter/
 This section is for developers who want to build the application from source code.
 
 ### Prerequisites
-- Python 3.7 or higher
+- Python 3.8 or higher
+- Briefcase (installed automatically)
 - For macOS builds: Apple Developer account and Xcode (for code signing)
 
 ### Build Commands
 
-#### Build for Current Platform
+The project now uses **Briefcase** for modern, cross-platform native app building.
+
+#### Complete Build Pipeline
 ```bash
-cd build_artifacts
-python build_all.py
+python build.py all
+```
+This runs: create → build → package in sequence.
+
+#### Individual Build Steps
+```bash
+python build.py create    # Create app bundle
+python build.py build     # Build the application  
+python build.py package   # Package for distribution
 ```
 
-#### Platform-Specific Builds
-
-**macOS (with Code Signing and Notarization)**:
+#### Development and Testing
 ```bash
-cd build_artifacts
-./build_macos.sh
+python build.py dev       # Run in development mode
+python build.py run       # Run the built application
+python build.py clean     # Clean build artifacts
 ```
-This automatically:
-- Builds the app with PyInstaller
-- Signs with your Developer ID (if available)
-- Creates a distribution-ready package
-- For notarization, see the detailed process in [CLAUDE.md](CLAUDE.md)
 
-**Windows**:
-```bash
-cd build_artifacts
-build_windows.bat
-```
+#### Platform-Specific Notes
+
+**macOS**: 
+- Builds universal binaries (Apple Silicon + Intel)
+- Automatic code signing with Developer ID (if configured)
+- Creates DMG installer for distribution
+- See [CLAUDE.md](CLAUDE.md) for notarization setup
+
+**Windows**: 
+- Creates MSI installer
+- No code signing required for development
 
 **Linux**:
-```bash
-cd build_artifacts
-./build_linux.sh
-```
+- Creates AppImage or system packages
+- Requires system dependencies (installed via GitHub Actions)
 
 ### macOS Code Signing Setup
 

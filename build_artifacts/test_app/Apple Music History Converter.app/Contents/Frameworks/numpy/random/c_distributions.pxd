@@ -1,1 +1,0 @@
-../../../Resources/numpy/random/c_distributions.pxd

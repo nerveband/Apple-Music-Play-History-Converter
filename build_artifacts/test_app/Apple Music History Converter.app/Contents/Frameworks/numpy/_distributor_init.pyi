@@ -1,1 +1,0 @@
-../../Resources/numpy/_distributor_init.pyi

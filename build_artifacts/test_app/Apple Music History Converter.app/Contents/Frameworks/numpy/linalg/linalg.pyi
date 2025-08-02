@@ -1,1 +1,0 @@
-../../../Resources/numpy/linalg/linalg.pyi

@@ -1,1 +1,0 @@
-../../Resources/numpy/__init__.cython-30.pxd

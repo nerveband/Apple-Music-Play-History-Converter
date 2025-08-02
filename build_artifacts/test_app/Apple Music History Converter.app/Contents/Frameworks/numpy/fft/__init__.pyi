@@ -1,1 +1,0 @@
-../../../Resources/numpy/fft/__init__.pyi

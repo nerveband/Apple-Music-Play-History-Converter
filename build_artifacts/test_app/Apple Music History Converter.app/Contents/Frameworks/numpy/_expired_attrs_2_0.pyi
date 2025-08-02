@@ -1,1 +1,0 @@
-../../Resources/numpy/_expired_attrs_2_0.pyi
