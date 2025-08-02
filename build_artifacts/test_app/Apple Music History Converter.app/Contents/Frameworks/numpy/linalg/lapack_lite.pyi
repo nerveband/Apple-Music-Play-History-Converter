@@ -1,0 +1,1 @@
+../../../Resources/numpy/linalg/lapack_lite.pyi

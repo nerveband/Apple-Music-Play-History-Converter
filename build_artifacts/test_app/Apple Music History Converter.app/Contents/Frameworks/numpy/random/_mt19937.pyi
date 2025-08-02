@@ -1,0 +1,1 @@
+../../../Resources/numpy/random/_mt19937.pyi

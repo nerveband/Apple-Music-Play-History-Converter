@@ -1,0 +1,1 @@
+../../../Resources/numpy/random/_bounded_integers.pxd

@@ -1,0 +1,1 @@
+../../Resources/numpy/_array_api_info.pyi

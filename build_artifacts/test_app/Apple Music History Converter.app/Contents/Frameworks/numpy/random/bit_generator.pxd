@@ -1,0 +1,1 @@
+../../../Resources/numpy/random/bit_generator.pxd

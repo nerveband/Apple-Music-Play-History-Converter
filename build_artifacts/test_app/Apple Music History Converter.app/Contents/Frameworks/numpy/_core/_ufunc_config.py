@@ -1,0 +1,1 @@
+../../../Resources/numpy/_core/_ufunc_config.py

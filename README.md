@@ -56,8 +56,8 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 
 ## Installation
 
-### Latest Release: v3.1.0 (January 10, 2025)
-**Critical macOS bug fixes** - Fixed numpy dependency issues and missing application icon.
+### Latest Release: v3.2.0 (August 2, 2025)
+**macOS Code Signing & Notarization** - Now fully signed and notarized for seamless installation without security warnings.
 
 [Download the latest release →](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
 
@@ -67,7 +67,6 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 - **macOS**: Download `Apple_Music_History_Converter_Notarized.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract and move the `.app` to your Applications folder
   - **Fully signed and notarized** - opens directly without security warnings
-  - See [macOS Installation Guide](MACOS_INSTALL.md) for detailed instructions
   
 - **Windows**: Download `Apple_Music_History_Converter_Windows.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract and run `Apple Music History Converter.exe`
@@ -257,6 +256,16 @@ For persistent issues, please report them with:
 
 ## Changelog
 
+### Version 3.2.0 (August 2, 2025)
+- **NEW**: Full Apple Developer ID code signing for macOS builds
+- **NEW**: Apple notarization support - eliminates all security warnings
+- **NEW**: Professional distribution with `Apple_Music_History_Converter_Notarized.zip`
+- **NEW**: Comprehensive build documentation in `CLAUDE.md`
+- **NEW**: Automated signing detection in `build_macos.sh`
+- **IMPROVED**: Clean repository structure with organized file hierarchy
+- **IMPROVED**: Enhanced build process with proper macOS app bundle handling
+- **IMPROVED**: Updated documentation with clear file structure tables
+
 ### Version 3.0 (January 2025)
 - **NEW**: Real-time elapsed time display throughout processing - see total time spent on your conversion
 - **NEW**: Smart rate limit bypass with "Clear Queue" button - skip waiting periods instantly
@@ -358,7 +367,6 @@ Apple-Music-Play-History-Converter/
 ├── README.md                              # Project documentation
 ├── CHANGELOG.md                           # Version history and changes
 ├── CLAUDE.md                              # Development and build documentation
-├── MACOS_INSTALL.md                       # macOS-specific installation guide
 ├── LICENSE                                # MIT License
 ├── .gitignore                             # Git ignore rules
 ├── .gitattributes                         # Git attributes for file handling
@@ -415,7 +423,6 @@ Apple-Music-Play-History-Converter/
 |------|---------|
 | `README.md` | Main project documentation and user guide |
 | `CLAUDE.md` | **Development documentation** - Build process, code signing, architecture |
-| `MACOS_INSTALL.md` | Detailed macOS installation instructions |
 | `CHANGELOG.md` | Version history and feature updates |
 
 ## Building from Source
@@ -512,4 +519,4 @@ This project is open source. Please check the license file for details.
 
 ---
 
-**Version 3.0** - Enhanced with real-time progress tracking, smart rate limit management, and comprehensive error reporting for seamless user experience
+**Version 3.2.0** - Now with full Apple Developer ID signing and notarization for seamless macOS installation without security warnings

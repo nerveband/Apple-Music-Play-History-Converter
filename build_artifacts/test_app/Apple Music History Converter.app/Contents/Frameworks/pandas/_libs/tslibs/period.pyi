@@ -1,0 +1,1 @@
+../../../../Resources/pandas/_libs/tslibs/period.pyi

@@ -1,0 +1,1 @@
+../../../Resources/numpy/_core/shape_base.py
