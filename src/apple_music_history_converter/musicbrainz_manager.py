@@ -31,7 +31,8 @@ class MusicBrainzManager:
     def __init__(self, data_dir: Optional[str] = None):
         """Initialize MusicBrainz manager."""
         if data_dir is None:
-            data_dir = os.path.join(os.path.dirname(__file__), 'data', 'musicbrainz')
+            # Use simple home directory path to avoid read-only issues
+            data_dir = Path.home() / ".apple_music_converter" / "musicbrainz"
         
         self.data_dir = Path(data_dir)
         self.csv_file = None

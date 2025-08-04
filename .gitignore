@@ -50,6 +50,9 @@ data/
 converted.csv
 _test_csvs/
 
+# Environment variables (contains sensitive credentials)
+.env
+
 # Claude files
 claude.md
 .claude/

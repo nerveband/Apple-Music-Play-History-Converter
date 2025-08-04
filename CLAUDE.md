@@ -186,22 +186,45 @@ Entitlements are now configured directly in `pyproject.toml` under the macOS sec
 "com.apple.security.files.user-selected.read-write" = true
 ```
 
-#### Notarization Process
-Briefcase handles notarization automatically when packaging if configured in pyproject.toml:
+#### Briefcase Notarization Process
+
+**Current Status (v1.3.0)**: Briefcase notarization is enabled in pyproject.toml but has implementation challenges with complex app bundles containing many binary dependencies (numpy, pandas, etc.). Manual notarization is currently required.
+
+**Automatic Notarization Configuration**:
 ```toml
 [tool.briefcase.app.apple-music-history-converter.macOS]
+universal_build = true
+signing_identity = "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
 notarize = true
 notarize_team_id = "7HQVB2S4BX"
 notarize_apple_id = "nerveband@gmail.com"
 ```
 
-For manual notarization:
-1. **Submit for Notarization**:
+**Known Issues**:
+- Briefcase `python build.py package` fails with complex apps containing many unsigned binaries
+- All .so and .dylib files need individual signing with timestamps for notarization
+- Manual signing and notarization currently required for this project
+
+**Important**: Apple app-specific password and credentials are stored in `.env` file (git-ignored):
+```bash
+APPLE_ID=nerveband@gmail.com
+APPLE_TEAM_ID=7HQVB2S4BX
+APPLE_APP_SPECIFIC_PASSWORD=enfg-cbng-xxzz-nxmb
+DEVELOPER_ID_APPLICATION="Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
+```
+
+For manual notarization using .env credentials:
+1. **Load environment variables**:
+   ```bash
+   source .env
+   ```
+
+2. **Submit for Notarization**:
    ```bash
    xcrun notarytool submit "Apple Music History Converter.app" \
-     --apple-id nerveband@gmail.com \
-     --password "app-specific-password" \
-     --team-id 7HQVB2S4BX \
+     --apple-id "$APPLE_ID" \
+     --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+     --team-id "$APPLE_TEAM_ID" \
      --wait
    ```
 
@@ -213,6 +236,48 @@ For manual notarization:
 3. **Create Final Distribution**:
    ```bash
    ditto -c -k --keepParent "Apple Music History Converter.app" "Apple_Music_History_Converter_Notarized.zip"
+   ```
+
+#### Manual Notarization for Complex Briefcase Apps
+
+For apps with many binary dependencies (like this project with numpy, pandas, duckdb), manual signing is required:
+
+1. **Build with Briefcase**:
+   ```bash
+   python build.py create
+   python build.py build
+   ```
+
+2. **Sign all binary files individually**:
+   ```bash
+   source .env
+   find "build/apple-music-history-converter/macos/app/Apple Music History Converter.app" -name "*.so" -o -name "*.dylib" | while read file; do
+     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$file"
+   done
+   ```
+
+3. **Re-sign the main app bundle**:
+   ```bash
+   codesign --force --options runtime --timestamp --entitlements "build/apple-music-history-converter/macos/app/Entitlements.plist" --sign "$DEVELOPER_ID_APPLICATION" "build/apple-music-history-converter/macos/app/Apple Music History Converter.app"
+   ```
+
+4. **Create distribution package**:
+   ```bash
+   ditto -c -k --keepParent "build/apple-music-history-converter/macos/app/Apple Music History Converter.app" "Apple_Music_History_Converter_Signed.zip"
+   ```
+
+5. **Submit for notarization**:
+   ```bash
+   xcrun notarytool submit "Apple_Music_History_Converter_Signed.zip" \
+     --apple-id "$APPLE_ID" \
+     --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+     --team-id "$APPLE_TEAM_ID" \
+     --wait
+   ```
+
+6. **Create final DMG**:
+   ```bash
+   hdiutil create -format UDZO -srcfolder "build/apple-music-history-converter/macos/app/Apple Music History Converter.app" "Apple_Music_History_Converter_Final.dmg"
    ```
 
 #### App-Specific Password Setup

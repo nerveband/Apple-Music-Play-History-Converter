@@ -8,9 +8,16 @@ from musicbrainz_manager import MusicBrainzManager
 class MusicSearchService:
     """Service to route music searches between MusicBrainz and iTunes API."""
     
-    def __init__(self, settings_file: str = "app_data/settings.json"):
+    def __init__(self, settings_file: str = None):
+        # Completely avoid the problematic mkdir by ensuring the path is always writable
+        if settings_file is None:
+            # Always use home directory with a simple subdirectory name
+            settings_file = Path.home() / ".apple_music_converter" / "settings.json"
+        
         self.settings_file = Path(settings_file)
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Create parent directory only when actually needed (in _save_settings)
+        # This avoids the read-only filesystem issue entirely
         
         self.musicbrainz_manager = MusicBrainzManager()
         self.settings = self._load_settings()
@@ -21,7 +28,7 @@ class MusicSearchService:
         default_settings = {
             "search_provider": "musicbrainz",  # or "itunes"
             "auto_fallback_to_itunes": True,
-            "database_location": "app_data/musicbrainz",
+            "database_location": str(Path.home() / ".apple_music_converter" / "musicbrainz"),
             "last_update_check": None
         }
         
@@ -40,7 +47,7 @@ class MusicSearchService:
     def _save_settings(self):
         """Save current settings to file."""
         try:
-            # Ensure parent directory exists
+            # Create parent directory only when actually saving
             self.settings_file.parent.mkdir(parents=True, exist_ok=True)
             
             with open(self.settings_file, 'w', encoding='utf-8') as f:
