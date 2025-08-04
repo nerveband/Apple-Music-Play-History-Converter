@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
+import sv_ttk
+import darkdetect
 
 
 class ProgressDialog:
@@ -16,6 +18,16 @@ class ProgressDialog:
         self.dialog.title(title)
         self.dialog.geometry("400x150")
         self.dialog.resizable(False, False)
+        
+        # Apply theme to dialog
+        try:
+            is_dark = darkdetect.isDark()
+            if is_dark:
+                sv_ttk.set_theme("dark")
+            else:
+                sv_ttk.set_theme("light")
+        except Exception:
+            sv_ttk.set_theme("light")
         
         # Center the dialog
         self.dialog.transient(parent)

@@ -8,6 +8,8 @@ from tkinter import ttk, messagebox, filedialog
 import threading
 import time
 import os
+import sv_ttk
+import darkdetect
 
 
 class FirstTimeSetupDialog:
@@ -26,6 +28,16 @@ class FirstTimeSetupDialog:
         self.dialog.resizable(False, False)
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
+        
+        # Apply theme to dialog
+        try:
+            is_dark = darkdetect.isDark()
+            if is_dark:
+                sv_ttk.set_theme("dark")
+            else:
+                sv_ttk.set_theme("light")
+        except Exception:
+            sv_ttk.set_theme("light")
         
         # Center the dialog
         self.dialog.geometry("+%d+%d" % (
@@ -140,6 +152,16 @@ class DatabaseDownloadDialog:
             self.dialog.resizable(False, False)
             self.dialog.transient(self.parent)
             
+            # Apply theme to dialog
+            try:
+                is_dark = darkdetect.isDark()
+                if is_dark:
+                    sv_ttk.set_theme("dark")
+                else:
+                    sv_ttk.set_theme("light")
+            except Exception:
+                sv_ttk.set_theme("light")
+            
             # Center the dialog safely
             try:
                 self.dialog.geometry("+%d+%d" % (
@@ -218,9 +240,22 @@ class DatabaseDownloadDialog:
         
         ttk.Label(url_frame, text="Source URL:", font=("Arial", 9, "bold")).pack(anchor="w")
         
+        # Theme-aware URL text widget colors
+        try:
+            is_dark = darkdetect.isDark()
+            if is_dark:
+                url_bg = "#3c3c3c"
+                url_fg = "#ffffff"
+            else:
+                url_bg = "#f0f0f0"
+                url_fg = "#000000"
+        except Exception:
+            url_bg = "#f0f0f0"
+            url_fg = "#000000"
+        
         self.url_text = tk.Text(url_frame, height=2, width=50, wrap=tk.WORD, 
                                font=("Courier", 8), state=tk.DISABLED, 
-                               background="#f0f0f0", cursor="arrow")
+                               background=url_bg, foreground=url_fg, cursor="arrow")
         self.url_text.pack(fill=tk.X, pady=(2, 0))
         
         # URL copy button
@@ -449,6 +484,16 @@ class ManualImportDialog:
             self.dialog.geometry("600x450")
             self.dialog.resizable(False, False)
             self.dialog.transient(self.parent)
+            
+            # Apply theme to dialog
+            try:
+                is_dark = darkdetect.isDark()
+                if is_dark:
+                    sv_ttk.set_theme("dark")
+                else:
+                    sv_ttk.set_theme("light")
+            except Exception:
+                sv_ttk.set_theme("light")
             
             # Center the dialog safely
             try:

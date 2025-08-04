@@ -17,6 +17,7 @@ from threading import Lock
 from music_search_service import MusicSearchService
 from database_dialogs import FirstTimeSetupDialog, DatabaseDownloadDialog, ManualImportDialog
 import re
+import darkdetect
 
 class ToolTip:
     """Simple tooltip widget for tkinter."""
@@ -38,7 +39,20 @@ class ToolTip:
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
         
-        label = tk.Label(tw, text=self.text, background="#ffffe0", 
+        # Theme-aware tooltip colors
+        if hasattr(self.widget, 'master') and hasattr(self.widget.master, 'is_dark_mode'):
+            is_dark = getattr(self.widget.master, 'is_dark_mode', False)
+            if is_dark:
+                bg_color = "#424242"
+                fg_color = "#ffffff"
+            else:
+                bg_color = "#ffffe0"
+                fg_color = "#000000"
+        else:
+            bg_color = "#ffffe0"
+            fg_color = "#000000"
+        
+        label = tk.Label(tw, text=self.text, background=bg_color, foreground=fg_color,
                         relief="solid", borderwidth=1, font=("Arial", 9))
         label.pack()
 
@@ -63,6 +77,9 @@ class CSVProcessorApp:
         self.root.grid_rowconfigure(1, weight=0)     # File selection (fixed)
         self.root.grid_rowconfigure(2, weight=3)     # Results row (expandable, higher weight)
         self.root.grid_rowconfigure(3, weight=0)     # Progress row (fixed, smaller)
+        
+        # Initialize theme based on system preference
+        self.setup_theme()
         
         # Initialize MusicBrainz search service BEFORE creating widgets
         self.music_search_service = MusicSearchService()
@@ -95,36 +112,50 @@ class CSVProcessorApp:
         self.itunes_found = 0
         self.estimated_missing_artists = 0
         
+    def setup_theme(self):
+        """Set up the application theme based on system preferences."""
+        try:
+            # Detect system theme preference
+            is_dark = darkdetect.isDark()
+            
+            if is_dark:
+                sv_ttk.set_theme("dark")
+                self.is_dark_mode = True
+            else:
+                sv_ttk.set_theme("light")
+                self.is_dark_mode = False
+                
+        except Exception as e:
+            # Fallback to light theme if detection fails
+            print(f"Theme detection failed: {e}")
+            sv_ttk.set_theme("light")
+            self.is_dark_mode = False
+    
     def create_widgets(self):
-        # Colors
-        bg_color = '#ececed'
-        primary_color = '#FF3B30'
-        secondary_color = '#007AFF'
-        text_color = '#000000'
-        button_bg_color = '#51607a'
-        button_text_color = '#000000'  # Changed to black
-
-        # Styles
+        # Configure custom styles that work with both themes
         style = ttk.Style()
-        style.configure('TLabel', background=bg_color, foreground=text_color)
-        style.configure('TButton', background=button_bg_color, foreground=button_text_color)
         
-        # Configure red button style
-        style.configure('Red.TButton', 
-                       background='#c53021', 
-                       foreground=button_text_color)  # Changed to black
-        style.map('Red.TButton',
-                 foreground=[('disabled', '#666666'),
-                           ('pressed', button_text_color),
-                           ('active', button_text_color)],
-                 background=[('active', '#d64937'),
-                           ('disabled', '#a52819')])
-
-        style.configure('TRadiobutton', background=bg_color, foreground=text_color)
-        style.configure('TCheckbutton', background=bg_color, foreground=text_color)
-        style.configure('TFrame', background=bg_color)
-
-        self.root.configure(bg=bg_color)
+        # Configure red button style for stop functionality - theme-adaptive
+        if self.is_dark_mode:
+            style.configure('Red.TButton', 
+                           background='#d32f2f', 
+                           foreground='white')
+            style.map('Red.TButton',
+                     foreground=[('disabled', '#666666'),
+                               ('pressed', 'white'),
+                               ('active', 'white')],
+                     background=[('active', '#f44336'),
+                               ('disabled', '#8e1a1a')])
+        else:
+            style.configure('Red.TButton', 
+                           background='#c53021', 
+                           foreground='white')
+            style.map('Red.TButton',
+                     foreground=[('disabled', '#666666'),
+                               ('pressed', 'white'),
+                               ('active', 'white')],
+                     background=[('active', '#d64937'),
+                               ('disabled', '#a52819')])
         
         # Compact header section
         header_frame = ttk.Frame(self.root)

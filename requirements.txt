@@ -4,3 +4,4 @@ sv-ttk>=2.0.0
 zstandard>=0.15.0
 duckdb>=0.8.0
 psutil>=5.8.0
+darkdetect>=0.8.0
