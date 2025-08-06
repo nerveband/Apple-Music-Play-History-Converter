@@ -19,6 +19,13 @@ All notable changes to Apple Music Play History Converter will be documented in 
   - URL now displays in blue with hand cursor on hover
   - Opens directly in default browser when clicked
 
+### Technical
+- **Briefcase Build Fix**: Resolved critical tkinter import issue in macOS builds
+  - Added manual tkinter module and dynamic library inclusion to build process
+  - Fixed `ModuleNotFoundError: No module named 'tkinter'` in packaged apps
+  - Documented complete build process with tkinter fixes in CLAUDE.md and README.md
+- **Distribution**: Now available as signed ZIP file for easier installation without Gatekeeper warnings
+
 ## [1.3.0] - 2025-08-02
 
 ### 🚀 Major Migration: PyInstaller → Briefcase

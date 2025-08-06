@@ -131,6 +131,51 @@ Briefcase-based builds for Windows, macOS, and Linux:
 - Built-in code signing and notarization support for macOS
 - Clean separation of source code and build artifacts
 
+### Critical tkinter Fix for macOS Builds
+
+**IMPORTANT**: Briefcase does not include tkinter by default in macOS builds, causing `ModuleNotFoundError: No module named 'tkinter'`. This must be manually fixed after building:
+
+#### Required Steps After `briefcase build`:
+1. **Copy tkinter module** from system Python:
+   ```bash
+   cp -r /Users/nerveband/.pyenv/versions/3.12.4/lib/python3.12/tkinter "build/apple-music-history-converter/macos/app/Apple Music History Converter.app/Contents/Frameworks/Python.framework/Versions/3.12/lib/python3.12/"
+   ```
+
+2. **Copy tkinter dynamic library**:
+   ```bash
+   cp /Users/nerveband/.pyenv/versions/3.12.4/lib/python3.12/lib-dynload/_tkinter.cpython-312-darwin.so "build/apple-music-history-converter/macos/app/Apple Music History Converter.app/Contents/Frameworks/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/"
+   ```
+
+3. **Find system Python tkinter location** (if path differs):
+   ```bash
+   python -c "import tkinter; print(tkinter.__file__)"
+   ```
+
+#### Complete Build Process:
+```bash
+# Standard Briefcase build
+python build.py clean
+python build.py create  
+python build.py build
+
+# Manual tkinter fix (REQUIRED)
+SYSTEM_PYTHON_PATH=$(python -c "import tkinter; print(tkinter.__file__.replace('/__init__.py', ''))")
+SYSTEM_DYNLOAD_PATH=$(python -c "import sysconfig; print(sysconfig.get_path('stdlib'))")/../lib-dynload
+APP_PYTHON_PATH="build/apple-music-history-converter/macos/app/Apple Music History Converter.app/Contents/Frameworks/Python.framework/Versions/3.12/lib/python3.12"
+
+cp -r "$SYSTEM_PYTHON_PATH" "$APP_PYTHON_PATH/"
+cp "$SYSTEM_DYNLOAD_PATH/_tkinter.cpython-312-darwin.so" "$APP_PYTHON_PATH/lib-dynload/"
+
+# Sign and package
+briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)" --no-notarize
+
+# Create distribution zip
+cd "build/apple-music-history-converter/macos/app/"
+ditto -c -k --keepParent "Apple Music History Converter.app" "Apple_Music_History_Converter_1.3.1.zip"
+```
+
+**Why this happens**: Briefcase's Python support package doesn't include tkinter, which is required for GUI applications. The tkinter module and its native bindings must be manually copied from the system Python installation.
+
 ### macOS Code Signing and Notarization
 
 **Important**: The macOS build process includes full Apple Developer ID signing and notarization for distribution without security warnings.

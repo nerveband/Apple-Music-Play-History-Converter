@@ -469,6 +469,21 @@ briefcase package --identity "Developer ID Application: Your Name (TEAMID)"
 - Creates DMG installer for distribution
 - See [CLAUDE.md](CLAUDE.md) for notarization setup
 
+⚠️ **Critical macOS tkinter Issue**: Briefcase doesn't include tkinter by default. After `briefcase build`, you must manually copy tkinter from your system Python or the app will crash with `ModuleNotFoundError: No module named 'tkinter'`. 
+
+**Quick Fix:**
+```bash
+# After briefcase build, run this to fix tkinter:
+SYSTEM_TKINTER=$(python -c "import tkinter; print(tkinter.__file__.replace('/__init__.py', ''))")  
+cp -r "$SYSTEM_TKINTER" "build/apple-music-history-converter/macos/app/Apple Music History Converter.app/Contents/Frameworks/Python.framework/Versions/3.12/lib/python3.12/"
+
+# Also copy the dynamic library:
+SYSTEM_DYNLOAD=$(python -c "import sysconfig; print(sysconfig.get_path('stdlib'))")/../lib-dynload
+cp "$SYSTEM_DYNLOAD/_tkinter.cpython-312-darwin.so" "build/apple-music-history-converter/macos/app/Apple Music History Converter.app/Contents/Frameworks/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/"
+```
+
+See [CLAUDE.md](CLAUDE.md) for complete build instructions with automated scripts.
+
 **Windows**: 
 - Creates MSI installer
 - No code signing required for development
