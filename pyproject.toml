@@ -4,7 +4,7 @@ build-backend = "briefcase.bootstrap"
 
 [project]
 name = "apple-music-history-converter"
-version = "1.3.0"
+version = "1.3.1"
 description = "Convert Apple Music CSV files to Last.fm compatible format"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -37,6 +37,7 @@ dependencies = [
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
+    "darkdetect>=0.8.0",
 ]
 
 [project.urls]
@@ -47,7 +48,7 @@ Repository = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
 [tool.briefcase]
 project_name = "Apple Music History Converter"
 bundle = "com.nerveband"
-version = "1.3.0"
+version = "1.3.1"
 url = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
 license = {file = "LICENSE"}
 author = "Ashraf Ali"

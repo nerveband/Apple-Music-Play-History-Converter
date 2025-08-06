@@ -107,9 +107,10 @@ Supports multiple encodings with automatic detection:
 - Supports both canonical and legacy database formats
 
 ### Settings Storage
-- JSON-based settings in `app_data/settings.json`
-- Cross-platform path handling
+- JSON-based settings in `~/.apple_music_converter/settings.json`
+- Cross-platform path handling with proper user directory storage
 - Persistent search provider preferences
+- No read-only file system issues in packaged apps
 
 ## Testing Strategy
 
@@ -158,15 +159,15 @@ Briefcase-based builds for Windows, macOS, and Linux:
    Should show: `Developer ID Application: Ashraf Ali (7HQVB2S4BX)`
 
 #### Build and Signing Process
-1. **Standard Build**: Run `python build.py all` which automatically:
-   - Creates the app bundle with Briefcase
-   - Builds the application with all dependencies
-   - Packages for distribution with automatic signing
-   - Uses configured Developer ID for signing
-   - Applies entitlements for hardened runtime
+1. **Standard Build**: 
+   ```bash
+   briefcase create    # Create app structure
+   briefcase build     # Build the application
+   briefcase package   # Package with signing and notarization
+   ```
 
-2. **Manual Signing**: Briefcase handles signing automatically based on pyproject.toml configuration
-3. **Notarization**: Configure in pyproject.toml for automatic notarization during packaging
+2. **Automatic Signing**: Briefcase handles signing automatically based on pyproject.toml configuration
+3. **Notarization**: Fully automated during `briefcase package` when credentials are configured
 
 #### Critical Briefcase Configuration Details
 - **Signing Identity**: Configured in pyproject.toml: `Developer ID Application: Ashraf Ali (7HQVB2S4BX)`
@@ -188,7 +189,7 @@ Entitlements are now configured directly in `pyproject.toml` under the macOS sec
 
 #### Briefcase Notarization Process
 
-**Current Status (v1.3.0)**: Briefcase notarization is enabled in pyproject.toml but has implementation challenges with complex app bundles containing many binary dependencies (numpy, pandas, etc.). Manual notarization is currently required.
+**Current Status (v1.3.1)**: Briefcase notarization is fully functional and automated. The app is properly signed and notarized without any manual steps required.
 
 **Automatic Notarization Configuration**:
 ```toml
@@ -200,10 +201,10 @@ notarize_team_id = "7HQVB2S4BX"
 notarize_apple_id = "nerveband@gmail.com"
 ```
 
-**Known Issues**:
-- Briefcase `python build.py package` fails with complex apps containing many unsigned binaries
-- All .so and .dylib files need individual signing with timestamps for notarization
-- Manual signing and notarization currently required for this project
+**Resolved Issues (v1.3.1)**:
+- ✅ Briefcase notarization now works automatically with proper credential setup
+- ✅ All binaries are properly signed during the packaging process
+- ✅ No manual intervention required for notarization
 
 **Important**: Apple app-specific password and credentials are stored in `.env` file (git-ignored):
 ```bash
@@ -213,30 +214,27 @@ APPLE_APP_SPECIFIC_PASSWORD=enfg-cbng-xxzz-nxmb
 DEVELOPER_ID_APPLICATION="Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
 ```
 
-For manual notarization using .env credentials:
-1. **Load environment variables**:
+For automatic notarization with Briefcase:
+1. **Store credentials in keychain** (one-time setup):
    ```bash
    source .env
-   ```
-
-2. **Submit for Notarization**:
-   ```bash
-   xcrun notarytool submit "Apple Music History Converter.app" \
+   xcrun notarytool store-credentials "briefcase-macOS-$APPLE_TEAM_ID" \
      --apple-id "$APPLE_ID" \
-     --password "$APPLE_APP_SPECIFIC_PASSWORD" \
      --team-id "$APPLE_TEAM_ID" \
-     --wait
+     --password "$APPLE_APP_SPECIFIC_PASSWORD"
    ```
 
-2. **Staple Notarization Ticket**:
+2. **Build and notarize**:
    ```bash
-   xcrun stapler staple "dist/Apple Music History Converter.app"
+   briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
    ```
-
-3. **Create Final Distribution**:
-   ```bash
-   ditto -c -k --keepParent "Apple Music History Converter.app" "Apple_Music_History_Converter_Notarized.zip"
-   ```
+   
+   Briefcase automatically handles:
+   - Signing all binaries and frameworks
+   - Submitting for notarization
+   - Waiting for approval
+   - Stapling the notarization ticket
+   - Creating the final DMG
 
 #### Manual Notarization for Complex Briefcase Apps
 

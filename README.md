@@ -1,10 +1,10 @@
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 1.3.0 built with Briefcase](images/screenshot-v3.png)
+![Version 1.3.1 built with Briefcase](images/screenshot-v3.png)
 
 The Apple Music Play History Converter is a Python-based desktop application that allows you to easily convert your Apple Music play history data into a format compatible with [Last.fm](https://last.fm/) and [Universal Scrobbler](https://universalscrobbler.com/). With this converter, you can analyze your music listening habits and import your data into various music tracking platforms.
 
-> **🎉 New in v1.3.0**: Migrated to **Briefcase** for modern, native app packaging! Now builds true native applications for macOS, Windows, and Linux using BeeWare's Briefcase framework instead of PyInstaller.
+> **🎉 New in v1.3.1**: Full dark mode support! The application now properly detects and applies your system's dark mode preference for a seamless experience across all UI components.
 
 ## Features
 
@@ -58,17 +58,17 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 
 ## Installation
 
-### Latest Release: v3.2.0 (August 2, 2025)
-**macOS Code Signing & Notarization** - Now fully signed and notarized for seamless installation without security warnings.
+### Latest Release: v1.3.1 (August 6, 2025)
+**Fully Notarized macOS App** - Signed with Apple Developer ID and notarized for seamless installation without any security warnings. Now with full dark mode support!
 
 [Download the latest release →](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
 
 ### Option 1: Pre-built Binaries (Recommended)
 **No Python installation required!** Download the ready-to-run application for your platform:
 
-- **macOS**: Download `Apple_Music_History_Converter_Notarized.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
-  - Extract and move the `.app` to your Applications folder
-  - **Fully signed and notarized** - opens directly without security warnings
+- **macOS**: Download `Apple Music History Converter.dmg` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
+  - Open the DMG and drag the app to your Applications folder
+  - **Fully signed and notarized** - opens directly without any security warnings or need to bypass Gatekeeper
   
 - **Windows**: Download `Apple_Music_History_Converter_Windows.zip` from [Releases](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
   - Extract and run `Apple Music History Converter.exe`
@@ -103,7 +103,7 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 pip install -r requirements.txt
 
 # Run the application
-python apple_music_play_history_converter.py
+python src/apple_music_history_converter/__main__.py
 ```
 
 ## Usage
@@ -404,20 +404,15 @@ Apple-Music-Play-History-Converter/
 | File | Purpose |
 |------|---------|
 | `run_app.py` | **Recommended entry point** - Sets up environment and launches app |
-| `apple_music_play_history_converter.py` | Main application with complete GUI and processing logic |
-| `musicbrainz_manager.py` | MusicBrainz database download, management, and search |
-| `music_search_service.py` | Routes searches between MusicBrainz and iTunes API |
-| `database_dialogs.py` | Setup wizards and configuration dialogs |
-| `progress_dialog.py` | Progress tracking for file processing and downloads |
+| `src/apple_music_history_converter/` | Main application package with all source code |
+| `pyproject.toml` | Briefcase configuration and project metadata |
 
 ### Build and Distribution Files
 
 | File | Purpose |
 |------|---------|
-| `build_macos.sh` | Complete macOS build with code signing and notarization |
-| `sign_app_developer.sh` | Manual app signing with Apple Developer ID |
-| `entitlements.plist` | macOS hardened runtime entitlements |
-| `Apple_Music_History_Converter_Notarized.zip` | **Ready-to-distribute macOS app** |
+| `fix_tkinter.py` | Helper script for tkinter integration in Briefcase builds |
+| `.env` | Apple credentials for notarization (git-ignored) |
 
 ### Documentation Files
 
@@ -438,26 +433,32 @@ This section is for developers who want to build the application from source cod
 
 ### Build Commands
 
-The project now uses **Briefcase** for modern, cross-platform native app building.
+The project uses **BeeWare Briefcase** for modern, cross-platform native app building.
 
 #### Complete Build Pipeline
 ```bash
-python build.py all
-```
-This runs: create → build → package in sequence.
-
-#### Individual Build Steps
-```bash
-python build.py create    # Create app bundle
-python build.py build     # Build the application  
-python build.py package   # Package for distribution
+briefcase create   # Create the app structure
+briefcase build    # Build the application
+briefcase package  # Create distributable package
 ```
 
 #### Development and Testing
 ```bash
-python build.py dev       # Run in development mode
-python build.py run       # Run the built application
-python build.py clean     # Clean build artifacts
+briefcase dev      # Run in development mode
+briefcase run      # Run the built application
+```
+
+#### macOS-Specific Build with Notarization
+```bash
+# Set up Apple credentials (one-time)
+source .env
+xcrun notarytool store-credentials "briefcase-macOS-$APPLE_TEAM_ID" \
+    --apple-id "$APPLE_ID" \
+    --team-id "$APPLE_TEAM_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+# Build and notarize
+briefcase package --identity "Developer ID Application: Your Name (TEAMID)"
 ```
 
 #### Platform-Specific Notes
@@ -488,11 +489,13 @@ For distribution without security warnings, you need:
 1. Open Xcode → Settings → Accounts
 2. Add your Apple ID
 3. In "Manage Certificates", create "Developer ID Application"
-4. Run `./build_macos.sh` - it will auto-detect and use your certificate
+4. Create `.env` file with your credentials (see `.env.example`)
+5. Run `briefcase package` - it will auto-detect and use your certificate
 
-**For Notarization** (removes all security warnings):
+**For Notarization** (built-in with Briefcase):
 1. Generate app-specific password at https://appleid.apple.com
-2. Run notarization commands (see [CLAUDE.md](CLAUDE.md) for details)
+2. Add credentials to `.env` file
+3. Briefcase automatically handles notarization during `package` command
 
 ### Build Verification
 ```bash
@@ -502,10 +505,23 @@ python verify_builds.py
 
 ### Distribution Packages
 
-After building, you'll find platform-specific packages in `build_artifacts/`:
-- **macOS**: `Apple_Music_History_Converter_Notarized.zip` (signed & notarized)
-- **Windows**: `Apple_Music_History_Converter_Windows.zip`
-- **Linux**: `Apple_Music_History_Converter_Linux.tar.gz`
+After building with Briefcase, you'll find platform-specific packages:
+- **macOS**: `dist/Apple Music History Converter-1.3.1.dmg` (signed & notarized)
+- **Windows**: `dist/Apple Music History Converter-1.3.1.msi`
+- **Linux**: `dist/apple-music-history-converter-1.3.1.tar.gz`
+
+## Data Storage
+
+The application stores its data in the following locations:
+
+- **macOS/Linux**: `~/.apple_music_converter/`
+  - `settings.json` - Application preferences
+  - `musicbrainz/` - MusicBrainz database files
+
+- **Windows**: `%USERPROFILE%\.apple_music_converter\`
+  - Same structure as macOS/Linux
+
+This ensures the app has proper write permissions and your data is easily accessible.
 
 ## Contributing
 
@@ -520,8 +536,9 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 
 ### Code Signing for Contributors
 If you're contributing and need to test macOS builds:
-- Use `./build_macos.sh` for ad-hoc signed builds (for testing)
-- Full notarization is only needed for public distribution
+- Use `briefcase build` for ad-hoc signed builds (for testing)
+- Use `briefcase package --adhoc-sign` for testing DMG creation
+- Full notarization requires Apple Developer credentials
 
 ## License
 
@@ -529,4 +546,4 @@ This project is open source. Please check the license file for details.
 
 ---
 
-**Version 3.2.0** - Now with full Apple Developer ID signing and notarization for seamless macOS installation without security warnings
+**Version 1.3.1** - Built with Briefcase, fully signed and notarized for seamless macOS installation without any security warnings or Gatekeeper bypassing

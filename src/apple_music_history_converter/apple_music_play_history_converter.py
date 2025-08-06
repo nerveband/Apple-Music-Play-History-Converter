@@ -124,11 +124,15 @@ class CSVProcessorApp:
             else:
                 sv_ttk.set_theme("light")
                 self.is_dark_mode = False
+            
+            # Apply the theme to the root window
+            sv_ttk.use_dark_theme() if is_dark else sv_ttk.use_light_theme()
                 
         except Exception as e:
             # Fallback to light theme if detection fails
             print(f"Theme detection failed: {e}")
             sv_ttk.set_theme("light")
+            sv_ttk.use_light_theme()
             self.is_dark_mode = False
     
     def create_widgets(self):

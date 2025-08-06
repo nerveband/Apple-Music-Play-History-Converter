@@ -2,6 +2,23 @@
 
 All notable changes to Apple Music Play History Converter will be documented in this file.
 
+## [1.3.1] - 2025-08-06
+
+### Fixed
+- **Dark Mode Support**: Fixed dark mode detection and proper theme application across all UI components (fixes #5)
+  - Added `darkdetect` dependency for system theme detection
+  - Initialize sv_ttk with proper theme on app startup
+  - Remove hardcoded colors and let sv_ttk handle theming
+  - Fix URL text visibility in dark mode with theme-aware colors
+  - Apply proper theming to all dialog boxes
+  - Update tooltips to respect dark mode
+  - Maintain theme-adaptive red button styling
+
+### Improved
+- **Manual Import Dialog**: Made MusicBrainz download URL clickable for easier access
+  - URL now displays in blue with hand cursor on hover
+  - Opens directly in default browser when clicked
+
 ## [1.3.0] - 2025-08-02
 
 ### 🚀 Major Migration: PyInstaller → Briefcase

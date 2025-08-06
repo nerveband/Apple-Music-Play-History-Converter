@@ -10,6 +10,7 @@ import time
 import os
 import sv_ttk
 import darkdetect
+import webbrowser
 
 
 class FirstTimeSetupDialog:
@@ -537,12 +538,23 @@ class ManualImportDialog:
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=(0, 10))
         
-        # Instructions
-        instructions = """To manually download and import the MusicBrainz database:
+        # Instructions with clickable link
+        instructions_text = """To manually download and import the MusicBrainz database:
 
-1. Visit: https://musicbrainz.org/doc/MusicBrainz_Database/Download
-   
-2. Look for the latest "mb_artist_credit_name" dump file
+1. Visit the MusicBrainz download page:
+"""
+        
+        inst_label = ttk.Label(main_frame, text=instructions_text, justify=tk.LEFT)
+        inst_label.pack(pady=(0, 0))
+        
+        # Clickable URL
+        url = "https://musicbrainz.org/doc/MusicBrainz_Database/Download"
+        url_label = ttk.Label(main_frame, text=url, foreground="#0066cc", cursor="hand2")
+        url_label.pack(pady=(0, 10))
+        url_label.bind("<Button-1>", lambda e: webbrowser.open(url))
+        
+        # Remaining instructions
+        instructions2 = """2. Look for the latest "mb_artist_credit_name" dump file
    (It will be named like: mb_artist_credit_name-20241124-235959.tar.zst)
    
 3. Download this file (approximately 2GB)
@@ -553,8 +565,8 @@ Note: The file must be a .tar.zst file containing the MusicBrainz artist data.
 The import process will extract and build the database, which may take
 several minutes depending on your computer's speed."""
         
-        inst_label = ttk.Label(main_frame, text=instructions, justify=tk.LEFT)
-        inst_label.pack(pady=(0, 20))
+        inst_label2 = ttk.Label(main_frame, text=instructions2, justify=tk.LEFT)
+        inst_label2.pack(pady=(0, 20))
         
         # Status frame
         status_frame = ttk.LabelFrame(main_frame, text="Status", padding=10)
