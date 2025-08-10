@@ -33,11 +33,13 @@ def main():
         
         # Run the application with the venv python
         print("Launching application...")
-        subprocess.run([venv_python, "apple_music_play_history_converter.py"], check=True)
+        subprocess.run([venv_python, "-m", "apple_music_history_converter"], cwd="src", check=True)
     else:
         # Already in venv, just run the app
         print("Launching application...")
-        import apple_music_play_history_converter
+        sys.path.insert(0, 'src')
+        from apple_music_history_converter import apple_music_play_history_converter
+        apple_music_play_history_converter.main()
 
 if __name__ == "__main__":
     main()
