@@ -1,9 +1,9 @@
 """Apple Music History Converter - Briefcase Entry Point
 
 This module provides the main entry point for the Briefcase-packaged application.
+Now using Toga for cross-platform GUI support.
 """
 
-import tkinter as tk
 import sys
 import os
 import logging
@@ -18,37 +18,22 @@ logging.basicConfig(
     ]
 )
 
-# Import the main application class
-from .apple_music_play_history_converter import CSVProcessorApp
+# Import the Toga-based application
+from .apple_music_play_history_converter import main as create_app
 
 
 class AppleMusicHistoryConverterApp:
-    """Main application class for Briefcase."""
+    """Main application class for Briefcase using Toga."""
 
     def __init__(self):
         """Initialize the application."""
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Initializing Apple Music History Converter")
+        self.logger.info("Initializing Apple Music History Converter (Toga version)")
         
         try:
-            self.root = tk.Tk()
-            self.root.title("Apple Music Play History Converter")
-            self.logger.info("Tkinter root window created successfully")
-            
-            # Set the app icon if available
-            icon_path = Path(__file__).parent / "resources" / "appicon.png"
-            if icon_path.exists():
-                try:
-                    self.root.iconphoto(True, tk.PhotoImage(file=str(icon_path)))
-                    self.logger.info(f"App icon loaded from {icon_path}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to load app icon: {e}")
-            else:
-                self.logger.warning(f"App icon not found at {icon_path}")
-            
-            # Create the main application
-            self.logger.info("Creating CSVProcessorApp instance")
-            self.csv_processor = CSVProcessorApp(self.root)
+            # Create the Toga application
+            self.logger.info("Creating Toga application instance")
+            self.app = create_app()
             self.logger.info("Application initialization completed successfully")
             
         except Exception as e:
@@ -57,9 +42,9 @@ class AppleMusicHistoryConverterApp:
 
     def main_loop(self):
         """Start the main application loop."""
-        self.logger.info("Starting main application loop")
+        self.logger.info("Starting Toga main application loop")
         try:
-            self.root.mainloop()
+            self.app.main_loop()
         except Exception as e:
             self.logger.error(f"Error in main loop: {e}")
             raise
@@ -70,7 +55,7 @@ class AppleMusicHistoryConverterApp:
 def main():
     """Entry point for the application."""
     logger = logging.getLogger(__name__)
-    logger.info("=== Apple Music History Converter Starting ===")
+    logger.info("=== Apple Music History Converter Starting (Toga Version) ===")
     
     try:
         # Initialize and check platform info

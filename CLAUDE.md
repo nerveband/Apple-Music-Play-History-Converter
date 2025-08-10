@@ -343,6 +343,82 @@ For apps with many binary dependencies (like this project with numpy, pandas, du
 - **Notarization rejected**: Verify entitlements and hardened runtime settings
 - **Certificate not found**: Ensure Developer ID Application certificate is installed in Keychain
 
+## Critical Lessons Learned: macOS App Distribution (August 2025)
+
+### ⚠️ ZIP File Distribution Issues
+
+**CRITICAL DISCOVERY**: Standard compression methods corrupt notarized macOS app bundles, causing "damaged app" errors even when the original app is perfectly signed and notarized.
+
+#### What We Learned:
+
+1. **System `zip` command CORRUPTS macOS app bundles**:
+   ```bash
+   # ❌ NEVER DO THIS - Corrupts app bundles
+   zip -r MyApp.zip "My App.app"
+   ```
+   - Destroys internal bundle structure
+   - Breaks code signatures
+   - Results in "damaged app" errors
+
+2. **`ditto` with compression ALSO corrupts app bundles**:
+   ```bash
+   # ❌ ALSO CORRUPTS - Even ditto with compression fails
+   ditto -c -k "My App.app" MyApp.zip
+   ditto -c -k --keepParent "My App.app" MyApp.zip
+   ```
+   - Even Apple's own ditto tool corrupts when compressing
+   - Compression breaks the notarization ticket integration
+
+3. **Only DMG and TAR.GZ preserve notarization**:
+   ```bash
+   # ✅ WORKS - DMG created by Briefcase (recommended)
+   briefcase package  # Creates properly signed DMG
+   
+   # ✅ WORKS - TAR.GZ compression
+   tar -czf "MyApp.tar.gz" "My App.app"
+   ```
+
+#### Distribution Strategy:
+
+**Primary Distribution**: Always use DMG files created by Briefcase
+- Preserves all signatures and notarization
+- Native macOS installation experience
+- No corruption issues
+
+**Alternative Distribution**: TAR.GZ for platforms that don't support DMG
+- Fully preserves app bundle structure
+- Maintains notarization ticket
+- Cross-platform compatible
+
+**NEVER use ZIP files** for macOS app distribution - they will always corrupt the bundle.
+
+#### Verification Commands:
+
+```bash
+# Always verify after extraction:
+spctl -a -t exec -vv "My App.app"
+# Should show: "accepted, source=Notarized Developer ID"
+
+# If you see "invalid API object reference" = corrupted bundle
+```
+
+#### Root Cause Analysis:
+
+The issue occurs because:
+1. ZIP compression algorithms don't understand macOS extended attributes
+2. Code signatures include metadata about file permissions and attributes
+3. Compression strips extended attributes that are part of the signature
+4. Notarization tickets are embedded in extended attributes
+5. When extracted, the app bundle appears intact but lacks critical signing metadata
+
+### Key Takeaways for Future Builds:
+
+1. **Always test extracted apps** with `spctl -a -t exec -vv` before distribution
+2. **Use DMG as primary distribution format** (created by Briefcase)
+3. **Use TAR.GZ as secondary format** if ZIP-like compression is needed  
+4. **Never use ZIP or compressed ditto** for macOS app distribution
+5. **Document these limitations** to prevent future mistakes
+
 ## Common Development Tasks
 
 ### Adding New CSV Format Support
