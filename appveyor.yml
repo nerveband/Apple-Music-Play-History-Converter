@@ -59,13 +59,10 @@ install:
 # Build steps
 build_script:
   # Windows
-  - cmd: |
-      if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2022" (
-        echo Building for Windows...
-        briefcase create windows
-        briefcase build windows
-        briefcase package windows --adhoc-sign
-      )
+  - cmd: echo Building for Windows...
+  - cmd: briefcase create windows
+  - cmd: briefcase build windows
+  - cmd: briefcase package windows --adhoc-sign
 
   # Linux
   - sh: |
