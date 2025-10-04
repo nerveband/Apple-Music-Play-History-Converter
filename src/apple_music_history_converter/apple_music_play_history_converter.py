@@ -51,7 +51,7 @@ class AppleMusicConverterApp(toga.App):
         """Helper to safely schedule async UI updates from sync code."""
         try:
             loop = asyncio.get_running_loop()
-            return self._schedule_ui_update(coro, loop)
+            return asyncio.create_task(coro)
         except RuntimeError:
             # No loop running, create task directly
             return asyncio.create_task(coro)
