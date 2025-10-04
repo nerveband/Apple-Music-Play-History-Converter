@@ -41,14 +41,7 @@ jobs:
       with:
         python-version: '3.12'
 
-    # Dependencies
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install briefcase
-
-    # Linux specific dependencies
+    # Linux specific dependencies (must be BEFORE Python dependencies)
     - name: Install Linux system dependencies
       if: runner.os == 'Linux'
       run: |
@@ -60,6 +53,13 @@ jobs:
           libgdk-pixbuf2.0-dev \
           libffi-dev \
           shared-mime-info
+
+    # Dependencies
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install briefcase
 
     # macOS specific setup for code signing
     - name: Import Code Signing Certificate (macOS)
