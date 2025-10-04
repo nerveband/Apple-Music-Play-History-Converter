@@ -47,6 +47,15 @@ except ImportError:
 class AppleMusicConverterApp(toga.App):
     """Main application class for Apple Music Play History Converter using Toga."""
     
+    def _schedule_ui_update(self, coro):
+        """Helper to safely schedule async UI updates from sync code."""
+        try:
+            loop = asyncio.get_running_loop()
+            return asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            # No loop running, create task directly
+            return asyncio.create_task(coro)
+
     @trace_call("App.startup")
     def startup(self):
         """Initialize the application and create the main window."""
@@ -1712,10 +1721,7 @@ class AppleMusicConverterApp(toga.App):
 
         # Reset search button text on main thread
         if hasattr(self, 'reprocess_button'):
-            asyncio.run_coroutine_threadsafe(
-                self._reset_search_button_text(),
-                self.main_loop
-            )
+            self._schedule_ui_update(self._reset_search_button_text())
 
         # Update display
         self.update_stats_display()
@@ -1755,7 +1761,7 @@ class AppleMusicConverterApp(toga.App):
         
         finally:
             # Reset UI state
-            asyncio.run_coroutine_threadsafe(self._reset_buttons_ui(), self.main_loop)
+            self._schedule_ui_update(self._reset_buttons_ui())
     
     async def process_csv_two_phase_async(self):
         """Process CSV - ONLY loads and converts, does NOT search for missing artists."""
@@ -2464,7 +2470,11 @@ class AppleMusicConverterApp(toga.App):
             keep_results = locals().get('processing_successful', False)
             async def reset_with_params():
                 await self._reset_buttons_ui(keep_results_buttons=keep_results)
-            asyncio.run_coroutine_threadsafe(reset_with_params(), self.main_loop)
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(reset_with_params(), loop)
+            except RuntimeError:
+                asyncio.create_task(reset_with_params())
     
     def enable_copy_save_buttons(self):
         """Enable copy, save, and missing artists buttons - synchronous version."""
