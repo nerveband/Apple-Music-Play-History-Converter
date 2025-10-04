@@ -45,6 +45,8 @@ dist.zip
 tkinter_hook.py
 release_builds/
 releases_archive/
+build/
+dist/
 
 # App data
 app_data/
@@ -66,9 +68,28 @@ claude.md
 *.seed
 *.coverage
 .nyc_output
+tmp/
+logs/
+*.duckdb
+*.duckdb.wal
+
+# Test artifacts
+test_final/
+archive/
+test_optimization_output/
+optimization_results.txt
+optimization_test_output.txt
+complete_test_results.txt
+large_csv_results.txt
+manual_optimize_output.txt
+build.log
 
 # OS generated files
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-test_final/
+.pytest_cache/
+
+# Shell scripts (temporary/testing)
+build_all_platforms.sh
+test_build.sh

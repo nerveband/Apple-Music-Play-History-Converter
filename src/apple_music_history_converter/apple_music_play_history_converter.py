@@ -51,7 +51,7 @@ class AppleMusicConverterApp(toga.App):
         """Helper to safely schedule async UI updates from sync code."""
         try:
             loop = asyncio.get_running_loop()
-            return asyncio.run_coroutine_threadsafe(coro, loop)
+            return self._schedule_ui_update(coro, loop)
         except RuntimeError:
             # No loop running, create task directly
             return asyncio.create_task(coro)
@@ -2470,11 +2470,7 @@ class AppleMusicConverterApp(toga.App):
             keep_results = locals().get('processing_successful', False)
             async def reset_with_params():
                 await self._reset_buttons_ui(keep_results_buttons=keep_results)
-            try:
-                loop = asyncio.get_running_loop()
-                asyncio.run_coroutine_threadsafe(reset_with_params(), loop)
-            except RuntimeError:
-                asyncio.create_task(reset_with_params())
+            self._schedule_ui_update(reset_with_params())
     
     def enable_copy_save_buttons(self):
         """Enable copy, save, and missing artists buttons - synchronous version."""
@@ -4058,8 +4054,7 @@ class AppleMusicConverterApp(toga.App):
                     self.main_window.dialog(toga.ErrorDialog(
                         title="Save Error",
                         message="No data to save. Please process a CSV file first."
-                    )), self.main_loop
-                )
+                    )))
                 return None
                 
             # Generate output filename
@@ -4071,21 +4066,17 @@ class AppleMusicConverterApp(toga.App):
                 # Check if output directory is writable
                 output_dir = os.path.dirname(output_path)
                 if not os.access(output_dir, os.W_OK):
-                    asyncio.run_coroutine_threadsafe(
-                        self.main_window.dialog(toga.ErrorDialog(
+                    self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                             title="Write Permission Error",
                             message=f"Cannot write to directory: {output_dir}\nPlease check permissions."
-                        )), self.main_loop
-                    )
+                        )))
                     return None
                     
             except Exception as e:
-                asyncio.run_coroutine_threadsafe(
-                    self.main_window.dialog(toga.ErrorDialog(
+                self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                         title="Path Generation Error",
                         message=f"Error generating output path: {str(e)}"
-                    )), self.main_loop
-                )
+                    )))
                 return None
             
             # Prepare data for Last.fm format: Artist, Track, Album, Timestamp, Album Artist, Duration
@@ -4107,21 +4098,17 @@ class AppleMusicConverterApp(toga.App):
                         continue
                         
                 if not lastfm_data:
-                    asyncio.run_coroutine_threadsafe(
-                        self.main_window.dialog(toga.ErrorDialog(
+                    self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                             title="Data Processing Error",
                             message="No valid data rows found for saving."
-                        )), self.main_loop
-                    )
+                        )))
                     return None
                     
             except Exception as e:
-                asyncio.run_coroutine_threadsafe(
-                    self.main_window.dialog(toga.ErrorDialog(
+                self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                         title="Data Format Error",
                         message=f"Error formatting data for Last.fm: {str(e)}"
-                    )), self.main_loop
-                )
+                    )))
                 return None
             
             # Create DataFrame with proper Last.fm headers
@@ -4131,21 +4118,17 @@ class AppleMusicConverterApp(toga.App):
                 ])
                 
                 if lastfm_df.empty:
-                    asyncio.run_coroutine_threadsafe(
-                        self.main_window.dialog(toga.ErrorDialog(
+                    self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                             title="Empty Output",
                             message="Processed data resulted in empty output file."
-                        )), self.main_loop
-                    )
+                        )))
                     return None
                     
             except Exception as e:
-                asyncio.run_coroutine_threadsafe(
-                    self.main_window.dialog(toga.ErrorDialog(
+                self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                         title="DataFrame Creation Error",
                         message=f"Error creating output DataFrame: {str(e)}"
-                    )), self.main_loop
-                )
+                    )))
                 return None
             
             # Save to CSV with error handling
@@ -4157,49 +4140,39 @@ class AppleMusicConverterApp(toga.App):
                     # Store the output file path for later reprocessing (like tkinter version)
                     self.last_output_file = output_path
                     # Enable reprocess button after successful save (like tkinter)
-                    asyncio.run_coroutine_threadsafe(self._enable_reprocess_button(), self.main_loop)
+                    self._schedule_ui_update(self._enable_reprocess_button())
                     return output_path
                 else:
-                    asyncio.run_coroutine_threadsafe(
-                        self.main_window.dialog(toga.ErrorDialog(
+                    self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                             title="File Creation Error",
                             message="Output file was not created or is empty."
-                        )), self.main_loop
-                    )
+                        )))
                     return None
                     
             except PermissionError:
-                asyncio.run_coroutine_threadsafe(
-                    self.main_window.dialog(toga.ErrorDialog(
+                self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                         title="Permission Error", 
                         message=f"Permission denied writing to: {output_path}"
-                    )), self.main_loop
-                )
+                    )))
                 return None
             except IOError as e:
-                asyncio.run_coroutine_threadsafe(
-                    self.main_window.dialog(toga.ErrorDialog(
+                self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                         title="I/O Error",
                         message=f"I/O error saving file: {str(e)}"
-                    )), self.main_loop
-                )
+                    )))
                 return None
             except Exception as e:
-                asyncio.run_coroutine_threadsafe(
-                    self.main_window.dialog(toga.ErrorDialog(
+                self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                         title="Save Error",
                         message=f"Failed to save CSV file: {str(e)}"
-                    )), self.main_loop
-                )
+                    )))
                 return None
                 
         except Exception as e:
-            asyncio.run_coroutine_threadsafe(
-                self.main_window.dialog(toga.ErrorDialog(
+            self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                     title="Unexpected Save Error",
                     message=f"Unexpected error during save: {str(e)}"
-                )), self.main_loop
-            )
+                )))
             return None
     
     def update_results(self, text):
@@ -4207,7 +4180,7 @@ class AppleMusicConverterApp(toga.App):
         # Store values for UI update
         self._pending_results_text = text
         # Schedule UI update on main thread from background thread
-        asyncio.run_coroutine_threadsafe(self._update_results_ui(), self.main_loop)
+        self._schedule_ui_update(self._update_results_ui())
 
     async def _update_results_ui(self, widget=None):
         """Update results UI on main thread."""
@@ -4216,7 +4189,7 @@ class AppleMusicConverterApp(toga.App):
     def append_log(self, text):
         """Append text to the log area (for live updates during search)."""
         self._pending_log_append = text
-        asyncio.run_coroutine_threadsafe(self._append_log_ui(), self.main_loop)
+        self._schedule_ui_update(self._append_log_ui())
 
     async def _append_log_ui(self):
         """Append to log UI on main thread (newest at top)."""
@@ -4237,7 +4210,7 @@ class AppleMusicConverterApp(toga.App):
         self._pending_preview_df = df
         self._pending_total_rows = total_rows if total_rows is not None else len(df)
         # Schedule UI update on main thread from background thread
-        asyncio.run_coroutine_threadsafe(self._update_preview_ui(), self.main_loop)
+        self._schedule_ui_update(self._update_preview_ui())
     
     async def _update_preview_ui(self, widget=None):
         """Update preview UI on main thread."""
@@ -4444,7 +4417,7 @@ class AppleMusicConverterApp(toga.App):
         self._pending_progress_value = value
         self._pending_detailed_stats = detailed_stats
         # Schedule UI update on main thread from background thread
-        asyncio.run_coroutine_threadsafe(self._update_progress_ui(), self.main_loop)
+        self._schedule_ui_update(self._update_progress_ui())
 
     async def _update_progress_ui(self, widget=None):
         """Update progress UI on main thread."""
@@ -4463,7 +4436,7 @@ class AppleMusicConverterApp(toga.App):
         try:
             if hasattr(self, 'api_status_label'):
                 # Schedule UI update on main thread
-                asyncio.run_coroutine_threadsafe(self._update_api_status_ui(status), self.main_loop)
+                self._schedule_ui_update(self._update_api_status_ui(status))
         except Exception as e:
             print(f"Error updating API status: {e}")
     
@@ -4477,7 +4450,7 @@ class AppleMusicConverterApp(toga.App):
         try:
             if hasattr(self, 'skip_wait_button'):
                 # Schedule UI update on main thread
-                asyncio.run_coroutine_threadsafe(self._show_skip_button_ui(), self.main_loop)
+                self._schedule_ui_update(self._show_skip_button_ui())
         except Exception as e:
             print(f"Error showing skip button: {e}")
     
@@ -4493,13 +4466,13 @@ class AppleMusicConverterApp(toga.App):
             remaining = max(0, self.wait_duration - elapsed)
             # Update status bar wait time
             status_text = f" Wait: {remaining:.1f}s"
-            asyncio.run_coroutine_threadsafe(self._update_timer_ui(status_text), self.main_loop)
+            self._schedule_ui_update(self._update_timer_ui(status_text))
             if remaining > 0 and not getattr(self, 'process_stopped', False) and not self.skip_wait_requested:
                 # Schedule next update
                 threading.Timer(0.1, self.update_rate_limit_timer).start()
             else:
                 self.api_wait_start = None
-                asyncio.run_coroutine_threadsafe(self._update_timer_ui(""), self.main_loop)
+                self._schedule_ui_update(self._update_timer_ui(""))
                 self.hide_skip_button()
     
     async def _update_timer_ui(self, text):
@@ -4511,7 +4484,7 @@ class AppleMusicConverterApp(toga.App):
         """Hide the skip wait button."""
         try:
             if hasattr(self, 'skip_wait_button'):
-                asyncio.run_coroutine_threadsafe(self._hide_skip_button_ui(), self.main_loop)
+                self._schedule_ui_update(self._hide_skip_button_ui())
         except Exception as e:
             print(f"Error hiding skip button: {e}")
     
@@ -4560,10 +4533,7 @@ class AppleMusicConverterApp(toga.App):
                 missing_count = len(self.processed_df[self.processed_df['Artist'].isna() | (self.processed_df['Artist'] == '')])
 
                 # Schedule UI update on main thread
-                asyncio.run_coroutine_threadsafe(
-                    self._update_missing_artist_count_ui(missing_count),
-                    self.main_loop
-                )
+                self._schedule_ui_update(self._update_missing_artist_count_ui(missing_count))
         except Exception as e:
             print(f"⚠️  Error updating missing artist count: {e}")
 
@@ -4604,10 +4574,7 @@ class AppleMusicConverterApp(toga.App):
         """Callback when rate limit is hit - updates UI and enables skip button."""
         try:
             # Enable skip button
-            asyncio.run_coroutine_threadsafe(
-                self._enable_skip_button(),
-                self.main_loop
-            )
+            self._schedule_ui_update(self._enable_skip_button())
         except Exception as e:
             print(f"⚠️  Error in rate limit callback: {e}")
 
@@ -4625,10 +4592,7 @@ class AppleMusicConverterApp(toga.App):
         print(f"✅ Discovered rate limit: {discovered_limit}, will use {effective_limit} going forward")
 
         # Update the discovered limit display if it exists
-        asyncio.run_coroutine_threadsafe(
-            self._update_discovered_limit_ui(discovered_limit, effective_limit),
-            self.main_loop
-        )
+        self._schedule_ui_update(self._update_discovered_limit_ui(discovered_limit, effective_limit))
 
     async def _update_discovered_limit_ui(self, discovered, effective):
         """Update UI to show discovered rate limit."""
@@ -4692,10 +4656,7 @@ class AppleMusicConverterApp(toga.App):
                 remaining_secs = int(remaining)
                 if remaining_secs > 0:
                     # Update button text to show countdown
-                    asyncio.run_coroutine_threadsafe(
-                        self._update_skip_button_text(f"Skip or Wait {remaining_secs}s"),
-                        self.main_loop
-                    )
+                    self._schedule_ui_update(self._update_skip_button_text(f"Skip or Wait {remaining_secs}s"))
                     # Also update progress message
                     self.update_progress(f"⏸️  Rate limit: {remaining_secs}s", None)
 
@@ -4707,10 +4668,7 @@ class AppleMusicConverterApp(toga.App):
         self.rate_limit_remaining = 0
 
         # Reset button text and disable after wait completes
-        asyncio.run_coroutine_threadsafe(
-            self._reset_skip_button(),
-            self.main_loop
-        )
+        self._schedule_ui_update(self._reset_skip_button())
 
     async def _update_skip_button_text(self, text):
         """Update skip button text."""
@@ -4809,10 +4767,7 @@ class AppleMusicConverterApp(toga.App):
                     
             # Update rate limit stats with color (note: Toga doesn't support colors the same way)
             if hasattr(self, 'rate_limit_stats_label'):
-                asyncio.run_coroutine_threadsafe(
-                    self._update_rate_limit_stats_ui(rate_limit_text), 
-                    self.main_loop
-                )
+                self._schedule_ui_update(self._update_rate_limit_stats_ui(rate_limit_text))
         except Exception as e:
             print(f"Error updating stats display: {e}")
     
@@ -6358,10 +6313,7 @@ The import will validate the file format and show progress."""
                         self.update_missing_artist_count()
 
                         # Update UI asynchronously (radio buttons and button text)
-                        asyncio.run_coroutine_threadsafe(
-                            self._switch_to_itunes_ui(missing_after_mb),
-                            self.main_loop
-                        )
+                        self._schedule_ui_update(self._switch_to_itunes_ui(missing_after_mb))
                     else:
                         # All artists found
                         self.update_progress(
@@ -6571,7 +6523,7 @@ The import will validate the file format and show progress."""
         
         finally:
             # Re-enable buttons on main thread
-            asyncio.run_coroutine_threadsafe(self._reset_reprocess_buttons_ui(), self.main_loop)
+            self._schedule_ui_update(self._reset_reprocess_buttons_ui())
     
     async def _reset_reprocess_buttons_ui(self, widget=None):
         """Reset reprocess button states on main thread."""
@@ -7291,17 +7243,11 @@ The import will validate the file format and show progress."""
                 elapsed = time.time() - start_time
                 timer_text = f" (Elapsed: {elapsed:.0f}s)"
                 # Schedule UI update
-                asyncio.run_coroutine_threadsafe(
-                    self._update_optimization_progress(f"🔧 Optimizing: {message}{timer_text}"), 
-                    self.main_loop
-                )
+                self._schedule_ui_update(self._update_optimization_progress(f"🔧 Optimizing: {message}{timer_text}"))
             
             def completion_callback():
                 # Schedule UI update
-                asyncio.run_coroutine_threadsafe(
-                    self._update_optimization_complete(), 
-                    self.main_loop
-                )
+                self._schedule_ui_update(self._update_optimization_complete())
             
             # Start progressive loading in background
             def optimize():
@@ -7310,10 +7256,7 @@ The import will validate the file format and show progress."""
                     completion_callback()
                 except Exception as e:
                     print(f"Optimization error: {e}")
-                    asyncio.run_coroutine_threadsafe(
-                        self._update_optimization_error(), 
-                        self.main_loop
-                    )
+                    self._schedule_ui_update(self._update_optimization_error())
             
             # Use async task instead of threading for UI safety
             asyncio.create_task(self.optimize_musicbrainz_async())
