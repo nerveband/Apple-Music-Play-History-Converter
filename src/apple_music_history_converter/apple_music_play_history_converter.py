@@ -19,6 +19,7 @@ import csv
 import io
 import platform
 import logging
+import subprocess
 from pathlib import Path
 from threading import Lock
 from datetime import datetime
@@ -51,13 +52,13 @@ class AppleMusicConverterApp(toga.App):
         """Initialize the application and create the main window."""
         if TRACE_ENABLED:
             trace_log.debug("Startup sequence initiated")
-        # Store main event loop for thread-safe UI updates
-        self.main_loop = asyncio.get_event_loop()
-        
-        # Initialize state variables (fix name collision from tkinter specs)
+        # NOTE: Toga manages the event loop automatically - no manual storage needed
+        # Removed: self.main_loop = asyncio.get_event_loop()
+
+        # Initialize state variables
         self.pause_itunes_search_flag = False
         self.stop_itunes_search_flag = False
-        self.processing_thread = None
+        # Removed: self.processing_thread = None (using async/await instead of threads)
         self.file_size = 0
         self.row_count = 0
         self.current_file_path = None
@@ -6710,23 +6711,54 @@ The import will validate the file format and show progress."""
                 ))
     
     async def reveal_database_location(self, widget):
-        """Reveal the database location in file system."""
+        """Reveal the database location in file system (secure subprocess version)."""
         try:
             db_path = self.music_search_service.get_database_path()
-            if db_path and os.path.exists(db_path):
-                # Open file manager to the database location
-                if sys.platform == "darwin":  # macOS
-                    os.system(f'open -R "{db_path}"')
-                elif sys.platform == "win32":  # Windows
-                    os.system(f'explorer /select,"{db_path}"')
-                else:  # Linux
-                    os.system(f'xdg-open "{os.path.dirname(db_path)}"')
-            else:
+            if not db_path or not os.path.exists(db_path):
                 await self.main_window.dialog(toga.ErrorDialog(
                     title="Database Not Found",
                     message="Database files not found. Please download the database first."
                 ))
+                return
+
+            # Convert to Path object for safety and resolve to absolute path
+            db_path = Path(db_path).resolve()
+
+            # Platform-specific secure commands (shell=False prevents injection)
+            try:
+                if sys.platform == "darwin":  # macOS
+                    subprocess.run(
+                        ["open", "-R", str(db_path)],
+                        check=True,
+                        shell=False,  # Critical: prevents shell injection
+                        timeout=5  # Prevent hanging
+                    )
+                elif sys.platform == "win32":  # Windows
+                    subprocess.run(
+                        ["explorer", "/select,", str(db_path)],
+                        check=True,
+                        shell=False,
+                        timeout=5
+                    )
+                else:  # Linux
+                    subprocess.run(
+                        ["xdg-open", str(db_path.parent)],
+                        check=True,
+                        shell=False,
+                        timeout=5
+                    )
+            except subprocess.CalledProcessError as e:
+                await self.main_window.dialog(toga.ErrorDialog(
+                    title="Error Opening Location",
+                    message=f"Failed to open file location: {e}"
+                ))
+            except subprocess.TimeoutExpired:
+                await self.main_window.dialog(toga.ErrorDialog(
+                    title="Timeout",
+                    message="File manager took too long to respond."
+                ))
         except Exception as e:
+            logger.error(f"Error revealing database location: {e}")
             await self.main_window.dialog(toga.ErrorDialog(
                 title="Error",
                 message=f"Could not open database location: {str(e)}"
