@@ -19,7 +19,10 @@ logging.basicConfig(
 )
 
 # Import the Toga-based application
-from .apple_music_play_history_converter import main as create_app
+try:
+    from .apple_music_play_history_converter import main as create_app
+except ImportError:
+    from apple_music_play_history_converter import main as create_app
 
 
 class AppleMusicHistoryConverterApp:

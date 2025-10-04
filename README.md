@@ -91,11 +91,14 @@ The Apple Music Play History Converter is a Python-based desktop application tha
 
 #### Quick Start
 1. Clone or download this repository
-2. Run the application:
+2. Install dependencies (preferably in a virtual environment):
    ```bash
-   python run_app.py
+   pip install -r requirements.txt
    ```
-   This will automatically set up a virtual environment and install dependencies.
+3. Launch the application with Toga:
+   ```bash
+   python run_toga_app.py
+   ```
 
 #### Manual Installation
 ```bash
@@ -317,8 +320,8 @@ For persistent issues, please report them with:
 ### Common Issues
 
 1. **"Module not found" errors**
-   - Run `python run_app.py` to automatically install dependencies
-   - Or manually install: `pip install -r requirements.txt`
+   - Install dependencies: `pip install -r requirements.txt`
+   - Then launch with `python run_toga_app.py`
 
 2. **MusicBrainz download fails**
    - Check internet connection
@@ -331,7 +334,7 @@ For persistent issues, please report them with:
 
 4. **App won't start**
    - Ensure Python 3.7+ is installed
-   - Try running: `python apple_music_play_history_converter.py` directly
+   - Try launching via `python run_toga_app.py` or `python src/apple_music_history_converter/__main__.py`
 
 ### Getting Help
 - Check the troubleshooting section above
@@ -341,13 +344,13 @@ For persistent issues, please report them with:
 ## Technical Details
 
 ### Architecture
-- Built using Python with tkinter for the GUI
-- Modular design with separate classes for different functionality:
-  - `MusicBrainzManager`: Handles MusicBrainz database operations
-  - `MusicSearchService`: Routes search requests between providers
-  - `DatabaseDialogs`: Manages setup and configuration dialogs
-- Multi-threaded processing to keep the UI responsive during operations
-- Efficient memory usage with chunked data processing
+- Built using Python with a Toga-based GUI (Briefcase packaging)
+- Modular design with dedicated components:
+  - `MusicBrainzManagerV2`: Handles MusicBrainz DuckDB lifecycle and search
+  - `MusicSearchServiceV2`: Routes lookups between MusicBrainz and iTunes
+  - `OptimizationModal`: Provides the Toga optimization workflow
+- Background workers keep the UI responsive during long-running operations
+- Chunked data processing to limit memory usage on large CSV exports
 
 ### Algorithms
 - **Reverse-chronological timestamping**: Calculates play times by working backwards from the current time using track durations
@@ -358,52 +361,31 @@ For persistent issues, please report them with:
 
 ```
 Apple-Music-Play-History-Converter/
-├── apple_music_play_history_converter.py  # Main application with GUI
-├── database_dialogs.py                    # Database setup and configuration dialogs
-├── music_search_service.py                # Search provider routing (MusicBrainz/iTunes)
-├── musicbrainz_manager.py                 # MusicBrainz database management
-├── progress_dialog.py                     # Progress tracking for long operations
-├── run_app.py                             # Application launcher (recommended entry point)
-├── run_tests.py                           # Test suite runner
+├── README.md / CHANGELOG.md / CLAUDE.md   # Documentation
+├── pyproject.toml                         # Briefcase + packaging configuration
 ├── requirements.txt                       # Python dependencies
-├── README.md                              # Project documentation
-├── CHANGELOG.md                           # Version history and changes
-├── CLAUDE.md                              # Development and build documentation
-├── LICENSE                                # MIT License
-├── .gitignore                             # Git ignore rules
-├── .gitattributes                         # Git attributes for file handling
-├── app_data/                              # Application data directory
-│   ├── settings.json                      # User preferences and configuration
-│   └── musicbrainz/                       # MusicBrainz database files
-├── build_artifacts/                       # Build scripts and distribution files
-│   ├── build_macos.sh                     # macOS build script (with code signing)
-│   ├── build_linux.sh                     # Linux build script
-│   ├── build_windows.bat                  # Windows build script
-│   ├── build_*.spec                       # PyInstaller specification files
-│   ├── sign_app_developer.sh              # macOS app signing script
-│   ├── entitlements.plist                 # macOS app entitlements
-│   ├── get_team_id.sh                     # Apple Developer team ID utility
-│   ├── Apple_Music_History_Converter_Notarized.zip  # Final macOS distribution
-│   └── README.md                          # Build documentation
-├── tests/                                 # Test suite
-│   ├── test_*.py                          # Individual test modules
-│   ├── _test_csvs/                        # Sample CSV files for testing
-│   └── README.md                          # Test documentation
-├── demos/                                 # Example scripts and workflows
-│   ├── demo_*.py                          # Demonstration applications
-│   └── README.md                          # Demo documentation
-└── images/                                # Application icons and screenshots
-    ├── appicon.icns                       # macOS app icon
-    ├── appicon.ico                        # Windows app icon  
-    ├── appicon.png                        # Generic app icon
-    └── screenshot-*.png                   # Application screenshots
+├── run_toga_app.py                        # Convenience runner for the Toga app
+├── run_tests.py                           # Test suite runner
+├── src/apple_music_history_converter/
+│   ├── app.py                             # Briefcase entry point
+│   ├── apple_music_play_history_converter.py  # Main Toga application
+│   ├── music_search_service_v2.py         # Search provider routing (canonical)
+│   ├── musicbrainz_manager_v2.py          # MusicBrainz DuckDB manager
+│   ├── optimization_modal.py              # Optimization modal helpers
+│   └── resources/                         # Static assets for Briefcase
+├── build/                                 # Briefcase build artifacts
+├── dist/                                  # Packaged application output
+├── images/                                # Icons and marketing assets
+├── logs/                                  # Runtime logs when available
+├── _test_csvs/                            # Sample CSVs used in debugging/tests
+└── tmp/                                   # Working scratch directory (git-ignored)
 ```
 
 ### Core Application Files
 
 | File | Purpose |
 |------|---------|
-| `run_app.py` | **Recommended entry point** - Sets up environment and launches app |
+| `run_toga_app.py` | Convenience launcher for the Toga application |
 | `src/apple_music_history_converter/` | Main application package with all source code |
 | `pyproject.toml` | Briefcase configuration and project metadata |
 
@@ -411,8 +393,8 @@ Apple-Music-Play-History-Converter/
 
 | File | Purpose |
 |------|---------|
-| `fix_tkinter.py` | Helper script for tkinter integration in Briefcase builds |
-| `.env` | Apple credentials for notarization (git-ignored) |
+| `build/` | Output from `briefcase build`/`create` commands |
+| `dist/` | Signed/packaged application bundles |
 
 ### Documentation Files
 
@@ -544,10 +526,11 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 
 ### Development Setup
 1. Clone the repository
-2. Run `python run_app.py` to set up the development environment
-3. Make your changes
-4. Run tests: `python run_tests.py`
-5. Build and test: `cd build_artifacts && python build_all.py`
+2. (Optional) Create and activate a virtual environment
+3. Install dependencies: `pip install -r requirements.txt`
+4. Make your changes
+5. Run tests: `python run_tests.py`
+6. Build the app: `briefcase build`
 
 ### Code Signing for Contributors
 If you're contributing and need to test macOS builds:

@@ -43,6 +43,8 @@ env/
 *.spec
 dist.zip
 tkinter_hook.py
+release_builds/
+releases_archive/
 
 # App data
 app_data/

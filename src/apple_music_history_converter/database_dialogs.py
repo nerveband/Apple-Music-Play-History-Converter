@@ -1,67 +1,48 @@
 #!/usr/bin/env python3
 """
-Database management dialogs for MusicBrainz integration.
+Database management dialogs for MusicBrainz integration - Toga version.
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW, CENTER
 import threading
 import time
 import os
-import sv_ttk
-import darkdetect
-import webbrowser
+import asyncio
 
 
 class FirstTimeSetupDialog:
     """Dialog shown when MusicBrainz database is not available."""
-    
-    def __init__(self, parent):
-        self.parent = parent
+
+    def __init__(self, parent_window):
+        self.parent_window = parent_window
         self.choice = None
-        self.dialog = None
-    
-    def show_and_wait(self):
+        self.dialog_window = None
+
+    async def show_and_wait(self):
         """Show dialog and wait for user choice."""
-        self.dialog = tk.Toplevel(self.parent)
-        self.dialog.title("MusicBrainz Setup")
-        self.dialog.geometry("500x400")
-        self.dialog.resizable(False, False)
-        self.dialog.transient(self.parent)
-        self.dialog.grab_set()
-        
-        # Apply theme to dialog
-        try:
-            is_dark = darkdetect.isDark()
-            if is_dark:
-                sv_ttk.set_theme("dark")
-            else:
-                sv_ttk.set_theme("light")
-        except Exception:
-            sv_ttk.set_theme("light")
-        
-        # Center the dialog
-        self.dialog.geometry("+%d+%d" % (
-            self.parent.winfo_rootx() + 50,
-            self.parent.winfo_rooty() + 50
-        ))
-        
-        self.create_widgets()
-        
-        # Wait for dialog to close
-        self.parent.wait_window(self.dialog)
-        return self.choice
-    
-    def create_widgets(self):
-        """Create dialog widgets."""
-        main_frame = ttk.Frame(self.dialog, padding=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
+        # Create dialog content
+        main_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                padding=20,
+                alignment=CENTER
+            )
+        )
+
         # Title
-        title_label = ttk.Label(main_frame, text="🎵 Music Search Setup", 
-                               font=("Arial", 16, "bold"))
-        title_label.pack(pady=(0, 15))
-        
+        title_label = toga.Label(
+            "🎵 Music Search Setup",
+            style=Pack(
+                font_size=16,
+                font_weight="bold",
+                padding_bottom=15,
+                text_align=CENTER
+            )
+        )
+        main_box.add(title_label)
+
         # Description
         desc_text = """To find missing artist information, choose how you'd like to search for music data:
 
@@ -82,58 +63,100 @@ class FirstTimeSetupDialog:
 📁 Manual Import
 • Use if automatic download fails
 • Import your own MusicBrainz database file"""
-        
-        desc_label = ttk.Label(main_frame, text=desc_text, justify=tk.LEFT, font=("Arial", 11))
-        desc_label.pack(pady=(0, 25))
-        
-        # Buttons frame
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X)
-        
+
+        desc_label = toga.Label(
+            desc_text,
+            style=Pack(
+                padding_bottom=25,
+                text_align=CENTER,
+                font_size=11
+            )
+        )
+        main_box.add(desc_label)
+
+        # Buttons container
+        button_box = toga.Box(
+            style=Pack(
+                direction=ROW,
+                padding=5,
+                alignment=CENTER
+            )
+        )
+
         # Download button
-        download_btn = ttk.Button(button_frame, text="📥 Download MusicBrainz (~2GB)", 
-                                 command=self.choose_download)
-        download_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
+        download_btn = toga.Button(
+            "📥 Download MusicBrainz (~2GB)",
+            on_press=self.choose_download,
+            style=Pack(padding_right=10, width=220)
+        )
+        button_box.add(download_btn)
+
         # iTunes button
-        itunes_btn = ttk.Button(button_frame, text="🌐 Use iTunes API", 
-                               command=self.choose_itunes)
-        itunes_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
+        itunes_btn = toga.Button(
+            "🌐 Use iTunes API",
+            on_press=self.choose_itunes,
+            style=Pack(padding_right=10, width=180)
+        )
+        button_box.add(itunes_btn)
+
         # Manual import button
-        manual_btn = ttk.Button(button_frame, text="📁 Manual Import", 
-                               command=self.choose_manual)
-        manual_btn.pack(side=tk.LEFT)
-    
-    def choose_download(self):
+        manual_btn = toga.Button(
+            "📁 Manual Import",
+            on_press=self.choose_manual,
+            style=Pack(width=160)
+        )
+        button_box.add(manual_btn)
+
+        main_box.add(button_box)
+
+        # Create dialog window
+        self.dialog_window = toga.Window(
+            title="MusicBrainz Setup",
+            size=(600, 500),
+            resizable=False,
+            on_close=self.on_close
+        )
+        self.dialog_window.content = main_box
+        self.dialog_window.show()
+
+        # Wait for user choice
+        while self.choice is None:
+            await asyncio.sleep(0.1)
+
+        return self.choice
+
+    def choose_download(self, widget):
         """User chose to download database."""
         self.choice = "download"
-        self.dialog.destroy()
-    
-    def choose_itunes(self):
+        if self.dialog_window:
+            self.dialog_window.close()
+
+    def choose_itunes(self, widget):
         """User chose iTunes API."""
         self.choice = "itunes"
-        self.dialog.destroy()
-    
-    def choose_manual(self):
+        if self.dialog_window:
+            self.dialog_window.close()
+
+    def choose_manual(self, widget):
         """User chose manual import."""
         self.choice = "manual"
-        self.dialog.destroy()
-    
-    def cancel(self):
+        if self.dialog_window:
+            self.dialog_window.close()
+
+    def on_close(self, widget):
         """User cancelled."""
         self.choice = "cancel"
-        self.dialog.destroy()
+        return True
 
 
 class DatabaseDownloadDialog:
     """Dialog for downloading MusicBrainz database with progress."""
-    
-    def __init__(self, parent, music_search_service, on_complete_callback=None):
-        self.parent = parent
+
+    def __init__(self, parent_window, music_search_service, on_complete_callback=None):
+        self.parent_window = parent_window
         self.music_search_service = music_search_service
         self.on_complete_callback = on_complete_callback
-        self.dialog = None
+        self.dialog_window = None
         self.cancelled = False
         self.download_thread = None
         self.start_time = None
@@ -142,327 +165,341 @@ class DatabaseDownloadDialog:
         self.last_time = None
         self.last_speed_update = None
         self.speed_samples = []
-        self.speed_update_interval = 1.5  # Update speed every 1.5 seconds
-        
-    def show(self):
+        self.speed_update_interval = 1.5
+
+        # UI elements
+        self.status_label = None
+        self.progress_bar = None
+        self.progress_label = None
+        self.elapsed_label = None
+        self.speed_label = None
+        self.url_input = None
+        self.copy_url_button = None
+        self.cancel_button = None
+
+    async def show(self):
         """Show the download dialog."""
-        try:
-            self.dialog = tk.Toplevel(self.parent)
-            self.dialog.title("Downloading MusicBrainz Database")
-            self.dialog.geometry("600x400")
-            self.dialog.resizable(False, False)
-            self.dialog.transient(self.parent)
-            
-            # Apply theme to dialog
-            try:
-                is_dark = darkdetect.isDark()
-                if is_dark:
-                    sv_ttk.set_theme("dark")
-                else:
-                    sv_ttk.set_theme("light")
-            except Exception:
-                sv_ttk.set_theme("light")
-            
-            # Center the dialog safely
-            try:
-                self.dialog.geometry("+%d+%d" % (
-                    self.parent.winfo_rootx() + 50,
-                    self.parent.winfo_rooty() + 50
-                ))
-            except:
-                # If centering fails, use default position
-                pass
-            
-            # Handle window close
-            self.dialog.protocol("WM_DELETE_WINDOW", self.cancel)
-            
-            self.create_widgets()
-            
-            # Set grab after widgets are created
-            try:
-                self.dialog.grab_set()
-            except:
-                # If grab_set fails on some systems, continue without it
-                pass
-            
-            self.start_download()
-            
-        except Exception as e:
-            print(f"Error creating database download dialog: {e}")
-            if self.dialog:
-                try:
-                    self.dialog.destroy()
-                except:
-                    pass
-    
-    def create_widgets(self):
-        """Create dialog widgets."""
-        main_frame = ttk.Frame(self.dialog, padding=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
+        # Create dialog content
+        main_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                padding=20,
+                alignment=CENTER
+            )
+        )
+
         # Title
-        title_label = ttk.Label(main_frame, text="Downloading MusicBrainz Database", 
-                               font=("Arial", 12, "bold"))
-        title_label.pack(pady=(0, 10))
-        
-        # Warning about file size and system requirements
-        warning_label = ttk.Label(main_frame, 
-                                 text="⚠️ This will download approximately 2GB of data",
-                                 foreground="orange")
-        warning_label.pack(pady=(0, 5))
-        
+        title_label = toga.Label(
+            "Downloading MusicBrainz Database",
+            style=Pack(
+                font_size=12,
+                font_weight="bold",
+                padding_bottom=10,
+                text_align=CENTER
+            )
+        )
+        main_box.add(title_label)
+
+        # Warning about file size
+        warning_label = toga.Label(
+            "⚠️ This will download approximately 2GB of data",
+            style=Pack(padding_bottom=5, text_align=CENTER)
+        )
+        main_box.add(warning_label)
+
         # System requirements warning
-        req_label = ttk.Label(main_frame, 
-                             text="💾 System Requirements: 8GB RAM recommended (6GB minimum)",
-                             foreground="red", font=("Arial", 10, "bold"))
-        req_label.pack(pady=(0, 10))
-        
+        req_label = toga.Label(
+            "💾 System Requirements: 8GB RAM recommended (6GB minimum)",
+            style=Pack(
+                padding_bottom=10,
+                text_align=CENTER,
+                font_weight="bold"
+            )
+        )
+        main_box.add(req_label)
+
         # Status label
-        self.status_label = ttk.Label(main_frame, text="Preparing download...")
-        self.status_label.pack(pady=(0, 10))
-        
+        self.status_label = toga.Label(
+            "Preparing download...",
+            style=Pack(padding_bottom=10, text_align=CENTER)
+        )
+        main_box.add(self.status_label)
+
         # Progress bar
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(main_frame, variable=self.progress_var, 
-                                           maximum=100, length=400)
-        self.progress_bar.pack(pady=(0, 10))
-        
+        self.progress_bar = toga.ProgressBar(
+            max=100,
+            value=0,
+            style=Pack(width=400, padding_bottom=10)
+        )
+        main_box.add(self.progress_bar)
+
         # Progress text
-        self.progress_label = ttk.Label(main_frame, text="0%")
-        self.progress_label.pack(pady=(0, 10))
-        
+        self.progress_label = toga.Label(
+            "0%",
+            style=Pack(padding_bottom=10, text_align=CENTER)
+        )
+        main_box.add(self.progress_label)
+
         # Download details frame
-        details_frame = ttk.LabelFrame(main_frame, text="Download Details", padding=10)
-        details_frame.pack(fill=tk.X, pady=(0, 15))
-        
+        details_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                padding=10,
+                alignment=CENTER
+            )
+        )
+
         # URL display
-        url_frame = ttk.Frame(details_frame)
-        url_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Label(url_frame, text="Source URL:", font=("Arial", 9, "bold")).pack(anchor="w")
-        
-        # Theme-aware URL text widget colors
-        try:
-            is_dark = darkdetect.isDark()
-            if is_dark:
-                url_bg = "#3c3c3c"
-                url_fg = "#ffffff"
-            else:
-                url_bg = "#f0f0f0"
-                url_fg = "#000000"
-        except Exception:
-            url_bg = "#f0f0f0"
-            url_fg = "#000000"
-        
-        self.url_text = tk.Text(url_frame, height=2, width=50, wrap=tk.WORD, 
-                               font=("Courier", 8), state=tk.DISABLED, 
-                               background=url_bg, foreground=url_fg, cursor="arrow")
-        self.url_text.pack(fill=tk.X, pady=(2, 0))
-        
-        # URL copy button
-        url_button_frame = ttk.Frame(details_frame)
-        url_button_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.copy_url_button = ttk.Button(url_button_frame, text="Copy URL", 
-                                         command=self.copy_url, state="disabled")
-        self.copy_url_button.pack(side=tk.LEFT)
-        
-        self.open_url_button = ttk.Button(url_button_frame, text="Open in Browser", 
-                                         command=self.open_url, state="disabled")
-        self.open_url_button.pack(side=tk.LEFT, padx=(5, 0))
-        
+        url_label = toga.Label(
+            "Source URL:",
+            style=Pack(padding_bottom=5, font_weight="bold")
+        )
+        details_box.add(url_label)
+
+        self.url_input = toga.TextInput(
+            readonly=True,
+            style=Pack(width=500, padding_bottom=5)
+        )
+        details_box.add(self.url_input)
+
+        # URL buttons
+        url_button_box = toga.Box(
+            style=Pack(direction=ROW, padding_bottom=5)
+        )
+
+        self.copy_url_button = toga.Button(
+            "Copy URL",
+            on_press=self.copy_url,
+            enabled=False,
+            style=Pack(padding_right=5)
+        )
+        url_button_box.add(self.copy_url_button)
+
+        details_box.add(url_button_box)
+
         # Statistics
-        stats_frame = ttk.Frame(details_frame)
-        stats_frame.pack(fill=tk.X, pady=(5, 0))
-        
-        self.elapsed_label = ttk.Label(stats_frame, text="Elapsed: 0s", 
-                                      font=("Arial", 9))
-        self.elapsed_label.pack(side=tk.LEFT)
-        
-        self.speed_label = ttk.Label(stats_frame, text="Speed: 0 MB/s", 
-                                    font=("Arial", 9))
-        self.speed_label.pack(side=tk.RIGHT)
-        
+        stats_box = toga.Box(
+            style=Pack(direction=ROW, padding_top=5)
+        )
+
+        self.elapsed_label = toga.Label(
+            "Elapsed: 0s",
+            style=Pack(padding_right=20)
+        )
+        stats_box.add(self.elapsed_label)
+
+        self.speed_label = toga.Label(
+            "Speed: 0 MB/s",
+            style=Pack()
+        )
+        stats_box.add(self.speed_label)
+
+        details_box.add(stats_box)
+        main_box.add(details_box)
+
         # Cancel button
-        self.cancel_button = ttk.Button(main_frame, text="Cancel", command=self.cancel)
-        self.cancel_button.pack()
-    
+        self.cancel_button = toga.Button(
+            "Cancel",
+            on_press=self.cancel,
+            style=Pack(padding_top=10)
+        )
+        main_box.add(self.cancel_button)
+
+        # Create dialog window
+        self.dialog_window = toga.Window(
+            title="Downloading MusicBrainz Database",
+            size=(600, 500),
+            resizable=False,
+            on_close=self.cancel
+        )
+        self.dialog_window.content = main_box
+        self.dialog_window.show()
+
+        # Start download
+        self.start_download()
+
     def start_download(self):
         """Start the download in a separate thread."""
         self.start_time = time.time()
         self.last_time = self.start_time
         self.download_thread = threading.Thread(target=self.download_worker, daemon=True)
         self.download_thread.start()
-    
-    def copy_url(self):
+
+    def copy_url(self, widget):
         """Copy the download URL to clipboard."""
         if self.download_url:
-            self.dialog.clipboard_clear()
-            self.dialog.clipboard_append(self.download_url)
-            self.copy_url_button.config(text="Copied!", state="disabled")
-            self.dialog.after(2000, lambda: self.copy_url_button.config(text="Copy URL", state="normal"))
-    
-    def open_url(self):
-        """Open the download URL in browser."""
-        if self.download_url:
-            import webbrowser
-            webbrowser.open(self.download_url)
-    
+            # Use Toga's clipboard API (cross-platform)
+            import pyperclip
+            pyperclip.copy(self.download_url)
+            self.copy_url_button.text = "Copied!"
+            self.copy_url_button.enabled = False
+            # Re-enable after 2 seconds
+            threading.Timer(2.0, lambda: self._reset_copy_button()).start()
+
+    def _reset_copy_button(self):
+        """Reset the copy button."""
+        if self.copy_url_button:
+            self.copy_url_button.text = "Copy URL"
+            self.copy_url_button.enabled = True
+
     def download_worker(self):
         """Worker thread for downloading."""
         try:
             # Create progress callback
             def progress_callback(message, progress, extra_data=None):
                 if not self.cancelled:
-                    self.parent.after(0, self.update_status, message, progress, extra_data)
-            
+                    asyncio.run_coroutine_threadsafe(
+                        self.update_status(message, progress, extra_data),
+                        asyncio.get_event_loop()
+                    )
+
             # Perform actual download
             success = self.music_search_service.download_database(progress_callback)
-            
+
             if success and not self.cancelled:
-                self.parent.after(0, self.download_complete)
+                asyncio.run_coroutine_threadsafe(
+                    self.download_complete(),
+                    asyncio.get_event_loop()
+                )
             elif not self.cancelled:
-                self.parent.after(0, self.download_error, "Download failed")
-                
+                asyncio.run_coroutine_threadsafe(
+                    self.download_error("Download failed"),
+                    asyncio.get_event_loop()
+                )
+
         except Exception as e:
             if not self.cancelled:
-                self.parent.after(0, self.download_error, str(e))
-    
-    def update_status(self, message, progress, extra_data=None):
-        """Update status message and progress with improved display."""
-        def update():
-            if not self.cancelled and self.dialog.winfo_exists():
-                self.status_label.config(text=message)
-                
-                # Handle URL from extra_data
-                if extra_data and "url" in extra_data:
-                    self.download_url = extra_data["url"]
-                    self.url_text.config(state=tk.NORMAL)
-                    self.url_text.delete(1.0, tk.END)
-                    self.url_text.insert(1.0, self.download_url)
-                    self.url_text.config(state=tk.DISABLED)
-                    self.copy_url_button.config(state="normal")
-                    self.open_url_button.config(state="normal")
-                
-                # Ensure progress is a number
+                asyncio.run_coroutine_threadsafe(
+                    self.download_error(str(e)),
+                    asyncio.get_event_loop()
+                )
+
+    async def update_status(self, message, progress, extra_data=None):
+        """Update status message and progress."""
+        if self.cancelled or not self.dialog_window:
+            return
+
+        self.status_label.text = message
+
+        # Handle URL from extra_data
+        if extra_data and "url" in extra_data:
+            self.download_url = extra_data["url"]
+            self.url_input.value = self.download_url
+            self.copy_url_button.enabled = True
+
+        # Update progress
+        try:
+            progress_num = float(progress) if progress is not None else 0
+        except (ValueError, TypeError):
+            progress_num = 0
+
+        self.progress_bar.value = progress_num
+
+        # Calculate elapsed time and speed
+        current_time = time.time()
+        if self.start_time:
+            elapsed = current_time - self.start_time
+            elapsed_text = f"Elapsed: {int(elapsed//60):02d}:{int(elapsed%60):02d}"
+            self.elapsed_label.text = elapsed_text
+
+            # Calculate download speed
+            if "MB downloaded" in message:
                 try:
-                    progress_num = float(progress) if progress is not None else 0
-                except (ValueError, TypeError):
-                    progress_num = 0
-                
-                self.progress_var.set(progress_num)
-                
-                # Calculate elapsed time and speed
-                current_time = time.time()
-                if self.start_time:
-                    elapsed = current_time - self.start_time
-                    elapsed_text = f"Elapsed: {int(elapsed//60):02d}:{int(elapsed%60):02d}"
-                    self.elapsed_label.config(text=elapsed_text)
-                    
-                    # Calculate download speed (rate limited)
-                    if "MB downloaded" in message:
-                        try:
-                            import re
-                            mb_match = re.search(r'(\d+(?:\.\d+)?)\s*MB', message)
-                            if mb_match:
-                                current_mb = float(mb_match.group(1))
-                                
-                                # Initialize timing if this is the first measurement
-                                if self.last_speed_update is None:
-                                    self.last_speed_update = current_time
-                                    self.last_downloaded = current_mb
-                                    self.speed_label.config(text="Speed: Calculating...")
-                                    return
-                                
-                                # Only update speed display every few seconds
-                                time_since_last_update = current_time - self.last_speed_update
-                                if time_since_last_update >= self.speed_update_interval:
-                                    mb_diff = current_mb - self.last_downloaded
-                                    current_speed = mb_diff / time_since_last_update
-                                    
-                                    # Keep a rolling average of the last 3 speed samples
-                                    self.speed_samples.append(current_speed)
-                                    if len(self.speed_samples) > 3:
-                                        self.speed_samples.pop(0)
-                                    
-                                    # Calculate average speed
-                                    avg_speed = sum(self.speed_samples) / len(self.speed_samples)
-                                    
-                                    # Update display with smooth speed
-                                    if avg_speed > 0:
-                                        self.speed_label.config(text=f"Speed: {avg_speed:.1f} MB/s")
-                                    
-                                    # Update for next calculation
-                                    self.last_speed_update = current_time
-                                    self.last_downloaded = current_mb
-                        except Exception as e:
-                            # Don't let speed calculation errors break the download
-                            pass
-                    elif "Extracting" in message or "Decompressing" in message:
-                        # Clear speed display when moving to extraction phase
-                        self.speed_label.config(text="Speed: N/A")
-                
-                # Enhanced progress label with percentage and estimated completion
-                if progress_num > 0:
-                    # Show progress percentage without duplication
-                    progress_text = f"{progress_num:.1f}%"
-                    
-                    # Add MB information if available in message
-                    if "MB" in message:
-                        # Extract MB info from message for cleaner display
-                        try:
-                            import re
-                            mb_match = re.search(r'(\d+(?:\.\d+)?)\s*MB', message)
-                            if mb_match:
-                                mb_downloaded = float(mb_match.group(1))
-                                # Estimate total size based on progress (assume ~2GB total)
-                                total_mb = mb_downloaded / (progress_num / 100) if progress_num > 0 else 2048
-                                progress_text = f"{progress_num:.1f}% • {mb_downloaded:.0f} MB / {total_mb:.0f} MB"
-                        except:
-                            progress_text = f"{progress_num:.1f}%"
-                    
-                    self.progress_label.config(text=progress_text)
-                else:
-                    self.progress_label.config(text="Starting...")
-        
-        self.parent.after(0, update)
-    
-    def update_progress(self, progress):
-        """Update progress bar."""
-        if not self.cancelled and self.dialog.winfo_exists():
-            self.progress_var.set(progress)
-            self.progress_label.config(text=f"{progress:.1f}%")
-    
-    def download_complete(self):
+                    import re
+                    mb_match = re.search(r'(\d+(?:\.\d+)?)\s*MB', message)
+                    if mb_match:
+                        current_mb = float(mb_match.group(1))
+
+                        if self.last_speed_update is None:
+                            self.last_speed_update = current_time
+                            self.last_downloaded = current_mb
+                            self.speed_label.text = "Speed: Calculating..."
+                            return
+
+                        time_since_last_update = current_time - self.last_speed_update
+                        if time_since_last_update >= self.speed_update_interval:
+                            mb_diff = current_mb - self.last_downloaded
+                            current_speed = mb_diff / time_since_last_update
+
+                            self.speed_samples.append(current_speed)
+                            if len(self.speed_samples) > 3:
+                                self.speed_samples.pop(0)
+
+                            avg_speed = sum(self.speed_samples) / len(self.speed_samples)
+
+                            if avg_speed > 0:
+                                self.speed_label.text = f"Speed: {avg_speed:.1f} MB/s"
+
+                            self.last_speed_update = current_time
+                            self.last_downloaded = current_mb
+                except Exception:
+                    pass
+            elif "Extracting" in message or "Decompressing" in message:
+                self.speed_label.text = "Speed: N/A"
+
+        # Update progress label
+        if progress_num > 0:
+            progress_text = f"{progress_num:.1f}%"
+
+            if "MB" in message:
+                try:
+                    import re
+                    mb_match = re.search(r'(\d+(?:\.\d+)?)\s*MB', message)
+                    if mb_match:
+                        mb_downloaded = float(mb_match.group(1))
+                        total_mb = mb_downloaded / (progress_num / 100) if progress_num > 0 else 2048
+                        progress_text = f"{progress_num:.1f}% • {mb_downloaded:.0f} MB / {total_mb:.0f} MB"
+                except:
+                    pass
+
+            self.progress_label.text = progress_text
+        else:
+            self.progress_label.text = "Starting..."
+
+    async def download_complete(self):
         """Handle successful download completion."""
-        if not self.cancelled and self.dialog.winfo_exists():
-            messagebox.showinfo("Download Complete", 
-                               "MusicBrainz database downloaded successfully!")
-            self.dialog.destroy()
-            
-            # Call the completion callback to refresh the main application
-            if self.on_complete_callback:
-                try:
-                    self.on_complete_callback()
-                except Exception as e:
-                    print(f"Error calling download completion callback: {e}")
-    
-    def download_error(self, error_message):
+        if self.cancelled or not self.dialog_window:
+            return
+
+        await self.parent_window.dialog(toga.InfoDialog(
+            title="Download Complete",
+            message="MusicBrainz database downloaded successfully!"
+        ))
+
+        if self.dialog_window:
+            self.dialog_window.close()
+
+        # Call the completion callback
+        if self.on_complete_callback:
+            try:
+                self.on_complete_callback()
+            except Exception as e:
+                print(f"Error calling download completion callback: {e}")
+
+    async def download_error(self, error_message):
         """Handle download error."""
-        if not self.cancelled and self.dialog.winfo_exists():
-            messagebox.showerror("Download Error", 
-                                f"Failed to download database:\n{error_message}")
-            self.dialog.destroy()
-    
-    def cancel(self):
+        if self.cancelled or not self.dialog_window:
+            return
+
+        await self.parent_window.dialog(toga.ErrorDialog(
+            title="Download Error",
+            message=f"Failed to download database:\n{error_message}"
+        ))
+
+        if self.dialog_window:
+            self.dialog_window.close()
+
+    def cancel(self, widget=None):
         """Cancel the download."""
         self.cancelled = True
         if self.music_search_service:
             self.music_search_service.cancel_download()
-        
-        if self.dialog and self.dialog.winfo_exists():
-            self.dialog.destroy()
-    
+
+        if self.dialog_window:
+            self.dialog_window.close()
+
+        return True
+
     def is_cancelled(self):
         """Check if download was cancelled."""
         return self.cancelled
@@ -470,200 +507,222 @@ class DatabaseDownloadDialog:
 
 class ManualImportDialog:
     """Dialog for manual database import with instructions."""
-    
-    def __init__(self, parent, music_search_service):
-        self.parent = parent
+
+    def __init__(self, parent_window, music_search_service):
+        self.parent_window = parent_window
         self.music_search_service = music_search_service
-        self.dialog = None
+        self.dialog_window = None
         self.success = False
-    
-    def show_and_wait(self):
+        self.status_label = None
+        self.progress_bar = None
+
+    async def show_and_wait(self):
         """Show dialog and wait for user action."""
-        try:
-            self.dialog = tk.Toplevel(self.parent)
-            self.dialog.title("Manual Database Import")
-            self.dialog.geometry("600x450")
-            self.dialog.resizable(False, False)
-            self.dialog.transient(self.parent)
-            
-            # Apply theme to dialog
-            try:
-                is_dark = darkdetect.isDark()
-                if is_dark:
-                    sv_ttk.set_theme("dark")
-                else:
-                    sv_ttk.set_theme("light")
-            except Exception:
-                sv_ttk.set_theme("light")
-            
-            # Center the dialog safely
-            try:
-                self.dialog.geometry("+%d+%d" % (
-                    self.parent.winfo_rootx() + 50,
-                    self.parent.winfo_rooty() + 50
-                ))
-            except:
-                # If centering fails, use default position
-                pass
-            
-            self.create_widgets()
-            
-            # Set grab after widgets are created
-            try:
-                self.dialog.grab_set()
-            except:
-                # If grab_set fails on some systems, continue without it
-                pass
-            
-            # Wait for dialog to close
-            self.parent.wait_window(self.dialog)
-            return self.success
-            
-        except Exception as e:
-            print(f"Error creating manual import dialog: {e}")
-            if self.dialog:
-                try:
-                    self.dialog.destroy()
-                except:
-                    pass
-            return False
-    
-    def create_widgets(self):
-        """Create dialog widgets."""
-        main_frame = ttk.Frame(self.dialog, padding=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
+        # Create dialog content
+        main_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                padding=20,
+                alignment=CENTER
+            )
+        )
+
         # Title
-        title_label = ttk.Label(main_frame, text="Manual Database Import", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 10))
-        
-        # Instructions with clickable link
+        title_label = toga.Label(
+            "Manual Database Import",
+            style=Pack(
+                font_size=14,
+                font_weight="bold",
+                padding_bottom=10,
+                text_align=CENTER
+            )
+        )
+        main_box.add(title_label)
+
+        # Instructions
         instructions_text = """To manually download and import the MusicBrainz database:
 
-1. Visit the MusicBrainz download page:
-"""
-        
-        inst_label = ttk.Label(main_frame, text=instructions_text, justify=tk.LEFT)
-        inst_label.pack(pady=(0, 0))
-        
-        # Clickable URL
-        url = "https://musicbrainz.org/doc/MusicBrainz_Database/Download"
-        url_label = ttk.Label(main_frame, text=url, foreground="#0066cc", cursor="hand2")
-        url_label.pack(pady=(0, 10))
-        url_label.bind("<Button-1>", lambda e: webbrowser.open(url))
-        
-        # Remaining instructions
-        instructions2 = """2. Look for the latest "mb_artist_credit_name" dump file
-   (It will be named like: mb_artist_credit_name-20241124-235959.tar.zst)
-   
+1. Visit: https://musicbrainz.org/doc/MusicBrainz_Database/Download
+
+2. Look for the latest "mb_artist_credit_name" dump file
+   (Named like: mb_artist_credit_name-20241124-235959.tar.zst)
+
 3. Download this file (approximately 2GB)
 
-4. Once downloaded, click "Import File" below to select the downloaded file
+4. Click "Import File" below to select the downloaded file
 
-Note: The file must be a .tar.zst file containing the MusicBrainz artist data.
-The import process will extract and build the database, which may take
-several minutes depending on your computer's speed."""
-        
-        inst_label2 = ttk.Label(main_frame, text=instructions2, justify=tk.LEFT)
-        inst_label2.pack(pady=(0, 20))
-        
-        # Status frame
-        status_frame = ttk.LabelFrame(main_frame, text="Status", padding=10)
-        status_frame.pack(fill=tk.X, pady=(0, 20))
-        
-        self.status_label = ttk.Label(status_frame, text="No file selected")
-        self.status_label.pack()
-        
-        self.progress_bar = ttk.Progressbar(status_frame, mode='indeterminate')
-        self.progress_bar.pack(fill=tk.X, pady=(10, 0))
-        
+Note: The file must be a .tar.zst file containing the MusicBrainz
+artist data. Import may take several minutes."""
+
+        inst_label = toga.Label(
+            instructions_text,
+            style=Pack(
+                padding_bottom=20,
+                text_align=CENTER
+            )
+        )
+        main_box.add(inst_label)
+
+        # Status display
+        status_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                padding=10,
+                alignment=CENTER
+            )
+        )
+
+        self.status_label = toga.Label(
+            "No file selected",
+            style=Pack(padding_bottom=10, text_align=CENTER)
+        )
+        status_box.add(self.status_label)
+
+        self.progress_bar = toga.ProgressBar(
+            style=Pack(width=400)
+        )
+        status_box.add(self.progress_bar)
+
+        main_box.add(status_box)
+
         # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X)
-        
-        import_btn = ttk.Button(button_frame, text="Import File", 
-                               command=self.import_file)
-        import_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        close_btn = ttk.Button(button_frame, text="Close", 
-                              command=self.close)
-        close_btn.pack(side=tk.LEFT)
-    
-    def import_file(self):
+        button_box = toga.Box(
+            style=Pack(direction=ROW, padding_top=20)
+        )
+
+        import_btn = toga.Button(
+            "Import File",
+            on_press=self.import_file,
+            style=Pack(padding_right=10)
+        )
+        button_box.add(import_btn)
+
+        close_btn = toga.Button(
+            "Close",
+            on_press=self.close,
+            style=Pack()
+        )
+        button_box.add(close_btn)
+
+        main_box.add(button_box)
+
+        # Create dialog window
+        self.dialog_window = toga.Window(
+            title="Manual Database Import",
+            size=(600, 500),
+            resizable=False,
+            on_close=self.close
+        )
+        self.dialog_window.content = main_box
+        self.dialog_window.show()
+
+        # Wait for dialog to close
+        while self.dialog_window and not self.dialog_window._closed:
+            await asyncio.sleep(0.1)
+
+        return self.success
+
+    async def import_file(self, widget):
         """Handle file import."""
         try:
-            # Use basic file dialog without filetypes to avoid macOS crash
-            file_path = filedialog.askopenfilename(
-                parent=self.dialog,
-                title="Select MusicBrainz Database File (.tar.zst or .tar)"
+            # Use Toga's file dialog
+            file_path = await self.parent_window.dialog(
+                toga.OpenFileDialog(
+                    title="Select MusicBrainz Database File (.tar.zst or .tar)",
+                    file_types=['tar.zst', 'tar']
+                )
             )
         except Exception as e:
             print(f"File dialog error: {e}")
-            messagebox.showerror("Error", "Could not open file dialog. Please check your system configuration.")
+            await self.parent_window.dialog(toga.ErrorDialog(
+                title="Error",
+                message="Could not open file dialog. Please check your system configuration."
+            ))
             return
-        
+
         if not file_path:
             return
-        
-        # Validate file type after selection
-        if not (file_path.lower().endswith('.tar.zst') or file_path.lower().endswith('.tar')):
-            result = messagebox.askyesno(
-                "File Type Warning", 
-                f"Selected file '{os.path.basename(file_path)}' does not appear to be a MusicBrainz database file (.tar.zst or .tar).\n\n"
-                "Do you want to proceed anyway?"
-            )
+
+        # Validate file type
+        if not (str(file_path).lower().endswith('.tar.zst') or str(file_path).lower().endswith('.tar')):
+            result = await self.parent_window.dialog(toga.ConfirmDialog(
+                title="File Type Warning",
+                message=f"Selected file '{os.path.basename(str(file_path))}' does not appear to be a MusicBrainz database file (.tar.zst or .tar).\n\nDo you want to proceed anyway?"
+            ))
             if not result:
                 return
-        
-        self.status_label.config(text=f"Selected: {file_path.split('/')[-1]}")
+
+        self.status_label.text = f"Selected: {os.path.basename(str(file_path))}"
         self.progress_bar.start()
-        
+
         # Start import in thread
-        threading.Thread(target=self.import_worker, args=(file_path,), daemon=True).start()
-    
+        threading.Thread(target=self.import_worker, args=(str(file_path),), daemon=True).start()
+
     def import_worker(self, file_path):
         """Worker thread for importing."""
         try:
-            from pathlib import Path
-            
             # Create a progress callback
             def progress_callback(progress, message):
-                self.dialog.after(0, self.update_status, message, progress)
-            
+                asyncio.run_coroutine_threadsafe(
+                    self.update_status(message, progress),
+                    asyncio.get_event_loop()
+                )
+
             # Use the music search service to import the file
             success = self.music_search_service.import_database_file(file_path, progress_callback)
-            
+
             if success:
-                self.dialog.after(0, self.import_complete)
+                asyncio.run_coroutine_threadsafe(
+                    self.import_complete(),
+                    asyncio.get_event_loop()
+                )
             else:
-                self.dialog.after(0, self.import_error, "Import failed. Please check the file and try again.")
-                
+                asyncio.run_coroutine_threadsafe(
+                    self.import_error("Import failed. Please check the file and try again."),
+                    asyncio.get_event_loop()
+                )
+
         except Exception as e:
-            self.dialog.after(0, self.import_error, str(e))
-    
-    def update_status(self, message, progress):
+            asyncio.run_coroutine_threadsafe(
+                self.import_error(str(e)),
+                asyncio.get_event_loop()
+            )
+
+    async def update_status(self, message, progress):
         """Update status message."""
-        self.status_label.config(text=message)
+        self.status_label.text = message
         if progress > 0:
             self.progress_bar.stop()
-            self.progress_bar.config(mode='determinate', value=progress)
-    
-    def import_complete(self):
+            self.progress_bar.max = 100
+            self.progress_bar.value = progress
+
+    async def import_complete(self):
         """Handle successful import."""
         self.progress_bar.stop()
-        self.progress_bar.config(mode='determinate', value=100)
-        self.status_label.config(text="Import completed successfully!")
+        self.progress_bar.value = 100
+        self.status_label.text = "Import completed successfully!"
         self.success = True
-        messagebox.showinfo("Success", "MusicBrainz database imported successfully!")
-        self.dialog.destroy()
-    
-    def import_error(self, error_message):
+
+        await self.parent_window.dialog(toga.InfoDialog(
+            title="Success",
+            message="MusicBrainz database imported successfully!"
+        ))
+
+        if self.dialog_window:
+            self.dialog_window.close()
+
+    async def import_error(self, error_message):
         """Handle import error."""
         self.progress_bar.stop()
-        self.status_label.config(text="Import failed")
-        messagebox.showerror("Import Error", error_message)
-    
-    def close(self):
+        self.status_label.text = "Import failed"
+
+        await self.parent_window.dialog(toga.ErrorDialog(
+            title="Import Error",
+            message=error_message
+        ))
+
+    def close(self, widget=None):
         """Close dialog."""
-        self.dialog.destroy()
+        if self.dialog_window:
+            self.dialog_window.close()
+        return True

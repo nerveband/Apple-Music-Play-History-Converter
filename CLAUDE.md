@@ -4,70 +4,102 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Apple Music Play History Converter is a Python-based desktop application that converts Apple Music CSV files into Last.fm compatible format. The application features a modern tkinter GUI with two music search providers: MusicBrainz (offline database) and iTunes API (online).
+Apple Music Play History Converter is a Python-based desktop application that converts Apple Music CSV files into Last.fm compatible format. The application is undergoing a migration from tkinter to Toga/Briefcase for better cross-platform support, with dual music search providers: MusicBrainz (offline database, ~2GB) and iTunes API (online).
 
 ## Key Commands
 
 ### Running the Application
 ```bash
-# Recommended way - auto-handles dependencies and virtual environment
-python run_app.py
+# Run the Toga-based application (current development)
+python run_toga_app.py
 
-# Direct execution (requires manual dependency installation)
-python apple_music_play_history_converter.py
+# Run using Briefcase development mode
+briefcase dev
+
+# Run built application
+briefcase run
+
+# Debug scripts for specific features
+python debug_music_search.py  # Test music search functionality
+python debug_csv.py            # Test CSV processing
+python debug_full_flow.py      # Test complete workflow
 ```
 
 ### Testing
 ```bash
-# Run all tests
-python run_tests.py
+# Run test suite (tests currently being migrated to Toga)
+python run_tests.py                     # Run all tests
+python run_tests.py --category core     # Run core tests
+python run_tests.py --category ui       # Run UI tests
+python run_tests.py --category import   # Run import tests
+python run_tests.py --category platform # Run platform tests
+python run_tests.py --file test_name    # Run specific test file
 
-# Run specific test categories
-python run_tests.py --category core      # Core functionality tests
-python run_tests.py --category ui        # UI and dialog tests
-python run_tests.py --category import    # Import functionality tests
-python run_tests.py --category platform  # Cross-platform compatibility tests
-
-# Run specific test file
-python run_tests.py --file test_app.py
+# Note: Tests in tests/ folder are tkinter-based and will need updating for Toga
 ```
 
 ### Building
 ```bash
-# Complete build pipeline (create, build, package)
-python build.py all
+# Briefcase build commands
+briefcase create          # Create application scaffold
+briefcase build           # Build the application
+briefcase package         # Package for distribution (creates DMG on macOS)
+briefcase package --adhoc-sign  # Package with ad-hoc signing for testing
 
-# Individual build steps
-python build.py create    # Create app bundle
-python build.py build     # Build the application
-python build.py package   # Package for distribution
-
-# Development and testing
-python build.py dev       # Run in development mode
-python build.py run       # Run the built application
+# Build helper script (wrapper around Briefcase commands)
+python build.py create    # Run briefcase create
+python build.py build     # Run briefcase build
+python build.py package   # Run briefcase package
 python build.py clean     # Clean build artifacts
+python build.py all       # Run full build pipeline
 ```
 
 ### Development Dependencies
 ```bash
 pip install -r requirements.txt
+
+# For Briefcase development
+pip install briefcase
+
+# Core dependencies for Toga application
+pip install toga pandas requests darkdetect
 ```
+
+## Project Migration Status
+
+### UI Framework Migration: tkinter → Toga/Briefcase
+This project is currently undergoing a migration from tkinter to Toga/Briefcase for better cross-platform support and modern packaging. 
+
+**Current Status:**
+- ✅ Main application entry point converted to Toga (`app.py`, `run_toga_app.py`)
+- ✅ Legacy tkinter code moved to `_history/` folder
+- ✅ Briefcase configuration in `pyproject.toml`
+- ⚠️ **Dialogs and UI components need Toga conversion** (`database_dialogs.py`, `progress_dialog.py`)
+- ⚠️ **Testing framework needs to be established** for Toga components
+- ⚠️ **Main converter logic needs Toga GUI integration**
+
+**Legacy Code Location:**
+All tkinter-related code has been moved to `_history/` folder:
+- `_history/apple_music_play_history_converter_tkinter_old.py` - Original tkinter application
+- `_history/tests/` - Original tkinter test suite
+- `_history/run_app.py` - Original tkinter runner
 
 ## Architecture
 
-### Core Components
-- **CSVProcessorApp** (`apple_music_play_history_converter.py`): Main GUI application with tkinter interface
-- **MusicSearchService** (`music_search_service.py`): Routing layer between MusicBrainz and iTunes API
-- **MusicBrainzManager** (`musicbrainz_manager.py`): Handles offline database operations (download, search, updates)
-- **DatabaseDialogs** (`database_dialogs.py`): Setup wizards and configuration dialogs
-- **ProgressDialog** (`progress_dialog.py`): Progress tracking for long operations
+### Core Components (src/apple_music_history_converter/)
+- **App** (`app.py`): Briefcase entry point that launches the Toga UI
+- **AppleMusicConverterApp** (`apple_music_play_history_converter.py`): Main Toga application
+- **MusicSearchServiceV2** (`music_search_service_v2.py`): Routes lookups between MusicBrainz and iTunes
+- **MusicBrainzManagerV2** (`musicbrainz_manager_v2.py`): Maintains the optimized DuckDB and search indices
+- **OptimizationModal** (`optimization_modal.py`): Async helpers for the MusicBrainz optimization workflow
+- **DatabaseDialogs / ProgressDialog** (`database_dialogs.py`, `progress_dialog.py`): Legacy tkinter dialogs pending Toga parity
 
 ### Search Provider Architecture
 The application uses a dual-provider system:
 1. **MusicBrainz**: Offline database (~2GB) for fast searches (1-5ms)
 2. **iTunes API**: Online fallback with rate limiting (20 requests/minute)
 
-Search routing is handled by `MusicSearchService` which can automatically fallback between providers.
+Search routing is handled by `MusicSearchServiceV2`, which automatically falls back to iTunes when MusicBrainz misses or is unavailable.
 
 ### Data Flow
 1. CSV file parsing with automatic encoding detection
@@ -76,11 +108,12 @@ Search routing is handled by `MusicSearchService` which can automatically fallba
 4. Reverse-chronological timestamp calculation
 5. Export to Last.fm compatible CSV format
 
-### Threading Model
-- Main UI thread handles GUI updates
+### Threading Model (Toga/Briefcase)
+- Main UI thread handles Toga GUI updates
 - Background threads for file processing and API calls
 - Thread-safe progress reporting via queue-based communication
 - Pause/resume functionality for long operations
+- Toga async/await patterns for non-blocking operations
 
 ## File Processing
 
@@ -114,11 +147,14 @@ Supports multiple encodings with automatic detection:
 
 ## Testing Strategy
 
-Tests are categorized by functionality:
-- **Core tests**: Basic conversion and data processing
-- **UI tests**: Interface components and dialogs
-- **Import tests**: MusicBrainz and manual import workflows
-- **Platform tests**: Cross-platform compatibility verification
+**Note**: Test suite is currently tkinter-based and located in `tests/` folder. These tests will need updating for Toga compatibility.
+
+Test categories:
+- **Core tests**: Basic conversion and data processing (`test_app.py`, `test_app_workflow.py`, `test_full_integration.py`)
+- **UI tests**: Interface components and dialogs (`test_ui_layout.py`, `test_dialog_crash.py`)
+- **Import tests**: MusicBrainz and manual import workflows (`test_import_function.py`, `test_manual_import.py`)
+- **Platform tests**: Cross-platform compatibility (`test_cross_platform.py`)
+- **Database tests**: Database operations (`test_database_debug.py`, `test_musicbrainz_build.py`)
 
 Use `python run_tests.py --category <name>` to run specific test suites.
 
@@ -421,17 +457,62 @@ The issue occurs because:
 
 ## Common Development Tasks
 
+### Toga Migration TODO
+1. **Convert dialogs to Toga widgets** (`database_dialogs.py`, `progress_dialog.py`)
+2. **Implement Toga main UI** in `apple_music_play_history_converter.py`
+3. **Create Toga-based test suite** to replace moved tkinter tests
+4. **Update build scripts** to work with Briefcase commands
+
 ### Adding New CSV Format Support
 1. Update format detection logic in `detect_file_type()` method
 2. Add column mapping in `process_csv_data()` method
-3. Test with sample files using `test_csv_query_simulation.py`
+3. Create new tests for Toga application (test framework TBD)
 
 ### Modifying Search Providers
-1. Update `MusicSearchService` for routing logic
+1. Update `MusicSearchServiceV2` for routing logic
 2. Implement provider-specific methods in respective manager classes
-3. Update settings UI in `create_widgets()` method
+3. Update settings UI using Toga widgets (not tkinter grid system)
 
-### UI Layout Changes
-1. Main layout is in `create_widgets()` method using grid system
-2. Dialog layouts are in respective classes in `database_dialogs.py`
-3. Use sv-ttk for modern styling consistency
+### UI Layout Changes (Toga)
+1. Main layout needs conversion from tkinter to Toga widgets
+2. Dialog layouts in `database_dialogs.py` need Toga conversion
+3. Use Toga's native styling and layout system
+4. Reference legacy UI in `_history/` folder for design patterns
+
+### Running Development Commands
+```bash
+# Run current Toga application
+python run_toga_app.py
+
+# Briefcase development workflow
+briefcase dev    # Development mode
+briefcase create # Create app structure
+briefcase build  # Build application
+briefcase run    # Run built app
+
+# Debug specific components
+python debug_music_search.py  # Test music search service
+python debug_csv.py            # Test CSV processing
+python debug_full_flow.py      # Test complete conversion flow
+```
+
+## Current Migration Status and Known Issues
+
+### ⚠️ Active UI Migration: tkinter → Toga
+The project is in the middle of migrating from tkinter to Toga. Current state:
+- **app.py**: Successfully converted to Toga (minimal UI)
+- **apple_music_play_history_converter.py**: Still uses tkinter (main UI needs conversion)
+- **database_dialogs.py**: Still uses tkinter (dialogs need conversion)
+- **progress_dialog.py**: Still uses tkinter (progress tracking needs conversion)
+
+### Known Issues
+1. **Mixed UI Framework**: The app currently has both Toga and tkinter code, which may cause compatibility issues
+2. **Test Suite**: All tests are tkinter-based and will fail with Toga components
+3. **macOS tkinter Fix**: After building with Briefcase, tkinter must be manually copied (see build instructions above)
+4. **Import Statements**: Some modules still import tkinter directly, which breaks in Toga-only builds
+
+### Migration Priority
+1. Convert main GUI in `apple_music_play_history_converter.py` to Toga
+2. Replace tkinter dialogs with Toga equivalents
+3. Update test suite for Toga compatibility
+4. Remove all tkinter dependencies from `pyproject.toml`

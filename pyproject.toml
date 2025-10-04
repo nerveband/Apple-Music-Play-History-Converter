@@ -31,13 +31,15 @@ classifiers = [
 ]
 requires-python = ">=3.8"
 dependencies = [
+    "toga>=0.4.0",
     "pandas>=1.3.0",
     "requests>=2.25.0",
-    "sv-ttk>=2.0.0",
+    "httpx>=0.27.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
     "darkdetect>=0.8.0",
+    "pyperclip>=1.8.0",
 ]
 
 [project.urls]
@@ -77,23 +79,31 @@ requires = [
     "toga>=0.4.0",
     "pandas>=1.3.0",
     "requests>=2.25.0",
+    "httpx>=0.27.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
     "darkdetect>=0.8.0",
-    "std-nslog>=1.0.0; sys_platform=='darwin'",
+    "pyperclip>=1.8.0",
 ]
+
+[tool.briefcase.app.apple-music-history-converter.document_type.csv]
+description = "CSV files"
+extension = "csv"
+url = "https://en.wikipedia.org/wiki/Comma-separated_values"
+icon = "src/apple_music_history_converter/resources/appicon"
 
 [tool.briefcase.app.apple-music-history-converter.macOS]
 requires = [
     "toga>=0.4.0",
     "pandas>=1.3.0",
     "requests>=2.25.0",
+    "httpx>=0.27.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
     "darkdetect>=0.8.0",
-    "std-nslog>=1.0.0",
+    "pyperclip>=1.8.0",
 ]
 console_app = false
 universal_build = true
@@ -110,22 +120,28 @@ notarize_apple_id = "nerveband@gmail.com"
 
 [tool.briefcase.app.apple-music-history-converter.windows]
 requires = [
+    "toga>=0.4.0",
     "pandas>=1.3.0",
     "requests>=2.25.0",
-    "sv-ttk>=2.0.0",
+    "httpx>=0.27.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
+    "darkdetect>=0.8.0",
+    "pyperclip>=1.8.0",
 ]
 
 [tool.briefcase.app.apple-music-history-converter.linux]
 requires = [
+    "toga>=0.4.0",
     "pandas>=1.3.0",
     "requests>=2.25.0",
-    "sv-ttk>=2.0.0",
+    "httpx>=0.27.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
+    "darkdetect>=0.8.0",
+    "pyperclip>=1.8.0",
 ]
 system_requires = [
     "libgirepository1.0-dev",
