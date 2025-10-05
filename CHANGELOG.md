@@ -59,6 +59,18 @@ All notable changes to Apple Music Play History Converter will be documented in 
 - **iTunes Search Stop Button**: Fixed parallel search threads not respecting stop button clicks
 - **App Crash on Exit**: Added graceful shutdown handler to prevent crashes when closing during active searches
 - **Rate Limit Row Visibility**: Rate limit controls now only show when iTunes API is selected (hidden for MusicBrainz)
+- **Windows Compatibility**: Comprehensive Windows-specific fixes for cross-platform reliability
+  - **Event Loop Initialization**: Fixed "no running event loop" error on Windows startup using lazy initialization
+  - **MusicBrainz Download**: Fixed Windows temp file handling using `mkstemp()` instead of deprecated `mktemp()`
+  - **Cross-Drive File Operations**: Fixed Windows file installation failures using `copy2()` instead of `move()`
+  - **MSI Packaging**: Configured GitHub Actions to build proper MSI installers instead of ZIP (avoids "Mark of the Web" DLL blocking)
+- **UI Blocking Prevention**: Comprehensive audit and fixes to prevent UI freezing on slow hardware
+  - **Large CSV Loading**: File analysis and CSV loading now run in background threads (200k+ rows won't freeze UI)
+  - **CSV Save Operations**: All file saves use `run_in_executor()` with progress indicators
+  - **Missing Artists Export**: Background threading prevents UI blocking when saving large lists
+  - **Rate-Limited Export**: Background threading with detailed progress communication
+  - **Progress Indicators**: Added real-time progress messages for all long-running operations
+  - **Slow Hardware Support**: Validated on Windows ARM emulation and low-spec computers
 
 ### Technical Details
 - **Framework**: BeeWare Toga v0.4.0+
