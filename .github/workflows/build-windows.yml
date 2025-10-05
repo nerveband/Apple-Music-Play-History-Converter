@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-windows-x86_64:
-    name: Build Windows x86_64 Portable ZIP
+    name: Build Windows x86_64 MSI Installer
     runs-on: windows-latest
 
     steps:
@@ -38,13 +38,13 @@ jobs:
       - name: Build Windows app
         run: briefcase build windows app
 
-      - name: Package Windows ZIP (portable)
-        run: briefcase package windows app -p zip
+      - name: Package Windows MSI installer
+        run: briefcase package windows app
 
-      - name: Upload Windows ZIP artifact
+      - name: Upload Windows MSI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apple-music-history-converter-windows-x86_64
-          path: dist/*.zip
+          name: apple-music-history-converter-windows-x86_64-msi
+          path: dist/*.msi
           if-no-files-found: error
           retention-days: 90
