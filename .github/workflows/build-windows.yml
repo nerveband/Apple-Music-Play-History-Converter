@@ -30,6 +30,9 @@ jobs:
       - name: Create Windows app
         run: briefcase create windows app
 
+      - name: Update app metadata
+        run: briefcase update windows app
+
       - name: Build Windows app
         run: briefcase build windows app
 
