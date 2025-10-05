@@ -35,6 +35,9 @@ jobs:
       - name: Create Windows app
         run: briefcase create windows app
 
+      - name: Update Windows app (refresh version)
+        run: briefcase update windows app
+
       - name: Build Windows app
         run: briefcase build windows app
 
