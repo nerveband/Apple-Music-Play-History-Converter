@@ -4913,9 +4913,9 @@ Supported formats:
             
             # Start UI update task
             ui_task = asyncio.create_task(update_ui_periodically())
-            
-            # Run download in background thread
-            loop = asyncio.get_event_loop()
+
+            # Run download in background thread (use get_running_loop for Windows compatibility)
+            loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 success = await loop.run_in_executor(executor, blocking_download)
             
@@ -5029,8 +5029,8 @@ Supported formats:
             # Start UI update task
             ui_task = asyncio.create_task(update_ui_periodically())
 
-            # Run import in background thread
-            loop = asyncio.get_event_loop()
+            # Run import in background thread (use get_running_loop for Windows compatibility)
+            loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 success = await loop.run_in_executor(executor, blocking_import)
 
