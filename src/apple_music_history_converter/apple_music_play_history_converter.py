@@ -1950,18 +1950,21 @@ class AppleMusicConverterApp(toga.App):
             await self._reset_buttons_ui(keep_results_buttons=has_results)
     
     async def load_entire_csv_async(self, file_path, file_type):
-        """Async version of CSV loading with periodic yields for UI responsiveness."""
+        """
+        Async version of CSV loading that runs in background thread.
+        Critical for preventing UI blocking on large files (200k+ rows).
+        """
         try:
-            # Yield to UI thread
-            await asyncio.sleep(0.001)
-            
-            # Use the existing synchronous method but yield periodically
-            result = self.load_entire_csv(file_path, file_type)
-            
-            # Yield after heavy operation
-            await asyncio.sleep(0.001)
+            # Run the blocking CSV load in a background thread to prevent UI freeze
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.load_entire_csv,
+                file_path,
+                file_type
+            )
             return result
-            
+
         except Exception as e:
             logger.error(f"Error in load_entire_csv_async: {e}")
             return None

@@ -1635,9 +1635,11 @@ class MusicBrainzManagerV2Optimized:
                     logger.error(f"   Range support: {'✅ Yes' if supports_ranges else '❌ No'}")
                     logger.info(f"Content-Length: {total_size:,} bytes, Ranges: {supports_ranges}")
 
-                    # Create temporary file
+                    # Create temporary file (use mkstemp for Windows compatibility)
                     logger.print_always(f"\n💾 Creating temporary file...")
-                    temp_path = tempfile.mktemp(suffix='.csv')
+                    import os
+                    temp_fd, temp_path = tempfile.mkstemp(suffix='.csv')
+                    os.close(temp_fd)  # Close file descriptor immediately, we'll open it later
 
                     if supports_ranges and total_size > 50 * 1024 * 1024:  # Use parallel for files >50MB
                         # PARALLEL DOWNLOAD with multiple connections
@@ -1959,9 +1961,22 @@ class MusicBrainzManagerV2Optimized:
                         logger.warning(f"   ⚠️  Existing file will be replaced ({old_size:,} bytes)")
                         logger.info(f"Replacing existing file ({old_size} bytes)")
 
-                    shutil.move(final_csv_path, self.csv_file)
-                    logger.print_always(f"   ✅ File moved successfully")
-                    logger.info(f"File moved to: {self.csv_file}")
+                    # Use copy+delete instead of move for Windows compatibility
+                    # shutil.move can fail on Windows when crossing drives or with permissions
+                    try:
+                        shutil.copy2(final_csv_path, self.csv_file)
+                        Path(final_csv_path).unlink()  # Delete source after successful copy
+                        logger.print_always(f"   ✅ File installed successfully")
+                        logger.info(f"File installed to: {self.csv_file}")
+                    except Exception as e:
+                        logger.error(f"Failed to install file: {e}")
+                        # Try fallback: simple copy without preserving metadata
+                        try:
+                            shutil.copyfile(final_csv_path, self.csv_file)
+                            Path(final_csv_path).unlink()
+                            logger.print_always(f"   ✅ File installed (fallback method)")
+                        except Exception as e2:
+                            raise Exception(f"Could not install database file: {e2}")
 
                     # Step 5: Clear optimization state to force rebuild
                     logger.info(f"\n🔄 STEP 5: Clearing optimization state...")
