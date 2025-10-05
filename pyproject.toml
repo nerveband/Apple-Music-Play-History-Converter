@@ -4,7 +4,7 @@ build-backend = "briefcase.bootstrap"
 
 [project]
 name = "apple-music-history-converter"
-version = "1.3.1"
+version = "2.0.0"
 description = "Convert Apple Music CSV files to Last.fm compatible format"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -35,11 +35,14 @@ dependencies = [
     "pandas>=1.3.0",
     "requests>=2.25.0",
     "httpx>=0.27.0",
+    "certifi>=2023.0.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
     "darkdetect>=0.8.0",
     "pyperclip>=1.8.0",
+    "platformdirs>=4.0.0",
+    "std-nslog>=1.0.0; sys_platform == 'darwin'",
 ]
 
 [project.urls]
@@ -50,7 +53,7 @@ Repository = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
 [tool.briefcase]
 project_name = "Apple Music History Converter"
 bundle = "com.nerveband"
-version = "1.3.1"
+version = "2.0.0"
 url = "https://github.com/nerveband/Apple-Music-Play-History-Converter"
 license = {file = "LICENSE"}
 author = "Ashraf Ali"
@@ -80,11 +83,13 @@ requires = [
     "pandas>=1.3.0",
     "requests>=2.25.0",
     "httpx>=0.27.0",
+    "certifi>=2023.0.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
     "darkdetect>=0.8.0",
     "pyperclip>=1.8.0",
+    "std-nslog>=1.0.0",
 ]
 
 [tool.briefcase.app.apple-music-history-converter.document_type.csv]
@@ -99,11 +104,14 @@ requires = [
     "pandas>=1.3.0",
     "requests>=2.25.0",
     "httpx>=0.27.0",
+    "certifi>=2023.0.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
     "darkdetect>=0.8.0",
     "pyperclip>=1.8.0",
+    "platformdirs>=4.0.0",
+    "std-nslog>=1.0.0",
 ]
 console_app = false
 universal_build = true
@@ -117,13 +125,17 @@ notarize_apple_id = "nerveband@gmail.com"
 "com.apple.security.cs.disable-library-validation" = true
 "com.apple.security.automation.apple-events" = true
 "com.apple.security.files.user-selected.read-write" = true
+"com.apple.security.network.client" = true
+"com.apple.security.network.server" = true
 
 [tool.briefcase.app.apple-music-history-converter.windows]
+version_triple = "2.0.0"
 requires = [
     "toga>=0.4.0",
     "pandas>=1.3.0",
     "requests>=2.25.0",
     "httpx>=0.27.0",
+    "certifi>=2023.0.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",
@@ -137,6 +149,7 @@ requires = [
     "pandas>=1.3.0",
     "requests>=2.25.0",
     "httpx>=0.27.0",
+    "certifi>=2023.0.0",
     "zstandard>=0.15.0",
     "duckdb>=0.8.0",
     "psutil>=5.8.0",

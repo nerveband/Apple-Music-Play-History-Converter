@@ -32,8 +32,11 @@ jobs:
           if (Test-Path build) { Remove-Item -Recurse -Force build }
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
 
-      - name: Create Windows app (force fresh template)
-        run: briefcase create windows app --update-resources
+      - name: Create Windows app
+        run: briefcase create windows app
+
+      - name: Update app code and resources
+        run: briefcase update windows app
 
       - name: Build Windows app
         run: briefcase build windows app
