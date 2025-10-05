@@ -27,11 +27,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install briefcase
 
+      - name: Clean previous builds
+        run: |
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+
       - name: Create Windows app
         run: briefcase create windows app
-
-      - name: Update app metadata
-        run: briefcase update windows app
 
       - name: Build Windows app
         run: briefcase build windows app
