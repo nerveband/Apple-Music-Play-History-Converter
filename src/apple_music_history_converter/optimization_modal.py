@@ -12,6 +12,13 @@ import threading
 import asyncio
 from typing import Optional, Callable
 
+try:
+    from .logging_config import get_logger
+except ImportError:
+    from logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class OptimizationModal:
     """
@@ -151,7 +158,7 @@ class OptimizationModal:
                     await self._update_display()
                     await asyncio.sleep(0.25)  # Update every 250ms
                 except Exception as e:
-                    print(f"Error updating progress display: {e}")
+                    logger.error(f"Error updating progress display: {e}")
                     break
 
         # Start the update task
@@ -207,7 +214,7 @@ class OptimizationModal:
                 optimization_function(*args, **kwargs)
             except Exception as e:
                 self.message = f"Optimization failed: {e}"
-                print(f"Optimization error: {e}")
+                logger.error(f"Optimization error: {e}")
 
         # Start optimization thread
         thread = threading.Thread(target=run_optimization, daemon=True)
@@ -236,7 +243,7 @@ class OptimizationModal:
 
         if result:
             # User confirmed cancellation
-            print("⚠️ User confirmed optimization cancellation")
+            logger.warning("⚠️ User confirmed optimization cancellation")
             self.cancelled = True
 
             # Call the cancellation callback to stop the optimization

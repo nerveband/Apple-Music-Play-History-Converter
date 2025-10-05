@@ -7,9 +7,11 @@ from pathlib import Path
 package_dir = Path(__file__).parent
 sys.path.insert(0, str(package_dir))
 
-from apple_music_play_history_converter import main
+# Import the Briefcase app wrapper which includes network diagnostics
+from app import AppleMusicHistoryConverterApp
 
 
 if __name__ == '__main__':
-    app = main()
-    app.main_loop()
+    # Use the app wrapper which runs diagnostics and then creates the Toga app
+    app_wrapper = AppleMusicHistoryConverterApp()
+    app_wrapper.main_loop()

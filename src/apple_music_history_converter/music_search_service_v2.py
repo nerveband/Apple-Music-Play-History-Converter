@@ -23,13 +23,17 @@ try:
     from .musicbrainz_manager_v2_optimized import MusicBrainzManagerV2Optimized as MusicBrainzManagerV2
     from .optimization_modal import run_with_optimization_modal
     from .trace_utils import TRACE_ENABLED, trace_call, trace_log
+    from .app_directories import get_settings_path, get_database_dir
+    from .logging_config import get_logger
 except ImportError:
     # Fall back to optimized manager
     from musicbrainz_manager_v2_optimized import MusicBrainzManagerV2Optimized as MusicBrainzManagerV2
     from optimization_modal import run_with_optimization_modal
     from trace_utils import TRACE_ENABLED, trace_call, trace_log
+    from app_directories import get_settings_path, get_database_dir
+    from logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MusicSearchServiceV2:
@@ -44,13 +48,13 @@ class MusicSearchServiceV2:
 
         # Settings management
         if settings_file is None:
-            settings_file = Path.home() / ".apple_music_converter" / "settings.json"
+            settings_file = get_settings_path()
 
         self.settings_file = Path(settings_file)
         self.settings = self._load_settings()
 
         # Initialize new MusicBrainz manager with data directory
-        data_dir = str(Path.home() / ".apple_music_converter")
+        data_dir = str(get_database_dir())
         self.musicbrainz_manager = MusicBrainzManagerV2(data_dir)
 
         # iTunes API rate limiting (use RLock for reentrant locking)
@@ -138,13 +142,11 @@ class MusicSearchServiceV2:
             )
 
         if not csv_available:
-            logger.error("MusicBrainz CSV not available")
-            print("⚠️ MusicBrainz ensure failed: CSV not available")
+            logger.error("⚠️ MusicBrainz ensure failed: CSV not available")
             return False
 
         if self.musicbrainz_manager.is_ready():
-            logger.info("MusicBrainz already ready")
-            print("✅ MusicBrainz already marked ready")
+            logger.info("✅ MusicBrainz already marked ready")
             if TRACE_ENABLED:
                 trace_log.debug("ensure_musicbrainz_ready -> already ready")
             return True
@@ -160,54 +162,46 @@ class MusicSearchServiceV2:
             # Use modal to start and wait for optimization
             self._optimization_modal_shown = True
             try:
-                logger.info("Starting optimization with modal...")
-                print("🔧 Starting optimization with modal...")
+                logger.print_always("🔧 Starting optimization with modal...")
                 await run_with_optimization_modal(
                     self._parent_window,
                     self.musicbrainz_manager.run_optimization_synchronously,
                     cancellation_callback=self.musicbrainz_manager.cancel_optimization
                 )
-                logger.info("Optimization modal completed")
-                print("✅ MusicBrainz optimization completed via modal")
+                logger.print_always("✅ MusicBrainz optimization completed via modal")
                 if TRACE_ENABLED:
                     trace_log.debug("Optimization modal completed successfully")
             except Exception as e:
-                logger.error(f"Optimization modal failed: {e}")
                 # Check if it was a user cancellation
                 if "cancelled by user" in str(e).lower():
-                    logger.info("Optimization cancelled by user - not falling back to iTunes")
-                    print("⚠️ Optimization cancelled by user")
+                    logger.warning("⚠️ Optimization cancelled by user")
                     return False
                 # Fall back to iTunes for this session on other errors
                 self.set_search_provider("itunes")
-                print(f"⚠️ MusicBrainz optimization modal failed: {e}")
+                logger.error(f"⚠️ MusicBrainz optimization modal failed: {e}")
                 if TRACE_ENABLED:
                     trace_log.exception("Optimization modal failed: %s", e)
                 return False
         else:
             # No UI available or running off the main thread; start optimization and wait silently
-            logger.info("Starting optimization without modal...")
-            print("🔧 Starting optimization without modal (background thread)...")
+            logger.print_always("🔧 Starting optimization without modal (background thread)...")
             optimization_started = self.musicbrainz_manager.start_optimization_if_needed()
 
             if not optimization_started:
-                logger.error("Failed to start optimization - CSV not available")
-                print("❌ Failed to start optimization - CSV not available")
+                logger.error("❌ Failed to start optimization - CSV not available")
                 return False
 
-            logger.info("Waiting for MusicBrainz optimization to complete...")
-            print("⏳ Waiting for MusicBrainz optimization to complete...")
+            logger.print_always("⏳ Waiting for MusicBrainz optimization to complete...")
             success = self.musicbrainz_manager.wait_until_ready(timeout=600.0)
             if not success:
-                logger.warning("MusicBrainz optimization timeout, falling back to iTunes")
                 self.set_search_provider("itunes")
-                print("⚠️ MusicBrainz optimization timed out; switching to iTunes")
+                logger.warning("⚠️ MusicBrainz optimization timed out; switching to iTunes")
                 if TRACE_ENABLED:
                     trace_log.warning("Optimization wait timed out; switching provider to iTunes")
                 return False
 
         ready = self.musicbrainz_manager.is_ready()
-        print(f"✅ MusicBrainz readiness check complete: {ready}")
+        logger.print_always(f"✅ MusicBrainz readiness check complete: {ready}")
         if TRACE_ENABLED:
             trace_log.debug("ensure_musicbrainz_ready completed with ready=%s", ready)
         return ready
@@ -291,22 +285,22 @@ class MusicSearchServiceV2:
                 album_name,
             )
 
-        print(f"\n🎵 === MUSICBRAINZ SERVICE SEARCH START ===")
-        print(f"   📊 Inputs: song='{song_name}', artist='{artist_name}', album='{album_name}'")
+        logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH START ===")
+        logger.debug(f"   📊 Inputs: song='{song_name}', artist='{artist_name}', album='{album_name}'")
 
         try:
             # Check if manager is ready
             if not self.musicbrainz_manager.is_ready():
                 elapsed = (time.time() - search_start) * 1000
-                print(f"   ❌ MusicBrainz manager not ready after {elapsed:.1f}ms")
-                print(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (NOT READY) ===\n")
+                logger.debug(f"   ❌ MusicBrainz manager not ready after {elapsed:.1f}ms")
+                logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (NOT READY) ===\n")
                 return {
                     "success": False,
                     "source": "musicbrainz",
                     "error": "MusicBrainz not ready - optimization required"
                 }
 
-            print(f"   ✅ MusicBrainz manager is ready - calling search...")
+            logger.debug(f"   ✅ MusicBrainz manager is ready - calling search...")
 
             # Use the comprehensive search with bidirectional cascade
             artist_result = self.musicbrainz_manager.search(
@@ -318,9 +312,8 @@ class MusicSearchServiceV2:
             elapsed = (time.time() - search_start) * 1000
 
             if artist_result:
-                print(f"   ✅ MusicBrainz SUCCESS: Found '{artist_result}' for '{song_name}' in {elapsed:.1f}ms")
-                print(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (SUCCESS) ===\n")
-                logger.info(f"MusicBrainz found: '{artist_result}' for '{song_name}'")
+                logger.debug(f"   ✅ MusicBrainz SUCCESS: Found '{artist_result}' for '{song_name}' in {elapsed:.1f}ms")
+                logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (SUCCESS) ===\n")
                 if TRACE_ENABLED:
                     trace_log.debug("MusicBrainz artist_result=%s elapsed=%.2fms", artist_result, elapsed)
                 return {
@@ -329,9 +322,8 @@ class MusicSearchServiceV2:
                     "source": "musicbrainz"
                 }
             else:
-                print(f"   ❌ MusicBrainz NO MATCH for '{song_name}' after {elapsed:.1f}ms")
-                print(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (NO MATCH) ===\n")
-                logger.debug(f"MusicBrainz no match for: '{song_name}'")
+                logger.debug(f"   ❌ MusicBrainz NO MATCH for '{song_name}' after {elapsed:.1f}ms")
+                logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (NO MATCH) ===\n")
                 if TRACE_ENABLED:
                     trace_log.debug("MusicBrainz no match for %s elapsed=%.2fms", song_name, elapsed)
                 return {
@@ -342,11 +334,10 @@ class MusicSearchServiceV2:
 
         except Exception as e:
             elapsed = (time.time() - search_start) * 1000
-            print(f"   💥 MusicBrainz ERROR after {elapsed:.1f}ms: {e}")
-            print(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (ERROR) ===\n")
+            logger.error(f"   💥 MusicBrainz ERROR after {elapsed:.1f}ms: {e}")
+            logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (ERROR) ===\n")
             import traceback
-            print(f"   📚 Stack trace: {traceback.format_exc()}")
-            logger.error(f"MusicBrainz search error: {e}")
+            logger.debug(f"   📚 Stack trace: {traceback.format_exc()}")
             return {
                 "success": False,
                 "source": "musicbrainz",
@@ -363,39 +354,111 @@ class MusicSearchServiceV2:
     def _safe_print(self, *args, **kwargs):
         """Print with error handling to prevent broken pipe errors."""
         try:
-            print(*args, **kwargs)
+            # Convert to string and use logger
+            message = " ".join(str(arg) for arg in args)
+            logger.debug(message)
         except BrokenPipeError:
-            pass  # Ignore broken pipe errors in print statements
+            pass  # Ignore broken pipe errors
         except Exception:
             pass  # Ignore all print errors
+
+    def _debug_log(self, message: str):
+        """Write debug message to both console and file for packaged app debugging."""
+        # Use logger which handles both console and file automatically
+        logger.debug(message)
+
+    def _test_network_connectivity(self) -> Dict:
+        """Test basic network connectivity and SSL certificate validation."""
+        self._debug_log("=== NETWORK DIAGNOSTICS START ===")
+
+        diagnostics = {
+            "network_reachable": False,
+            "ssl_working": False,
+            "httpx_version": None,
+            "certifi_available": False,
+            "certifi_path": None,
+            "error": None
+        }
+
+        try:
+            # Check httpx version
+            import httpx as httpx_module
+            diagnostics["httpx_version"] = httpx_module.__version__
+            self._debug_log(f"   httpx version: {httpx_module.__version__}")
+        except Exception as e:
+            diagnostics["error"] = f"httpx import failed: {e}"
+            self._debug_log(f"   ❌ httpx import error: {e}")
+            return diagnostics
+
+        try:
+            # Check certifi
+            import certifi
+            diagnostics["certifi_available"] = True
+            diagnostics["certifi_path"] = certifi.where()
+            self._debug_log(f"   certifi available: {certifi.where()}")
+
+            # Verify certificate file exists
+            import os
+            if os.path.exists(certifi.where()):
+                cert_size = os.path.getsize(certifi.where())
+                self._debug_log(f"   certifi bundle exists: {cert_size} bytes")
+            else:
+                self._debug_log(f"   ❌ certifi bundle NOT FOUND at {certifi.where()}")
+        except Exception as e:
+            diagnostics["error"] = f"certifi check failed: {e}"
+            self._debug_log(f"   ❌ certifi error: {e}")
+
+        # Test simple HTTP connection with explicit SSL context
+        try:
+            import ssl
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            self._debug_log("   Testing HTTP connection to apple.com...")
+            response = httpx.get("https://www.apple.com", timeout=5, verify=ssl_context)
+            diagnostics["network_reachable"] = True
+            diagnostics["ssl_working"] = True
+            self._debug_log(f"   ✅ Network test successful (status: {response.status_code})")
+        except httpx.ConnectError as e:
+            diagnostics["error"] = f"Connection error: {e}"
+            self._debug_log(f"   ❌ Connection error: {e}")
+        except httpx.TimeoutException as e:
+            diagnostics["error"] = f"Timeout: {e}"
+            self._debug_log(f"   ❌ Timeout: {e}")
+        except Exception as e:
+            diagnostics["error"] = f"Network test failed: {e}"
+            self._debug_log(f"   ❌ Network test error: {e}")
+            import traceback
+            self._debug_log(f"   Traceback: {traceback.format_exc()}")
+
+        self._debug_log("=== NETWORK DIAGNOSTICS END ===")
+        return diagnostics
 
     @trace_call("MusicSearch._search_itunes")
     def _search_itunes(self, song_name: str, artist_name: Optional[str] = None, album_name: Optional[str] = None) -> Dict:
         """Search iTunes API with rate limiting."""
         import threading
         thread_id = threading.current_thread().ident
-        self._safe_print(f"\n🎵 DEBUG: _search_itunes START (Thread {thread_id})")
-        self._safe_print(f"   Song: '{song_name}'")
-        self._safe_print(f"   Artist: '{artist_name}'")
-        self._safe_print(f"   Album: '{album_name}'")
+        self._debug_log(f"\n🎵 DEBUG: _search_itunes START (Thread {thread_id})")
+        self._debug_log(f"   Song: '{song_name}'")
+        self._debug_log(f"   Artist: '{artist_name}'")
+        self._debug_log(f"   Album: '{album_name}'")
 
         if TRACE_ENABLED:
             trace_log.debug("_search_itunes start song=%s artist=%s album=%s", song_name, artist_name, album_name)
         try:
             # Rate limiting
-            print(f"   🔒 DEBUG: Thread {thread_id} acquiring iTunes lock in _search_itunes...")
+            self._debug_log(f"   🔒 DEBUG: Thread {thread_id} acquiring iTunes lock in _search_itunes...")
             with self.itunes_lock:
-                print(f"   ✅ DEBUG: Thread {thread_id} acquired iTunes lock in _search_itunes")
-                print(f"   📝 Enforcing rate limit...")
+                self._debug_log(f"   ✅ DEBUG: Thread {thread_id} acquired iTunes lock in _search_itunes")
+                self._debug_log(f"   📝 Enforcing rate limit...")
                 self._enforce_rate_limit()
-                print(f"   ✅ Rate limit enforced, proceeding with API call...")
+                self._debug_log(f"   ✅ Rate limit enforced, proceeding with API call...")
 
                 # Build search term
                 if artist_name:
                     search_term = f"{artist_name} {song_name}"
                 else:
                     search_term = song_name
-                print(f"   🔍 Search term: '{search_term}'")
+                self._debug_log(f"   🔍 Search term: '{search_term}'")
 
                 # iTunes API call
                 url = "https://itunes.apple.com/search"
@@ -405,29 +468,104 @@ class MusicSearchServiceV2:
                     'entity': 'song',
                     'limit': 5
                 }
-                print(f"   📝 Making iTunes API request...")
-                print(f"   URL: {url}")
-                print(f"   Params: {params}")
+                self._debug_log(f"   📝 Making iTunes API request...")
+                self._debug_log(f"   URL: {url}")
+                self._debug_log(f"   Params: {params}")
 
                 import time
                 request_start = time.time()
-                response = httpx.get(url, params=params, timeout=10)
-                request_time = time.time() - request_start
-                print(f"   ✅ iTunes API responded in {request_time:.2f}s")
-                print(f"   📊 Status code: {response.status_code}")
+
+                # Add detailed httpx diagnostics with explicit SSL verification
+                try:
+                    # Use explicit certifi bundle for packaged app compatibility
+                    import ssl
+                    import certifi
+                    ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+                    self._debug_log(f"   🔐 SSL context created with certifi bundle: {certifi.where()}")
+                    self._debug_log(f"   🌐 Executing httpx.get()...")
+                    response = httpx.get(url, params=params, timeout=10, verify=ssl_context)
+                    request_time = time.time() - request_start
+                    self._debug_log(f"   ✅ iTunes API responded in {request_time:.2f}s")
+                    self._debug_log(f"   📊 Status code: {response.status_code}")
+                except httpx.ConnectError as conn_err:
+                    self._debug_log(f"   ❌ httpx.ConnectError caught: {conn_err}")
+                    self._debug_log(f"   Error type: {type(conn_err).__name__}")
+                    self._debug_log(f"   Error details: {str(conn_err)}")
+                    raise  # Re-raise to be caught by outer exception handler
+                except httpx.TimeoutException as timeout_err:
+                    self._debug_log(f"   ❌ httpx.TimeoutException caught: {timeout_err}")
+                    raise
+                except httpx.HTTPStatusError as status_err:
+                    self._debug_log(f"   ❌ httpx.HTTPStatusError caught: {status_err}")
+                    self._debug_log(f"   Status code: {status_err.response.status_code}")
+
+                    # Check if this is a 403 Forbidden (iTunes rate limit in disguise)
+                    if status_err.response.status_code == 403:
+                        self._debug_log(f"   ⚠️  403 Forbidden - iTunes API is blocking due to rate limit")
+
+                        # Calculate discovered rate limit based on requests in last 60 seconds
+                        current_time = time.time()
+                        recent_requests = [t for t in self.itunes_requests if current_time - t <= 60]
+                        discovered_count = len(recent_requests)
+
+                        self._debug_log(f"   📊 Current request rate: {discovered_count} requests/minute")
+
+                        # Only update discovered rate limit if we have a meaningful sample
+                        if discovered_count > 5:
+                            # Use 80% of current rate as the safe limit
+                            safe_limit = int(discovered_count * 0.8)
+                            self._debug_log(f"   📊 Setting discovered rate limit to {safe_limit} req/min (80% of {discovered_count})")
+                            self.settings["discovered_rate_limit"] = safe_limit
+                            self._save_settings()
+
+                            # Notify UI about discovery
+                            if hasattr(self, 'rate_limit_discovered_callback') and self.rate_limit_discovered_callback:
+                                try:
+                                    self.rate_limit_discovered_callback(safe_limit)
+                                except Exception as cb_error:
+                                    self._debug_log(f"⚠️  Rate limit discovered callback failed: {cb_error}")
+
+                        # Reset rate limit queue to force full 60-second wait
+                        self._debug_log(f"   🔄 Resetting rate limit queue - forcing 60s cooldown")
+                        self.itunes_requests.clear()
+
+                        # Notify the UI if callback is available
+                        if hasattr(self, 'rate_limit_hit_callback') and self.rate_limit_hit_callback:
+                            try:
+                                self.rate_limit_hit_callback()
+                            except Exception as cb_error:
+                                self._debug_log(f"⚠️  Rate limit hit callback failed: {cb_error}")
+
+                        return {
+                            "success": False,
+                            "source": "itunes",
+                            "error": "Rate limit (403 Forbidden)",
+                            "rate_limited": True,  # Mark as rate-limited for retry list
+                            "http_status": 403
+                        }
+
+                    # For other HTTP errors, raise normally
+                    raise
+                except Exception as req_err:
+                    self._debug_log(f"   ❌ Unexpected error during httpx.get(): {req_err}")
+                    self._debug_log(f"   Error type: {type(req_err).__name__}")
+                    import traceback
+                    self._debug_log(f"   Traceback: {traceback.format_exc()}")
+                    raise
 
                 response.raise_for_status()
-                print(f"   📝 Parsing JSON response...")
+                self._debug_log(f"   📝 Parsing JSON response...")
                 data = response.json()
-                print(f"   ✅ JSON parsed successfully")
+                self._debug_log(f"   ✅ JSON parsed successfully")
 
                 results = data.get('results', [])
-                print(f"   📊 Found {len(results)} results")
+                self._debug_log(f"   📊 Found {len(results)} results")
 
                 if results:
                     # Return first result's artist
                     artist = results[0].get('artistName', '')
-                    print(f"   ✅ iTunes found artist: '{artist}'")
+                    self._debug_log(f"   ✅ iTunes found artist: '{artist}'")
                     logger.info(f"iTunes found: '{artist}' for '{song_name}'")
                     if TRACE_ENABLED:
                         trace_log.debug("iTunes success for %s -> %s", song_name, artist)
@@ -437,7 +575,7 @@ class MusicSearchServiceV2:
                         "source": "itunes"
                     }
                 else:
-                    print(f"   ❌ No iTunes match found")
+                    self._debug_log(f"   ❌ No iTunes match found")
                     logger.debug(f"iTunes no match for: '{song_name}'")
                     if TRACE_ENABLED:
                         trace_log.debug("iTunes no match for %s", song_name)
@@ -449,7 +587,7 @@ class MusicSearchServiceV2:
 
         except BrokenPipeError as e:
             # Handle broken pipe errors (connection closed unexpectedly)
-            print(f"   ⚠️  Broken pipe error during iTunes API call: {e}")
+            self._debug_log(f"   ⚠️  Broken pipe error during iTunes API call: {e}")
             logger.warning(f"⚠️  iTunes API connection broken - will retry on next search")
             return {
                 "success": False,
@@ -458,20 +596,34 @@ class MusicSearchServiceV2:
             }
         except httpx.ConnectError as e:
             # Handle connection errors
-            print(f"   ⚠️  Connection error during iTunes API call: {e}")
-            logger.warning(f"⚠️  iTunes API connection error")
+            self._debug_log(f"   ⚠️  Connection error during iTunes API call: {e}")
+            self._debug_log(f"   Error type: {type(e).__name__}")
+            self._debug_log(f"   Error str: {str(e)}")
+            import traceback
+            self._debug_log(f"   Full traceback: {traceback.format_exc()}")
+            logger.warning(f"⚠️  iTunes API connection error: {e}")
             return {
                 "success": False,
                 "source": "itunes",
-                "error": "Connection error"
+                "error": f"Connection error: {e}"
+            }
+        except httpx.TimeoutException as e:
+            self._debug_log(f"   ⚠️  Timeout during iTunes API call: {e}")
+            logger.warning(f"⚠️  iTunes API timeout")
+            return {
+                "success": False,
+                "source": "itunes",
+                "error": f"Timeout: {e}"
             }
         except Exception as e:
             # Check if this is a rate limit error (429)
             error_str = str(e)
+            self._debug_log(f"   ❌ Exception caught in _search_itunes: {type(e).__name__}")
+            self._debug_log(f"   Error message: {error_str}")
 
             # Check for broken pipe in string representation
             if "broken pipe" in error_str.lower() or "errno 32" in error_str.lower():
-                print(f"   ⚠️  Broken pipe error (in exception): {e}")
+                self._debug_log(f"   ⚠️  Broken pipe error (in exception): {e}")
                 logger.warning(f"⚠️  iTunes API broken pipe error")
                 return {
                     "success": False,
@@ -480,7 +632,7 @@ class MusicSearchServiceV2:
                 }
 
             if "429" in error_str or "rate limit" in error_str.lower() or "too many requests" in error_str.lower():
-                print(f"   ⚠️  Rate limit detected from iTunes API: {e}")
+                self._debug_log(f"   ⚠️  Rate limit detected from iTunes API: {e}")
                 logger.warning(f"⚠️  iTunes API rate limit hit - discovering actual limit")
 
                 # Calculate discovered rate limit based on requests in last 60 seconds
@@ -490,7 +642,7 @@ class MusicSearchServiceV2:
 
                 # Only update if we have a meaningful sample
                 if discovered_count > 5:
-                    print(f"   📊 Discovered actual rate limit: {discovered_count} requests/minute")
+                    self._debug_log(f"   📊 Discovered actual rate limit: {discovered_count} requests/minute")
                     self.settings["discovered_rate_limit"] = discovered_count
                     self._save_settings()
 
@@ -499,11 +651,11 @@ class MusicSearchServiceV2:
                         try:
                             self.rate_limit_discovered_callback(discovered_count)
                         except Exception as cb_error:
-                            print(f"⚠️  Rate limit discovered callback failed: {cb_error}")
+                            self._debug_log(f"⚠️  Rate limit discovered callback failed: {cb_error}")
 
                 # Reset rate limit queue to force full 60-second wait
                 # This prevents immediately hitting the limit again
-                print(f"   🔄 Resetting rate limit queue - forcing full 60s wait before next request")
+                self._debug_log(f"   🔄 Resetting rate limit queue - forcing full 60s wait before next request")
                 self.itunes_requests.clear()
 
                 # Notify the UI if callback is available
@@ -511,18 +663,15 @@ class MusicSearchServiceV2:
                     try:
                         self.rate_limit_hit_callback()
                     except Exception as cb_error:
-                        print(f"⚠️  Rate limit hit callback failed: {cb_error}")
+                        self._debug_log(f"⚠️  Rate limit hit callback failed: {cb_error}")
             else:
-                print(f"   ❌ iTunes search error: {e}")
+                self._debug_log(f"   ❌ iTunes search error: {e}")
                 logger.error(f"iTunes search error: {e}")
 
             if TRACE_ENABLED:
                 trace_log.exception("iTunes search error for %s: %s", song_name, e)
             import traceback
-            try:
-                traceback.print_exc()
-            except (BrokenPipeError, OSError):
-                pass  # Ignore broken pipe errors in traceback printing
+            self._debug_log(f"   Full exception traceback: {traceback.format_exc()}")
             return {
                 "success": False,
                 "source": "itunes",
@@ -537,120 +686,185 @@ class MusicSearchServiceV2:
         """
         import threading
         thread_id = threading.current_thread().ident
-        print(f"      🕐 DEBUG: _enforce_rate_limit START (Thread {thread_id}, lock already held by caller)")
+        logger.debug(f"      🕐 _enforce_rate_limit START (Thread {thread_id}, lock already held by caller)")
 
         # Use discovered limit if available and adaptive mode is enabled
         use_adaptive = self.settings.get("use_adaptive_rate_limit", True)
         discovered_limit = self.settings.get("discovered_rate_limit", None)
         user_limit = self.settings.get("itunes_rate_limit", 20)
 
-        print(f"      📊 DEBUG: use_adaptive={use_adaptive}, discovered={discovered_limit}, user={user_limit}")
+        logger.debug(f"      📊 use_adaptive={use_adaptive}, discovered={discovered_limit}, user={user_limit}")
 
         if use_adaptive:
             if discovered_limit:
                 # Use discovered limit with safety margin
                 safety_margin = self.settings.get("rate_limit_safety_margin", 0.8)
                 rate_limit = int(discovered_limit * safety_margin)
-                print(f"      🎯 Using adaptive rate limit: {rate_limit} req/min (discovered: {discovered_limit}, margin: {safety_margin})")
+                logger.debug(f"      🎯 Using adaptive rate limit: {rate_limit} req/min (discovered: {discovered_limit}, margin: {safety_margin})")
             else:
-                # No discovered limit yet - start very aggressive to find limit quickly
-                # Use 600 req/min (10 req/sec) to discover actual limit on first rate limit error
-                # Most observed limits are 300-350, so we'll hit it within ~30-40 seconds
-                rate_limit = 600
-                print(f"      🔍 Discovery mode: Using {rate_limit} req/min to find actual limit quickly (will adapt on first rate limit)")
+                # No discovered limit yet - start conservatively to avoid 403 blocking
+                # Use 120 req/min (2 req/sec) which is safe and won't trigger 403
+                # iTunes API has been observed to block at 600 req/min with 403 Forbidden
+                rate_limit = 120
+                logger.debug(f"      🔍 Discovery mode: Using conservative {rate_limit} req/min to avoid 403 blocking (will adapt if we hit rate limit)")
         else:
             rate_limit = user_limit
-            print(f"      📊 Using manual rate limit: {rate_limit} requests/min")
+            logger.debug(f"      📊 Using manual rate limit: {rate_limit} requests/min")
 
         min_interval = 60.0 / rate_limit
-        print(f"      📊 Min interval: {min_interval:.2f}s")
+        logger.debug(f"      📊 Min interval: {min_interval:.2f}s")
 
         current_time = time.time()
-        print(f"      📊 Current requests in queue: {len(self.itunes_requests)}")
+        logger.debug(f"      📊 Current requests in queue: {len(self.itunes_requests)}")
 
         # Remove old requests (older than 1 minute)
-        print(f"      📝 Removing old requests...")
+        logger.debug(f"      📝 Removing old requests...")
         old_count = len(self.itunes_requests)
         while self.itunes_requests and current_time - self.itunes_requests[0] > 60:
             self.itunes_requests.popleft()
         removed = old_count - len(self.itunes_requests)
-        print(f"      ✅ Removed {removed} old requests, {len(self.itunes_requests)} remaining")
+        logger.debug(f"      ✅ Removed {removed} old requests, {len(self.itunes_requests)} remaining")
 
         # Check if we need to wait
         if len(self.itunes_requests) >= rate_limit:
             sleep_time = 60 - (current_time - self.itunes_requests[0])
             if sleep_time > 0:
-                print(f"      ⏸️  Rate limit reached - sleeping {sleep_time:.1f}s")
-                logger.info(f"⏸️  iTunes rate limit reached - waiting {sleep_time:.0f}s before continuing...")
+                logger.debug(f"      ⏸️  Rate limit reached - sleeping {sleep_time:.1f}s")
+                logger.print_always(f"⏸️  iTunes rate limit reached - waiting {sleep_time:.0f}s before continuing...")
 
                 # Call rate limit callback if provided
-                print(f"      📞 DEBUG: Checking for rate_limit_callback...")
+                logger.debug(f"      📞 Checking for rate_limit_callback...")
                 if hasattr(self, 'rate_limit_callback') and self.rate_limit_callback:
                     try:
-                        print(f"      📞 DEBUG: Calling rate_limit_callback({sleep_time})...")
+                        logger.debug(f"      📞 Calling rate_limit_callback({sleep_time})...")
                         self.rate_limit_callback(sleep_time)
-                        print(f"      ✅ DEBUG: rate_limit_callback completed")
+                        logger.debug(f"      ✅ rate_limit_callback completed")
                     except Exception as e:
-                        print(f"⚠️  Rate limit callback failed: {e}")
+                        logger.error(f"⚠️  Rate limit callback failed: {e}")
 
                 # Interruptible sleep with countdown
-                print(f"      ⏸️  DEBUG: Checking for rate_limit_wait_callback...")
+                logger.debug(f"      ⏸️  Checking for rate_limit_wait_callback...")
                 if hasattr(self, 'rate_limit_wait_callback') and self.rate_limit_wait_callback:
                     # Use callback-based interruptible wait with countdown
-                    print(f"      ⏸️  DEBUG: Calling rate_limit_wait_callback({sleep_time})... THIS MAY BLOCK")
+                    logger.debug(f"      ⏸️  Calling rate_limit_wait_callback({sleep_time})... THIS MAY BLOCK")
                     self.rate_limit_wait_callback(sleep_time)
-                    print(f"      ✅ DEBUG: rate_limit_wait_callback completed")
+                    logger.debug(f"      ✅ rate_limit_wait_callback completed")
                 else:
                     # Fallback to blocking sleep
-                    print(f"      💤 DEBUG: No callback, using time.sleep({sleep_time})...")
+                    logger.debug(f"      💤 No callback, using time.sleep({sleep_time})...")
                     time.sleep(sleep_time)
-                    print(f"      ✅ DEBUG: time.sleep completed")
-                print(f"      ✅ Sleep complete")
+                    logger.debug(f"      ✅ time.sleep completed")
+                logger.debug(f"      ✅ Sleep complete")
         else:
-            print(f"      ✅ No rate limit wait needed ({len(self.itunes_requests)}/{rate_limit})")
+            logger.debug(f"      ✅ No rate limit wait needed ({len(self.itunes_requests)}/{rate_limit})")
 
         # Add current request
         self.itunes_requests.append(current_time)
-        print(f"      ✅ Added request to queue, total: {len(self.itunes_requests)}")
-        print(f"      🕐 DEBUG: _enforce_rate_limit END")
+        logger.debug(f"      ✅ Added request to queue, total: {len(self.itunes_requests)}")
+        logger.debug(f"      🕐 _enforce_rate_limit END")
 
-    def search_itunes_batch_parallel(self, song_names: List[str]) -> List[Dict]:
+    def search_itunes_batch_parallel(self, song_names: List[str], progress_callback=None, interrupt_check=None) -> List[Dict]:
         """
         Search iTunes API for multiple songs in parallel using thread pool.
         Returns results in same order as input song_names.
+
+        Args:
+            song_names: List of track names to search
+            progress_callback: Optional callback(track_idx, track_name, result, completed_count, total_count)
+            interrupt_check: Optional callable that returns True if search should be interrupted
         """
+        # Run network diagnostics BEFORE starting parallel search
+        self._debug_log("\n" + "="*80)
+        self._debug_log("STARTING ITUNES PARALLEL SEARCH - RUNNING DIAGNOSTICS FIRST")
+        self._debug_log("="*80)
+        diagnostics = self._test_network_connectivity()
+        self._debug_log(f"Network diagnostics results: {diagnostics}")
+
+        # If network test failed, log details and potentially abort
+        if not diagnostics.get("network_reachable"):
+            error_msg = f"Network connectivity test failed: {diagnostics.get('error', 'Unknown error')}"
+            self._debug_log(f"❌ CRITICAL: {error_msg}")
+            self._debug_log(f"   httpx version: {diagnostics.get('httpx_version', 'unknown')}")
+            self._debug_log(f"   certifi available: {diagnostics.get('certifi_available', False)}")
+            self._debug_log(f"   certifi path: {diagnostics.get('certifi_path', 'N/A')}")
+            # Continue anyway to see what happens with actual iTunes API
+        else:
+            self._debug_log(f"✅ Network diagnostics passed - proceeding with iTunes search")
+
         use_parallel = self.settings.get("use_parallel_requests", False)
         max_workers = self.settings.get("parallel_workers", 10)
 
         if not use_parallel:
-            # Fall back to sequential processing
-            return [self._search_itunes(song) for song in song_names]
+            # Fall back to sequential processing with progress updates
+            self._debug_log(f"Using sequential mode (parallel disabled)")
+            results = []
+            for idx, song in enumerate(song_names):
+                # Check for interrupt
+                if interrupt_check and interrupt_check():
+                    self._debug_log(f"⏹️ Search interrupted by user at track {idx}/{len(song_names)}")
+                    logger.print_always(f"⏹️ iTunes search stopped by user at {idx}/{len(song_names)} tracks")
+                    break
 
-        print(f"🚀 Starting parallel iTunes search for {len(song_names)} tracks with {max_workers} workers")
+                result = self._search_itunes(song)
+                results.append(result)
+                if progress_callback:
+                    progress_callback(idx, song, result, idx + 1, len(song_names))
+            return results
+
+        self._debug_log(f"🚀 Starting parallel iTunes search for {len(song_names)} tracks with {max_workers} workers")
 
         results = [None] * len(song_names)  # Pre-allocate results array
+        completed_count = 0
+        interrupted = False
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             future_to_index = {
-                executor.submit(self._search_itunes, song_name): idx
+                executor.submit(self._search_itunes, song_name): (idx, song_name)
                 for idx, song_name in enumerate(song_names)
             }
 
             # Collect results as they complete
             for future in as_completed(future_to_index):
-                idx = future_to_index[future]
+                # Check for interrupt before processing next result
+                if interrupt_check and interrupt_check():
+                    self._debug_log(f"⏹️ Search interrupted by user at {completed_count}/{len(song_names)} tracks")
+                    logger.print_always(f"⏹️ iTunes search stopped by user at {completed_count}/{len(song_names)} tracks")
+                    interrupted = True
+                    # Cancel remaining futures
+                    for f in future_to_index:
+                        if not f.done():
+                            f.cancel()
+                    break
+
+                idx, song_name = future_to_index[future]
                 try:
-                    results[idx] = future.result()
+                    result = future.result()
+                    results[idx] = result
+                    completed_count += 1
+
+                    # Call progress callback with live update
+                    if progress_callback:
+                        progress_callback(idx, song_name, result, completed_count, len(song_names))
+
                 except Exception as e:
-                    print(f"   ❌ Parallel search failed for track {idx}: {e}")
-                    results[idx] = {
+                    logger.error(f"   ❌ Parallel search failed for track {idx}: {e}")
+                    result = {
                         "success": False,
                         "source": "itunes",
                         "error": str(e)
                     }
+                    results[idx] = result
+                    completed_count += 1
 
-        print(f"✅ Parallel search complete: {len(results)} results")
+                    # Call progress callback even on error
+                    if progress_callback:
+                        progress_callback(idx, song_name, result, completed_count, len(song_names))
+
+        if interrupted:
+            logger.print_always(f"⏹️ Parallel search interrupted: {completed_count}/{len(song_names)} tracks completed")
+        else:
+            logger.print_always(f"✅ Parallel search complete: {len(results)} results")
         return results
 
     @trace_call("MusicSearch.get_status")

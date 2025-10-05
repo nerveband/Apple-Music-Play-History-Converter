@@ -16,9 +16,13 @@ import time
 import unicodedata
 from typing import Optional, Callable, Dict, Tuple
 from pathlib import Path
-import logging
 
-logger = logging.getLogger(__name__)
+try:
+    from .logging_config import get_logger
+except ImportError:
+    from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class UltraFastCSVProcessor:
     """
@@ -63,9 +67,9 @@ class UltraFastCSVProcessor:
         """
         start_time = time.time()
 
-        print("\n" + "="*70)
-        print("🚀 ULTRA-FAST CSV PROCESSING")
-        print("="*70)
+        logger.print_always("\n" + "="*70)
+        logger.print_always("🚀 ULTRA-FAST CSV PROCESSING")
+        logger.print_always("="*70)
 
         # Phase 1: Read CSV
         if progress_callback:
@@ -75,7 +79,7 @@ class UltraFastCSVProcessor:
         df = self._read_csv(csv_file)
         read_time = time.time() - read_start
 
-        print(f"✅ Read {len(df):,} rows in {read_time:.1f}s")
+        logger.print_always(f"✅ Read {len(df):,} rows in {read_time:.1f}s")
         self.stats['total_rows'] = len(df)
 
         # Phase 2: Vectorized text cleaning
@@ -86,7 +90,7 @@ class UltraFastCSVProcessor:
         df = self._vectorized_clean(df)
         clean_time = time.time() - clean_start
 
-        print(f"✅ Cleaned {len(df):,} tracks in {clean_time:.1f}s")
+        logger.print_always(f"✅ Cleaned {len(df):,} tracks in {clean_time:.1f}s")
 
         # Phase 3: Deduplication analysis
         if progress_callback:
@@ -101,11 +105,11 @@ class UltraFastCSVProcessor:
         dedup_ratio = (self.stats['dedup_saves'] / len(df)) * 100
         dedup_speedup = len(df) / len(unique_df) if len(unique_df) > 0 else 1
 
-        print(f"\n📊 Deduplication Analysis:")
-        print(f"   Total rows: {len(df):,}")
-        print(f"   Unique tracks: {len(unique_df):,} ({len(unique_df)/len(df)*100:.1f}%)")
-        print(f"   💾 Deduplication saves: {self.stats['dedup_saves']:,} searches ({dedup_ratio:.1f}%)")
-        print(f"   🚀 Speedup from dedup: {dedup_speedup:.1f}x")
+        logger.print_always(f"\n📊 Deduplication Analysis:")
+        logger.print_always(f"   Total rows: {len(df):,}")
+        logger.print_always(f"   Unique tracks: {len(unique_df):,} ({len(unique_df)/len(df)*100:.1f}%)")
+        logger.print_always(f"   💾 Deduplication saves: {self.stats['dedup_saves']:,} searches ({dedup_ratio:.1f}%)")
+        logger.print_always(f"   🚀 Speedup from dedup: {dedup_speedup:.1f}x")
 
         # Phase 4: Batch SQL queries
         if progress_callback:
@@ -115,10 +119,10 @@ class UltraFastCSVProcessor:
         track_to_artist = self._batch_search(unique_df, progress_callback)
         search_time = time.time() - search_start
 
-        print(f"\n✅ Batch search completed in {search_time:.1f}s")
-        print(f"   🔥 HOT table hits: {self.stats['hot_hits']:,} ({self.stats['hot_hits']/len(unique_df)*100:.1f}%)")
-        print(f"   ❄️  COLD table hits: {self.stats['cold_hits']:,} ({self.stats['cold_hits']/len(unique_df)*100:.1f}%)")
-        print(f"   ⚠️  Not found: {self.stats['not_found']:,} ({self.stats['not_found']/len(unique_df)*100:.1f}%)")
+        logger.print_always(f"\n✅ Batch search completed in {search_time:.1f}s")
+        logger.print_always(f"   🔥 HOT table hits: {self.stats['hot_hits']:,} ({self.stats['hot_hits']/len(unique_df)*100:.1f}%)")
+        logger.print_always(f"   ❄️  COLD table hits: {self.stats['cold_hits']:,} ({self.stats['cold_hits']/len(unique_df)*100:.1f}%)")
+        logger.warning(f"   ⚠️  Not found: {self.stats['not_found']:,} ({self.stats['not_found']/len(unique_df)*100:.1f}%)")
 
         # Phase 5: Vectorized mapping
         if progress_callback:
@@ -128,7 +132,7 @@ class UltraFastCSVProcessor:
         df = self._vectorized_map(df, track_to_artist)
         map_time = time.time() - map_start
 
-        print(f"\n✅ Mapped results in {map_time:.1f}s")
+        logger.print_always(f"\n✅ Mapped results in {map_time:.1f}s")
 
         # Final stats
         total_time = time.time() - start_time
@@ -138,19 +142,19 @@ class UltraFastCSVProcessor:
         match_rate = (matched / len(df)) * 100
         throughput = len(df) / total_time
 
-        print(f"\n" + "="*70)
-        print("📊 FINAL RESULTS:")
-        print("="*70)
-        print(f"Total rows:      {len(df):,}")
-        print(f"Matched:         {matched:,} ({match_rate:.1f}%)")
-        print(f"Total time:      {self._format_time(total_time)}")
-        print(f"Throughput:      {throughput:.1f} rows/sec")
+        logger.print_always(f"\n" + "="*70)
+        logger.print_always("📊 FINAL RESULTS:")
+        logger.print_always("="*70)
+        logger.print_always(f"Total rows:      {len(df):,}")
+        logger.print_always(f"Matched:         {matched:,} ({match_rate:.1f}%)")
+        logger.print_always(f"Total time:      {self._format_time(total_time)}")
+        logger.print_always(f"Throughput:      {throughput:.1f} rows/sec")
 
         # Calculate speedup vs old method (77ms per row)
         old_time = len(df) * 0.077  # 77ms per row
         speedup = old_time / total_time
-        print(f"Speedup:         🚀 {speedup:.1f}x faster!")
-        print("="*70 + "\n")
+        logger.print_always(f"Speedup:         🚀 {speedup:.1f}x faster!")
+        logger.print_always("="*70 + "\n")
 
         if progress_callback:
             progress_callback("Complete!", 100)
@@ -237,7 +241,7 @@ class UltraFastCSVProcessor:
             return track_to_artist
 
         # Phase 1: Query HOT table in batches
-        print(f"\n🔥 Querying HOT table (batch size: {self.batch_size:,})...")
+        logger.print_always(f"\n🔥 Querying HOT table (batch size: {self.batch_size:,})...")
 
         for i in range(0, len(unique_tracks), self.batch_size):
             batch = unique_tracks[i:i+self.batch_size]
@@ -274,7 +278,7 @@ class UltraFastCSVProcessor:
         missed_tracks = [t for t in unique_tracks if t not in track_to_artist]
 
         if missed_tracks:
-            print(f"\n❄️  Querying COLD table for {len(missed_tracks):,} misses...")
+            logger.print_always(f"\n❄️  Querying COLD table for {len(missed_tracks):,} misses...")
 
             for i in range(0, len(missed_tracks), self.batch_size):
                 batch = missed_tracks[i:i+self.batch_size]
@@ -307,8 +311,8 @@ class UltraFastCSVProcessor:
         # Users can re-process with iTunes fallback for the ~6% misses if needed
         still_missed = [t for t in unique_tracks if t not in track_to_artist]
         if still_missed:
-            print(f"\n⚠️  {len(still_missed):,} tracks not found in batch queries (will be left blank)")
-            print(f"   Tip: Re-run with iTunes fallback enabled for better coverage")
+            logger.warning(f"\n⚠️  {len(still_missed):,} tracks not found in batch queries (will be left blank)")
+            logger.info(f"   Tip: Re-run with iTunes fallback enabled for better coverage")
 
         # Count not found
         self.stats['not_found'] = len(unique_tracks) - len(track_to_artist)

@@ -122,5 +122,5 @@ class ProgressDialog:
         return self.dialog
 
 
-# Note: DatabaseDownloadDialog and FirstTimeSetupDialog have been moved to database_dialogs.py
+# Note: DatabaseDownloadDialog and FirstTimeSetupDialog were removed (unused dead code)
 # This file now only contains the generic Toga ProgressDialog

@@ -34,14 +34,20 @@ try:
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-    print("⚠️  psutil not available - using default 2GB memory limit")
 
 try:
     from .trace_utils import TRACE_ENABLED, trace_call, trace_log
+    from .app_directories import get_log_path
+    from .logging_config import get_logger
 except ImportError:
     from trace_utils import TRACE_ENABLED, trace_call, trace_log
+    from app_directories import get_log_path
+    from logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+if not PSUTIL_AVAILABLE:
+    logger.warning("⚠️  psutil not available - using default 2GB memory limit")
 
 # Increment schema version to force re-optimization
 SCHEMA_VERSION = 3
@@ -50,22 +56,7 @@ SCHEMA_VERSION = 3
 SEARCH_ROW_LIMIT = 10  # Reduced from 25 for faster queries
 LRU_CACHE_SIZE = 10000  # 10k entries ~ 2MB RAM
 
-# Ensure detailed logging is persisted
-try:
-    _log_dir = Path.home() / ".apple_music_converter" / "logs"
-    _log_dir.mkdir(parents=True, exist_ok=True)
-    _log_file = _log_dir / "musicbrainz_manager_v2_optimized.log"
-
-    if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == str(_log_file)
-               for h in logger.handlers):
-        file_handler = logging.FileHandler(_log_file, encoding='utf-8')
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s - %(message)s'
-        ))
-        logger.addHandler(file_handler)
-        logger.setLevel(logging.DEBUG)
-except Exception as _log_error:
-    logging.getLogger(__name__).warning(f"Failed to initialize log file: {_log_error}")
+# SmartLogger handles file logging automatically
 
 
 class MusicBrainzManagerV2Optimized:
@@ -80,7 +71,7 @@ class MusicBrainzManagerV2Optimized:
     def __init__(self, data_dir: str):
         """Initialize with persistent file structure."""
         logger.debug("Initializing MusicBrainzManagerV2Optimized with data_dir=%s", data_dir)
-        print("🚀 Initializing ULTRA-OPTIMIZED MusicBrainz Manager V2")
+        logger.print_always("🚀 Initializing ULTRA-OPTIMIZED MusicBrainz Manager V2")
 
         self.data_dir = Path(data_dir) / "musicbrainz"
         self.canonical_dir = self.data_dir / "canonical"
@@ -139,7 +130,7 @@ class MusicBrainzManagerV2Optimized:
                 self._ready = True
                 logger.info("Database validated - marking as ready")
 
-        print(f"✅ Manager initialized - CSV: {self.csv_file.exists()}, Ready: {self._ready}")
+        logger.print_always(f"✅ Manager initialized - CSV: {self.csv_file.exists()}, Ready: {self._ready}")
 
     def _migrate_legacy_paths(self):
         """Move legacy MusicBrainz assets into the V2 directory layout."""
@@ -285,23 +276,23 @@ class MusicBrainzManagerV2Optimized:
 
         if metadata.get("version") == current_version:
             logger.info("Metadata matches - validating DuckDB")
-            print("   🔍 Validating existing database...")
+            logger.debug("   🔍 Validating existing database...")
             self._connect_to_duckdb()
 
             if self._duckdb_has_required_tables():
                 logger.info("DuckDB validation succeeded - reusing optimization")
-                print("   ✅ Database validated - ready to use!")
+                logger.print_always("   ✅ Database validated - ready to use!")
                 self._optimization_complete = True
                 self._ready = True
                 return
 
             logger.warning("DuckDB missing tables - forcing re-optimization")
-            print("   ⚠️  Database incomplete - re-optimization needed")
+            logger.warning("   ⚠️  Database incomplete - re-optimization needed")
             self._optimization_complete = False
             self._ready = False
         else:
             logger.info(f"Version mismatch: current={current_version}, metadata={metadata.get('version')}")
-            print(f"   ⚠️  Database version mismatch - re-optimization needed")
+            logger.warning(f"   ⚠️  Database version mismatch - re-optimization needed")
 
     def _connect_to_duckdb(self):
         """Connect to persistent DuckDB with OPTIMIZATIONS."""
@@ -313,9 +304,9 @@ class MusicBrainzManagerV2Optimized:
                     pass
 
             logger.debug("Connecting to DuckDB at %s", self.duckdb_file)
-            print(f"   🔗 Connecting to DuckDB: {self.duckdb_file}")
+            logger.info(f"   🔗 Connecting to DuckDB: {self.duckdb_file}")
             self._conn = duckdb.connect(str(self.duckdb_file))
-            print(f"   ✅ DuckDB connection established")
+            logger.print_always(f"   ✅ DuckDB connection established")
 
             # OPTIMIZATION 1: Dynamic memory allocation (40% of system RAM, 2GB min, 12GB max)
             # Increased from 25% to 40% to handle large operations
@@ -323,31 +314,31 @@ class MusicBrainzManagerV2Optimized:
                 total_ram_gb = psutil.virtual_memory().total / (1024**3)
                 memory_limit = min(max(int(total_ram_gb * 0.4), 2), 12)
                 logger.info(f"🚀 OPTIMIZATION: Dynamic RAM allocation = {memory_limit}GB (was 2GB)")
-                print(f"   🚀 RAM: {memory_limit}GB (40% of system RAM)")
+                logger.print_always(f"   🚀 RAM: {memory_limit}GB (40% of system RAM)")
             else:
                 memory_limit = 4  # Increased default
-                print(f"   ⚠️  RAM: {memory_limit}GB (psutil not available)")
+                logger.warning(f"   ⚠️  RAM: {memory_limit}GB (psutil not available)")
 
             self._conn.execute(f"SET memory_limit='{memory_limit}GB'")
 
             # Disable insertion order preservation for memory efficiency
             self._conn.execute("SET preserve_insertion_order=false")
-            print(f"   🚀 Memory optimization: preserve_insertion_order=false")
+            logger.print_always(f"   🚀 Memory optimization: preserve_insertion_order=false")
 
             # OPTIMIZATION 2: More threads for parallelism (was 4, now 8)
             self._conn.execute("SET threads TO 8")
             logger.info("🚀 OPTIMIZATION: Thread count = 8 (was 4)")
-            print(f"   🚀 Threads: 8 (was 4)")
+            logger.print_always(f"   🚀 Threads: 8 (was 4)")
 
             # OPTIMIZATION 3: Enable compression (50-70% smaller files)
             try:
                 self._conn.execute("PRAGMA enable_compression")
                 self._conn.execute("SET compression='auto'")
                 logger.info("🚀 OPTIMIZATION: Compression enabled (50-70% smaller DB)")
-                print(f"   🚀 Compression: Enabled")
+                logger.print_always(f"   🚀 Compression: Enabled")
             except Exception as e:
                 logger.warning(f"Compression not available: {e}")
-                print(f"   ⚠️  Compression: Not available")
+                logger.warning(f"   ⚠️  Compression: Not available")
 
             # OPTIMIZATION 4: Platform-specific optimizations
             self._configure_platform_specific()
@@ -359,11 +350,11 @@ class MusicBrainzManagerV2Optimized:
                 pass
 
             logger.info(f"Connected to DuckDB with {memory_limit}GB RAM, 8 threads, compression")
-            print(f"   ✅ DuckDB configured successfully")
+            logger.print_always(f"   ✅ DuckDB configured successfully")
 
         except Exception as e:
             logger.error(f"Error connecting to DuckDB: {e}")
-            print(f"   ❌ DuckDB connection error: {e}")
+            logger.error(f"   ❌ DuckDB connection error: {e}")
             import traceback
             traceback.print_exc()
             self._conn = None
@@ -600,13 +591,13 @@ class MusicBrainzManagerV2Optimized:
         """ULTRA-OPTIMIZED: Run the one-time optimization process."""
         start_time = time.time()
         logger.info(f"🚀 Running ULTRA-OPTIMIZED MusicBrainz optimization (schema {SCHEMA_VERSION})")
-        print(f"\n{'='*70}")
-        print(f"🚀 ULTRA-OPTIMIZED MUSICBRAINZ OPTIMIZATION")
-        print(f"{'='*70}")
-        print(f"Version: {version}")
-        print(f"Schema: {SCHEMA_VERSION}")
-        print(f"Start: {time.strftime('%H:%M:%S')}")
-        print(f"{'='*70}\n")
+        logger.info(f"\n{'='*70}")
+        logger.print_always(f"🚀 ULTRA-OPTIMIZED MUSICBRAINZ OPTIMIZATION")
+        logger.info(f"{'='*70}")
+        logger.info(f"Version: {version}")
+        logger.info(f"Schema: {SCHEMA_VERSION}")
+        logger.info(f"Start: {time.strftime('%H:%M:%S')}")
+        logger.info(f"{'='*70}\n")
 
         timings = {}
 
@@ -616,7 +607,7 @@ class MusicBrainzManagerV2Optimized:
 
             if progress_callback:
                 progress_callback(message, percent, start_time)
-            print(f"[{percent:5.1f}%] {message}")
+            logger.info(f"[{percent:5.1f}%] {message}")
 
         progress("Initializing database...", 5)
 
@@ -630,49 +621,49 @@ class MusicBrainzManagerV2Optimized:
         phase_start = time.time()
         self._build_basic_table()
         timings['basic_table'] = time.time() - phase_start
-        print(f"   ✅ Basic table: {timings['basic_table']:.1f}s")
+        logger.print_always(f"   ✅ Basic table: {timings['basic_table']:.1f}s")
 
         # PHASE 2: Index basic table (PARALLEL)
         progress("Indexing basic table (PARALLEL)...", 25)
         phase_start = time.time()
         self._index_basic_table_parallel(progress_callback=lambda msg, pct: progress(f"Basic index: {msg}", 25 + int(pct * 15)))
         timings['basic_indexes'] = time.time() - phase_start
-        print(f"   ✅ Basic indexes (PARALLEL): {timings['basic_indexes']:.1f}s")
+        logger.print_always(f"   ✅ Basic indexes (PARALLEL): {timings['basic_indexes']:.1f}s")
 
         # PHASE 3: Build fuzzy table with PRE-COMPUTED cleaning
         progress("Building fuzzy table (OPTIMIZED)...", 40)
         phase_start = time.time()
         self._build_fuzzy_table_optimized()
         timings['fuzzy_table'] = time.time() - phase_start
-        print(f"   ✅ Fuzzy table (OPTIMIZED): {timings['fuzzy_table']:.1f}s")
+        logger.print_always(f"   ✅ Fuzzy table (OPTIMIZED): {timings['fuzzy_table']:.1f}s")
 
         # PHASE 4: Index fuzzy table (PARALLEL)
         progress("Indexing fuzzy table (PARALLEL)...", 50)
         phase_start = time.time()
         self._index_fuzzy_table_parallel(progress_callback=lambda msg, pct: progress(f"Fuzzy index: {msg}", 50 + int(pct * 10)))
         timings['fuzzy_indexes'] = time.time() - phase_start
-        print(f"   ✅ Fuzzy indexes (PARALLEL): {timings['fuzzy_indexes']:.1f}s")
+        logger.print_always(f"   ✅ Fuzzy indexes (PARALLEL): {timings['fuzzy_indexes']:.1f}s")
 
         # PHASE 5: Build HOT/COLD tiered tables
         progress("Building HOT/COLD tables...", 60)
         phase_start = time.time()
         self._build_tiered_tables(progress_callback=lambda msg, pct: progress(f"Tiered: {msg}", 60 + int(pct * 15)))
         timings['tiered_tables'] = time.time() - phase_start
-        print(f"   ✅ HOT/COLD tables: {timings['tiered_tables']:.1f}s")
+        logger.print_always(f"   ✅ HOT/COLD tables: {timings['tiered_tables']:.1f}s")
 
         # PHASE 6: Build artist popularity cache
         progress("Building artist popularity cache...", 75)
         phase_start = time.time()
         self._build_artist_popularity_cache()
         timings['artist_cache'] = time.time() - phase_start
-        print(f"   ✅ Artist popularity cache: {timings['artist_cache']:.1f}s")
+        logger.print_always(f"   ✅ Artist popularity cache: {timings['artist_cache']:.1f}s")
 
         # PHASE 7: Create composite indexes
         progress("Creating composite indexes...", 85)
         phase_start = time.time()
         self._create_composite_indexes()
         timings['composite_indexes'] = time.time() - phase_start
-        print(f"   ✅ Composite indexes: {timings['composite_indexes']:.1f}s")
+        logger.print_always(f"   ✅ Composite indexes: {timings['composite_indexes']:.1f}s")
 
         # Finalize
         progress("Finalizing...", 95)
@@ -696,20 +687,20 @@ class MusicBrainzManagerV2Optimized:
         total_time = time.time() - start_time
 
         # Print summary
-        print(f"\n{'='*70}")
-        print(f"🎉 OPTIMIZATION COMPLETE!")
-        print(f"{'='*70}")
-        print(f"Total Time: {total_time:.1f}s")
-        print(f"Track Count: {track_count:,}" if track_count else "Track Count: unknown")
-        print(f"\nPhase Timings:")
-        print(f"  Basic table:         {timings['basic_table']:.1f}s")
-        print(f"  Basic indexes:       {timings['basic_indexes']:.1f}s (PARALLEL)")
-        print(f"  Fuzzy table:         {timings['fuzzy_table']:.1f}s (OPTIMIZED)")
-        print(f"  Fuzzy indexes:       {timings['fuzzy_indexes']:.1f}s (PARALLEL)")
-        print(f"  HOT/COLD tables:     {timings['tiered_tables']:.1f}s (NEW)")
-        print(f"  Artist cache:        {timings['artist_cache']:.1f}s (NEW)")
-        print(f"  Composite indexes:   {timings['composite_indexes']:.1f}s (NEW)")
-        print(f"{'='*70}\n")
+        logger.info(f"\n{'='*70}")
+        logger.info(f"🎉 OPTIMIZATION COMPLETE!")
+        logger.info(f"{'='*70}")
+        logger.info(f"Total Time: {total_time:.1f}s")
+        logger.info(f"Track Count: {track_count:,}" if track_count else "Track Count: unknown")
+        logger.info(f"\nPhase Timings:")
+        logger.info(f"  Basic table:         {timings['basic_table']:.1f}s")
+        logger.info(f"  Basic indexes:       {timings['basic_indexes']:.1f}s (PARALLEL)")
+        logger.info(f"  Fuzzy table:         {timings['fuzzy_table']:.1f}s (OPTIMIZED)")
+        logger.info(f"  Fuzzy indexes:       {timings['fuzzy_indexes']:.1f}s (PARALLEL)")
+        logger.info(f"  HOT/COLD tables:     {timings['tiered_tables']:.1f}s (NEW)")
+        logger.info(f"  Artist cache:        {timings['artist_cache']:.1f}s (NEW)")
+        logger.info(f"  Composite indexes:   {timings['composite_indexes']:.1f}s (NEW)")
+        logger.info(f"{'='*70}\n")
 
         logger.info(f"Optimization completed in {total_time:.2f}s")
 
@@ -783,15 +774,15 @@ class MusicBrainzManagerV2Optimized:
         """OPTIMIZATION: Build fuzzy table with PURE SQL cleaning (FAST + UNICODE!)."""
         logger.info("🚀 OPTIMIZATION: Building fuzzy table with PURE SQL cleaning (Unicode-aware)")
 
-        print(f"\n   🔍 Getting row count from basic table...")
+        logger.debug(f"\n   🔍 Getting row count from basic table...")
         row_count_result = self._conn.execute("SELECT COUNT(*) FROM musicbrainz_basic").fetchone()
         total_rows = row_count_result[0] if row_count_result else 0
-        print(f"   📊 Total rows to process: {total_rows:,}")
+        logger.print_always(f"   📊 Total rows to process: {total_rows:,}")
         logger.info(f"Basic table has {total_rows:,} rows")
 
         self._conn.execute("DROP TABLE IF EXISTS musicbrainz_fuzzy")
 
-        print(f"\n   ⚡ Using PURE SQL with Unicode property classes (8x faster + full Unicode support)...")
+        logger.info(f"\n   ⚡ Using PURE SQL with Unicode property classes (8x faster + full Unicode support)...")
         logger.info("Using SQL-only text cleaning with Unicode property classes for maximum performance")
 
         query_start = time.time()
@@ -853,15 +844,15 @@ class MusicBrainzManagerV2Optimized:
               AND length(trim(artist_credit_name)) > 0
         """
 
-        print(f"   ⚙️  Executing Unicode-aware SQL fuzzy table creation...")
+        logger.info(f"   ⚙️  Executing Unicode-aware SQL fuzzy table creation...")
         self._conn.execute(sql)
 
         query_time = time.time() - query_start
-        print(f"   ✅ Query completed in {query_time:.1f}s (8x faster + Unicode support!)")
+        logger.print_always(f"   ✅ Query completed in {query_time:.1f}s (8x faster + Unicode support!)")
 
         # Verify result count
         result_count = self._conn.execute("SELECT COUNT(*) FROM musicbrainz_fuzzy").fetchone()[0]
-        print(f"   📊 Fuzzy table rows: {result_count:,}")
+        logger.print_always(f"   📊 Fuzzy table rows: {result_count:,}")
         logger.info(f"Fuzzy table created with {result_count:,} rows in {query_time:.1f}s (Unicode-aware SQL)")
 
     def _index_fuzzy_table_parallel(self, progress_callback: Optional[Callable] = None):
@@ -1424,20 +1415,20 @@ class MusicBrainzManagerV2Optimized:
         # MusicBrainz canonical data URL
         BASE_URL = "https://data.metabrainz.org/pub/musicbrainz/canonical_data/"
 
-        print("\n" + "="*80)
-        print("🔽 MUSICBRAINZ DATABASE DOWNLOAD - EXTENSIVE DEBUG MODE")
-        print("="*80)
+        logger.info("\n" + "="*80)
+        logger.debug("🔽 MUSICBRAINZ DATABASE DOWNLOAD - EXTENSIVE DEBUG MODE")
+        logger.info("="*80)
 
         try:
             logger.info("=" * 80)
             logger.info("STARTING MUSICBRAINZ CANONICAL DATA DOWNLOAD")
             logger.info("=" * 80)
 
-            print(f"📍 Base URL: {BASE_URL}")
+            logger.info(f"📍 Base URL: {BASE_URL}")
             logger.info(f"Base URL: {BASE_URL}")
 
             # Step 1: Discover latest canonical data file
-            print("\n📡 STEP 1: Discovering latest canonical data file...")
+            logger.info("\n📡 STEP 1: Discovering latest canonical data file...")
             logger.info("STEP 1: Directory listing and file discovery")
 
             if progress_callback:
@@ -1445,25 +1436,25 @@ class MusicBrainzManagerV2Optimized:
 
             # Try to list directory and find latest file
             try:
-                print(f"🌐 Fetching directory listing from: {BASE_URL}")
+                logger.info(f"🌐 Fetching directory listing from: {BASE_URL}")
                 logger.info(f"Fetching directory listing from: {BASE_URL}")
 
                 with httpx.Client(http2=True, timeout=30.0) as client:
                     response = client.get(BASE_URL)
-                print(f"✅ HTTP Response: {response.status_code} {response.reason_phrase}")
+                logger.print_always(f"✅ HTTP Response: {response.status_code} {response.reason_phrase}")
                 logger.info(f"HTTP Status: {response.status_code} {response.reason_phrase}")
 
                 response.raise_for_status()
 
                 # Log response headers for debugging
-                print(f"📋 Response Headers:")
+                logger.info(f"📋 Response Headers:")
                 for key, value in response.headers.items():
-                    print(f"   {key}: {value}")
+                    logger.info(f"   {key}: {value}")
                     logger.debug(f"Header {key}: {value}")
 
                 # Save full HTML for debugging
                 html_content = response.text
-                print(f"📄 HTML Response length: {len(html_content)} characters")
+                logger.info(f"📄 HTML Response length: {len(html_content)} characters")
                 logger.debug(f"HTML Response length: {len(html_content)} characters")
 
                 # Save HTML to debug file
@@ -1471,86 +1462,86 @@ class MusicBrainzManagerV2Optimized:
                     debug_html_path = self.data_dir / "debug_directory_listing.html"
                     with open(debug_html_path, 'w', encoding='utf-8') as f:
                         f.write(html_content)
-                    print(f"💾 Saved HTML debug file: {debug_html_path}")
+                    logger.print_always(f"💾 Saved HTML debug file: {debug_html_path}")
                     logger.info(f"Saved directory listing to: {debug_html_path}")
                 except Exception as e:
-                    print(f"⚠️  Could not save debug HTML: {e}")
+                    logger.warning(f"⚠️  Could not save debug HTML: {e}")
 
                 # Parse HTML to find dated subdirectories first
-                print(f"\n🔍 Searching for dated subdirectories...")
+                logger.debug(f"\n🔍 Searching for dated subdirectories...")
                 logger.info("Parsing HTML for dated subdirectories")
 
                 # Look for directories like: musicbrainz-canonical-dump-20251003-080003/
                 dir_pattern = r'href="(musicbrainz-canonical-dump-(\d{8})-\d+/)"'
                 dir_matches = re.findall(dir_pattern, html_content)
 
-                print(f"📊 Found {len(dir_matches)} dated subdirectories:")
+                logger.print_always(f"📊 Found {len(dir_matches)} dated subdirectories:")
                 logger.info(f"Found {len(dir_matches)} subdirectories")
 
                 for i, (dir_name, date_str) in enumerate(dir_matches, 1):
                     try:
                         dir_date = datetime.strptime(date_str, '%Y%m%d')
-                        print(f"   {i}. {dir_name} → {dir_date.strftime('%Y-%m-%d')}")
+                        logger.info(f"   {i}. {dir_name} → {dir_date.strftime('%Y-%m-%d')}")
                         logger.info(f"  Subdirectory {i}: {dir_name} (date: {date_str})")
                     except:
-                        print(f"   {i}. {dir_name} → (could not parse date)")
+                        logger.info(f"   {i}. {dir_name} → (could not parse date)")
 
                 if dir_matches:
                     # Sort by date and get latest
                     sorted_dirs = sorted(dir_matches, key=lambda x: x[1])
                     latest_dir, latest_date = sorted_dirs[-1]
 
-                    print(f"\n🎯 Selected LATEST subdirectory: {latest_dir}")
+                    logger.print_always(f"\n🎯 Selected LATEST subdirectory: {latest_dir}")
                     try:
                         dir_date = datetime.strptime(latest_date, '%Y%m%d')
-                        print(f"📅 Directory date: {dir_date.strftime('%Y-%m-%d')}")
+                        logger.info(f"📅 Directory date: {dir_date.strftime('%Y-%m-%d')}")
                         logger.info(f"Selected latest subdirectory: {latest_dir} (date: {latest_date})")
                     except:
                         pass
 
                     # Now fetch the contents of this subdirectory
                     subdir_url = BASE_URL + latest_dir
-                    print(f"\n🌐 Fetching subdirectory listing from: {subdir_url}")
+                    logger.info(f"\n🌐 Fetching subdirectory listing from: {subdir_url}")
                     logger.info(f"Fetching subdirectory: {subdir_url}")
 
                     with httpx.Client(http2=True, timeout=30.0) as client:
                         subdir_response = client.get(subdir_url)
-                    print(f"✅ HTTP Response: {subdir_response.status_code} {subdir_response.reason_phrase}")
+                    logger.print_always(f"✅ HTTP Response: {subdir_response.status_code} {subdir_response.reason_phrase}")
                     logger.info(f"Subdirectory HTTP Status: {subdir_response.status_code}")
 
                     subdir_response.raise_for_status()
                     subdir_html = subdir_response.text
 
-                    print(f"📄 Subdirectory HTML length: {len(subdir_html)} characters")
+                    logger.info(f"📄 Subdirectory HTML length: {len(subdir_html)} characters")
 
                     # Save subdirectory HTML for debugging
                     try:
                         debug_subdir_html_path = self.data_dir / "debug_subdirectory_listing.html"
                         with open(debug_subdir_html_path, 'w', encoding='utf-8') as f:
                             f.write(subdir_html)
-                        print(f"💾 Saved subdirectory HTML: {debug_subdir_html_path}")
+                        logger.print_always(f"💾 Saved subdirectory HTML: {debug_subdir_html_path}")
                     except Exception as e:
-                        print(f"⚠️  Could not save subdirectory HTML: {e}")
+                        logger.warning(f"⚠️  Could not save subdirectory HTML: {e}")
 
                     # Now look for data files in the subdirectory
-                    print(f"\n🔍 Searching for data files in subdirectory...")
+                    logger.debug(f"\n🔍 Searching for data files in subdirectory...")
 
                     # Look for .csv files
                     pattern_csv = r'href="([^"]*\.csv)"'
                     matches_csv = re.findall(pattern_csv, subdir_html)
-                    print(f"📊 Found {len(matches_csv)} .csv files:")
+                    logger.print_always(f"📊 Found {len(matches_csv)} .csv files:")
                     for i, match in enumerate(matches_csv, 1):
-                        print(f"   {i}. {match}")
+                        logger.info(f"   {i}. {match}")
                         logger.info(f"  CSV file {i}: {match}")
 
                     # Try .tar.zst if no CSV
                     if not matches_csv:
-                        print(f"⚠️  No .csv files found, trying .tar.zst pattern...")
+                        logger.warning(f"⚠️  No .csv files found, trying .tar.zst pattern...")
                         pattern_zst = r'href="([^"]*\.tar\.zst)"'
                         matches_zst = re.findall(pattern_zst, subdir_html)
-                        print(f"📊 Found {len(matches_zst)} .tar.zst files:")
+                        logger.print_always(f"📊 Found {len(matches_zst)} .tar.zst files:")
                         for i, match in enumerate(matches_zst, 1):
-                            print(f"   {i}. {match}")
+                            logger.info(f"   {i}. {match}")
                             logger.info(f"  ZST file {i}: {match}")
                         matches = matches_zst
                     else:
@@ -1559,17 +1550,17 @@ class MusicBrainzManagerV2Optimized:
                     if matches:
                         # Use the first match (should only be one file)
                         selected_file = matches[0]
-                        print(f"\n🎯 Selected file: {selected_file}")
+                        logger.print_always(f"\n🎯 Selected file: {selected_file}")
                         logger.info(f"Selected file: {selected_file}")
 
                         download_url = subdir_url + selected_file
                     else:
-                        print(f"⚠️  No data files found in subdirectory")
+                        logger.warning(f"⚠️  No data files found in subdirectory")
                         logger.warning("No data files found in subdirectory")
                         download_url = BASE_URL + "canonical_musicbrainz_data.csv"
                 else:
                     # Fallback: try to find files directly in root (old behavior)
-                    print(f"⚠️  No dated subdirectories found, searching root directory...")
+                    logger.warning(f"⚠️  No dated subdirectories found, searching root directory...")
                     logger.warning("No subdirectories found, searching root")
 
                     pattern_csv = r'href="(canonical_musicbrainz_data[^"]*\.csv)"'
@@ -1579,36 +1570,36 @@ class MusicBrainzManagerV2Optimized:
                         latest_file = sorted(matches_csv)[-1]
                         download_url = BASE_URL + latest_file
                     else:
-                        print(f"⚠️  No matches found, using fallback filename")
+                        logger.warning(f"⚠️  No matches found, using fallback filename")
                         logger.warning("No files discovered, using fallback")
                         download_url = BASE_URL + "canonical_musicbrainz_data.csv"
 
             except Exception as e:
-                print(f"❌ Directory discovery failed: {e}")
+                logger.error(f"❌ Directory discovery failed: {e}")
                 logger.error(f"Directory discovery error: {e}", exc_info=True)
-                print(f"   Using fallback URL...")
+                logger.info(f"   Using fallback URL...")
                 download_url = BASE_URL + "canonical_musicbrainz_data.csv"
 
-            print(f"\n📥 FINAL DOWNLOAD URL: {download_url}")
+            logger.info(f"\n📥 FINAL DOWNLOAD URL: {download_url}")
             logger.info(f"=" * 80)
             logger.info(f"Download URL: {download_url}")
             logger.info(f"=" * 80)
 
             # Step 2: Download with retry logic and exponential backoff
-            print(f"\n⬇️  STEP 2: Download with retry logic")
+            logger.info(f"\n⬇️  STEP 2: Download with retry logic")
             logger.info("STEP 2: Starting download with retry logic")
 
             max_retries = 3
             retry_delay = 2  # Start with 2 seconds
 
-            print(f"🔄 Max retries: {max_retries}")
-            print(f"⏱️  Initial retry delay: {retry_delay}s\n")
+            logger.info(f"🔄 Max retries: {max_retries}")
+            logger.info(f"⏱️  Initial retry delay: {retry_delay}s\n")
 
             for attempt in range(max_retries):
                 try:
-                    print(f"\n{'='*80}")
-                    print(f"🔄 ATTEMPT {attempt + 1}/{max_retries}")
-                    print(f"{'='*80}")
+                    logger.info(f"\n{'='*80}")
+                    logger.info(f"🔄 ATTEMPT {attempt + 1}/{max_retries}")
+                    logger.info(f"{'='*80}")
                     logger.info(f"Download attempt {attempt + 1}/{max_retries}")
 
                     if progress_callback:
@@ -1619,7 +1610,7 @@ class MusicBrainzManagerV2Optimized:
                         )
 
                     # Parallel range download for maximum throughput
-                    print(f"📡 Checking server capabilities...")
+                    logger.info(f"📡 Checking server capabilities...")
                     logger.info(f"HEAD {download_url}")
 
                     # Reset cancellation flag
@@ -1639,13 +1630,13 @@ class MusicBrainzManagerV2Optimized:
                     accept_ranges = head_response.headers.get('accept-ranges', '').lower()
                     supports_ranges = 'bytes' in accept_ranges
 
-                    print(f"\n📦 File Information:")
-                    print(f"   Size: {total_size:,} bytes ({total_size / (1024**2):.2f} MB / {total_size / (1024**3):.2f} GB)")
-                    print(f"   Range support: {'✅ Yes' if supports_ranges else '❌ No'}")
+                    logger.info(f"\n📦 File Information:")
+                    logger.info(f"   Size: {total_size:,} bytes ({total_size / (1024**2):.2f} MB / {total_size / (1024**3):.2f} GB)")
+                    logger.error(f"   Range support: {'✅ Yes' if supports_ranges else '❌ No'}")
                     logger.info(f"Content-Length: {total_size:,} bytes, Ranges: {supports_ranges}")
 
                     # Create temporary file
-                    print(f"\n💾 Creating temporary file...")
+                    logger.print_always(f"\n💾 Creating temporary file...")
                     temp_path = tempfile.mktemp(suffix='.csv')
 
                     if supports_ranges and total_size > 50 * 1024 * 1024:  # Use parallel for files >50MB
@@ -1653,9 +1644,9 @@ class MusicBrainzManagerV2Optimized:
                         NUM_CONNECTIONS = 4  # 4 parallel connections (fewer = less contention)
                         RANGE_SIZE = 64 * 1024 * 1024  # 64MB per range (larger = fewer seeks)
 
-                        print(f"   🚀 Using parallel download: {NUM_CONNECTIONS} connections")
-                        print(f"   📦 Range size: {RANGE_SIZE / (1024**2):.0f} MB")
-                        print(f"   Temp file: {temp_path}")
+                        logger.print_always(f"   🚀 Using parallel download: {NUM_CONNECTIONS} connections")
+                        logger.info(f"   📦 Range size: {RANGE_SIZE / (1024**2):.0f} MB")
+                        logger.info(f"   Temp file: {temp_path}")
                         logger.info(f"Parallel download: {NUM_CONNECTIONS} connections, {RANGE_SIZE} bytes per range")
 
                         # Pre-allocate file
@@ -1668,7 +1659,7 @@ class MusicBrainzManagerV2Optimized:
                             end = min(start + RANGE_SIZE - 1, total_size - 1)
                             ranges.append((start, end))
 
-                        print(f"   📊 Split into {len(ranges)} ranges")
+                        logger.print_always(f"   📊 Split into {len(ranges)} ranges")
 
                         # Progress tracking - minimize lock contention
                         downloaded = [0]
@@ -1733,7 +1724,7 @@ class MusicBrainzManagerV2Optimized:
                                                         last_downloaded[0] = downloaded[0]
 
                                                         # Release lock before I/O
-                                                        print(f"   📊 {progress_pct:.1f}% | {gb_downloaded:.2f}/{gb_total:.2f} GB | {mb_per_sec:.2f} MB/s | ETA: {eta_str}")
+                                                        logger.print_always(f"   📊 {progress_pct:.1f}% | {gb_downloaded:.2f}/{gb_total:.2f} GB | {mb_per_sec:.2f} MB/s | ETA: {eta_str}")
 
                                                         if progress_callback:
                                                             progress_callback(
@@ -1749,7 +1740,7 @@ class MusicBrainzManagerV2Optimized:
                                                 downloaded[0] += len(buffer)
 
                         # Download ranges in parallel with thread pool
-                        print(f"\n⬇️  Downloading with {NUM_CONNECTIONS} parallel connections...")
+                        logger.info(f"\n⬇️  Downloading with {NUM_CONNECTIONS} parallel connections...")
 
                         from concurrent.futures import ThreadPoolExecutor, as_completed
                         with ThreadPoolExecutor(max_workers=NUM_CONNECTIONS) as executor:
@@ -1761,8 +1752,8 @@ class MusicBrainzManagerV2Optimized:
 
                     else:
                         # FALLBACK: Single-stream download
-                        print(f"   📡 Using single-stream download")
-                        print(f"   Temp file: {temp_path}")
+                        logger.info(f"   📡 Using single-stream download")
+                        logger.info(f"   Temp file: {temp_path}")
                         logger.info("Single-stream download (no range support or small file)")
 
                         downloaded_total = 0
@@ -1773,7 +1764,7 @@ class MusicBrainzManagerV2Optimized:
                             with client.stream("GET", download_url) as response:
                                 response.raise_for_status()
 
-                                print(f"\n⬇️  Downloading...")
+                                logger.info(f"\n⬇️  Downloading...")
                                 with open(temp_path, 'wb', buffering=16*1024*1024) as f:
                                     for chunk in response.iter_bytes(8 * 1024 * 1024):
                                         # Check for cancellation
@@ -1799,7 +1790,7 @@ class MusicBrainzManagerV2Optimized:
                                             eta_secs = int(eta_seconds % 60)
                                             eta_str = f"{eta_mins}m {eta_secs}s" if eta_mins > 0 else f"{eta_secs}s"
 
-                                            print(f"   📊 {progress_pct:.1f}% | {gb_downloaded:.2f}/{gb_total:.2f} GB | {mb_per_sec:.2f} MB/s | ETA: {eta_str}")
+                                            logger.print_always(f"   📊 {progress_pct:.1f}% | {gb_downloaded:.2f}/{gb_total:.2f} GB | {mb_per_sec:.2f} MB/s | ETA: {eta_str}")
 
                                             last_update_time = current_time
                                             last_downloaded = downloaded_total
@@ -1808,14 +1799,14 @@ class MusicBrainzManagerV2Optimized:
                     download_elapsed = time.time() - download_start_time
                     avg_speed_mb = (downloaded_total / (1024**2)) / download_elapsed
 
-                    print(f"\n✅ Download completed!")
-                    print(f"   📊 Total: {downloaded_total:,} bytes ({downloaded_total / (1024**3):.2f} GB)")
-                    print(f"   ⏱️  Time: {download_elapsed:.1f}s")
-                    print(f"   📈 Avg speed: {avg_speed_mb:.2f} MB/s")
+                    logger.print_always(f"\n✅ Download completed!")
+                    logger.print_always(f"   📊 Total: {downloaded_total:,} bytes ({downloaded_total / (1024**3):.2f} GB)")
+                    logger.info(f"   ⏱️  Time: {download_elapsed:.1f}s")
+                    logger.info(f"   📈 Avg speed: {avg_speed_mb:.2f} MB/s")
                     logger.info(f"Download complete: {downloaded_total:,} bytes in {download_elapsed:.1f}s (avg {avg_speed_mb:.2f} MB/s)")
 
                     # Step 3: Validate downloaded file
-                    print(f"\n✔️  STEP 3: Validating downloaded file...")
+                    logger.info(f"\n✔️  STEP 3: Validating downloaded file...")
                     logger.info("STEP 3: Validating downloaded file")
 
                     if progress_callback:
@@ -1827,24 +1818,24 @@ class MusicBrainzManagerV2Optimized:
                         raise Exception(f"Temp file does not exist: {temp_path}")
 
                     file_size = temp_path_obj.stat().st_size
-                    print(f"   File exists: {temp_path}")
-                    print(f"   File size: {file_size:,} bytes ({file_size / (1024**2):.2f} MB)")
+                    logger.info(f"   File exists: {temp_path}")
+                    logger.info(f"   File size: {file_size:,} bytes ({file_size / (1024**2):.2f} MB)")
                     logger.info(f"Temp file size: {file_size:,} bytes")
 
                     if file_size < 1000000:  # At least 1MB
                         raise Exception(f"Downloaded file is too small: {file_size} bytes (expected at least 1MB)")
 
                     if total_size > 0 and file_size != total_size:
-                        print(f"   ⚠️  Size mismatch: expected {total_size:,}, got {file_size:,}")
+                        logger.warning(f"   ⚠️  Size mismatch: expected {total_size:,}, got {file_size:,}")
                         logger.warning(f"Size mismatch: expected {total_size}, got {file_size}")
 
-                    print(f"   ✅ File validation passed")
+                    logger.print_always(f"   ✅ File validation passed")
 
                     # Step 3.5: Extract if compressed archive
                     final_csv_path = temp_path  # Default to downloaded file
 
                     if download_url.endswith('.tar.zst'):
-                        print(f"\n📦 STEP 3.5: Extracting compressed archive...")
+                        logger.info(f"\n📦 STEP 3.5: Extracting compressed archive...")
                         logger.info("STEP 3.5: Decompressing and extracting tar.zst archive")
 
                         if progress_callback:
@@ -1856,11 +1847,11 @@ class MusicBrainzManagerV2Optimized:
 
                             # Create extraction directory
                             extract_dir = Path(tempfile.mkdtemp(prefix='musicbrainz_extract_'))
-                            print(f"   📁 Extraction directory: {extract_dir}")
+                            logger.info(f"   📁 Extraction directory: {extract_dir}")
                             logger.info(f"Extract directory: {extract_dir}")
 
                             # Step 3.5a: Decompress .zst
-                            print(f"\n   🔓 Decompressing .zst file...")
+                            logger.info(f"\n   🔓 Decompressing .zst file...")
                             logger.info("Decompressing zstandard archive")
 
                             tar_path = extract_dir / "archive.tar"
@@ -1873,11 +1864,11 @@ class MusicBrainzManagerV2Optimized:
                                         destination.write(chunk)
                                         decompressed_size += len(chunk)
 
-                            print(f"   ✅ Decompressed: {decompressed_size:,} bytes ({decompressed_size / (1024**3):.2f} GB)")
+                            logger.print_always(f"   ✅ Decompressed: {decompressed_size:,} bytes ({decompressed_size / (1024**3):.2f} GB)")
                             logger.info(f"Decompressed size: {decompressed_size:,} bytes")
 
                             # Step 3.5b: Extract .tar
-                            print(f"\n   📦 Extracting tar archive...")
+                            logger.info(f"\n   📦 Extracting tar archive...")
                             logger.info("Extracting tar archive")
 
                             if progress_callback:
@@ -1885,36 +1876,36 @@ class MusicBrainzManagerV2Optimized:
 
                             with tarfile.open(tar_path, 'r') as tar:
                                 members = tar.getmembers()
-                                print(f"   📊 Archive contains {len(members)} files")
+                                logger.print_always(f"   📊 Archive contains {len(members)} files")
                                 logger.info(f"Tar archive contains {len(members)} files")
 
                                 # List all files
                                 csv_files = []
                                 for i, member in enumerate(members[:10], 1):  # Show first 10
-                                    print(f"      {i}. {member.name} ({member.size:,} bytes)")
+                                    logger.info(f"      {i}. {member.name} ({member.size:,} bytes)")
                                     logger.info(f"  File {i}: {member.name} ({member.size} bytes)")
                                     if member.name.endswith('.csv'):
                                         csv_files.append(member)
 
                                 if len(members) > 10:
-                                    print(f"      ... and {len(members) - 10} more files")
+                                    logger.info(f"      ... and {len(members) - 10} more files")
 
                                 # Extract all
                                 tar.extractall(path=extract_dir)
-                                print(f"   ✅ Extracted to: {extract_dir}")
+                                logger.print_always(f"   ✅ Extracted to: {extract_dir}")
 
                             # Step 3.5c: Find CSV file
-                            print(f"\n   🔍 Finding CSV file...")
+                            logger.debug(f"\n   🔍 Finding CSV file...")
                             logger.info("Searching for CSV file in extracted archive")
 
                             # Look for canonical_musicbrainz_data.csv
                             csv_candidates = list(extract_dir.rglob("*.csv"))
-                            print(f"   📊 Found {len(csv_candidates)} CSV files:")
+                            logger.print_always(f"   📊 Found {len(csv_candidates)} CSV files:")
 
                             for i, csv_file in enumerate(csv_candidates, 1):
                                 relative_path = csv_file.relative_to(extract_dir)
                                 csv_size = csv_file.stat().st_size
-                                print(f"      {i}. {relative_path} ({csv_size:,} bytes, {csv_size / (1024**3):.2f} GB)")
+                                logger.info(f"      {i}. {relative_path} ({csv_size:,} bytes, {csv_size / (1024**3):.2f} GB)")
                                 logger.info(f"  CSV {i}: {relative_path} ({csv_size} bytes)")
 
                             if not csv_candidates:
@@ -1924,74 +1915,74 @@ class MusicBrainzManagerV2Optimized:
                             final_csv = max(csv_candidates, key=lambda p: p.stat().st_size)
                             final_csv_path = str(final_csv)
 
-                            print(f"\n   🎯 Selected CSV: {final_csv.name}")
-                            print(f"   📊 Size: {final_csv.stat().st_size:,} bytes ({final_csv.stat().st_size / (1024**3):.2f} GB)")
+                            logger.print_always(f"\n   🎯 Selected CSV: {final_csv.name}")
+                            logger.print_always(f"   📊 Size: {final_csv.stat().st_size:,} bytes ({final_csv.stat().st_size / (1024**3):.2f} GB)")
                             logger.info(f"Selected CSV: {final_csv.name} ({final_csv.stat().st_size} bytes)")
 
                             # Clean up compressed files
-                            print(f"\n   🗑️  Cleaning up temporary files...")
+                            logger.info(f"\n   🗑️  Cleaning up temporary files...")
                             try:
                                 Path(temp_path).unlink()
                                 tar_path.unlink()
                                 logger.info("Cleaned up compressed and tar files")
                             except Exception as e:
-                                print(f"   ⚠️  Could not clean up temp files: {e}")
+                                logger.warning(f"   ⚠️  Could not clean up temp files: {e}")
 
-                            print(f"   ✅ Extraction complete!")
+                            logger.print_always(f"   ✅ Extraction complete!")
 
                         except ImportError as e:
-                            print(f"   ❌ Missing required library: {e}")
-                            print(f"   💡 Please install: pip install zstandard")
+                            logger.error(f"   ❌ Missing required library: {e}")
+                            logger.info(f"   💡 Please install: pip install zstandard")
                             logger.error(f"Missing zstandard library: {e}")
                             raise Exception("zstandard library not installed. Run: pip install zstandard")
                         except Exception as e:
-                            print(f"   ❌ Extraction failed: {e}")
+                            logger.error(f"   ❌ Extraction failed: {e}")
                             logger.error(f"Extraction error: {e}", exc_info=True)
                             raise
                     else:
-                        print(f"\n   ℹ️  File is already uncompressed (not .tar.zst)")
+                        logger.info(f"\n   ℹ️  File is already uncompressed (not .tar.zst)")
                         logger.info("File does not require extraction")
 
                     # Step 4: Move to final location
-                    print(f"\n📦 STEP 4: Installing database...")
+                    logger.info(f"\n📦 STEP 4: Installing database...")
                     logger.info("STEP 4: Moving file to final location")
 
                     if progress_callback:
                         progress_callback("Installing database...", 97)
 
                     self.canonical_dir.mkdir(parents=True, exist_ok=True)
-                    print(f"   Target directory: {self.canonical_dir}")
-                    print(f"   Target file: {self.csv_file}")
+                    logger.info(f"   Target directory: {self.canonical_dir}")
+                    logger.info(f"   Target file: {self.csv_file}")
 
                     if self.csv_file.exists():
                         old_size = self.csv_file.stat().st_size
-                        print(f"   ⚠️  Existing file will be replaced ({old_size:,} bytes)")
+                        logger.warning(f"   ⚠️  Existing file will be replaced ({old_size:,} bytes)")
                         logger.info(f"Replacing existing file ({old_size} bytes)")
 
                     shutil.move(final_csv_path, self.csv_file)
-                    print(f"   ✅ File moved successfully")
+                    logger.print_always(f"   ✅ File moved successfully")
                     logger.info(f"File moved to: {self.csv_file}")
 
                     # Step 5: Clear optimization state to force rebuild
-                    print(f"\n🔄 STEP 5: Clearing optimization state...")
+                    logger.info(f"\n🔄 STEP 5: Clearing optimization state...")
                     logger.info("STEP 5: Clearing optimization state")
 
                     self._optimization_complete = False
                     self._optimization_in_progress = False
 
                     if self.duckdb_file.exists():
-                        print(f"   🗑️  Removing old DuckDB file: {self.duckdb_file}")
+                        logger.info(f"   🗑️  Removing old DuckDB file: {self.duckdb_file}")
                         self.duckdb_file.unlink()
                         logger.info("Removed old DuckDB file")
 
                     # Step 6: Verify installation
-                    print(f"\n✅ STEP 6: Verifying installation...")
+                    logger.print_always(f"\n✅ STEP 6: Verifying installation...")
                     logger.info("STEP 6: Verifying installation")
 
                     final_size = self.csv_file.stat().st_size
-                    print(f"   📊 Final CSV size: {final_size:,} bytes ({final_size / (1024**3):.2f} GB)")
-                    print(f"   📁 Location: {self.csv_file}")
-                    print(f"   ✅ Installation verified")
+                    logger.print_always(f"   📊 Final CSV size: {final_size:,} bytes ({final_size / (1024**3):.2f} GB)")
+                    logger.info(f"   📁 Location: {self.csv_file}")
+                    logger.print_always(f"   ✅ Installation verified")
 
                     download_info = {
                         "download_url": download_url,
@@ -2002,21 +1993,21 @@ class MusicBrainzManagerV2Optimized:
                     logger.info(f"Download complete: {download_info}")
 
                     # Save metadata with download timestamp
-                    print(f"\n💾 Saving download metadata...")
+                    logger.print_always(f"\n💾 Saving download metadata...")
                     version = "download-" + datetime.now().strftime("%Y%m%d")
                     optimized_at = datetime.now().isoformat()
 
                     # Save using the standard metadata format
                     self._save_metadata(version, optimized_at)
-                    print(f"   ✅ Metadata saved (version: {version})")
+                    logger.print_always(f"   ✅ Metadata saved (version: {version})")
                     logger.info(f"Metadata saved: version={version}, timestamp={optimized_at}")
 
                     if progress_callback:
                         progress_callback("Download complete!", 100)
 
-                    print(f"\n{'='*80}")
-                    print(f"✅ DATABASE DOWNLOAD COMPLETED SUCCESSFULLY")
-                    print(f"{'='*80}")
+                    logger.info(f"\n{'='*80}")
+                    logger.print_always(f"✅ DATABASE DOWNLOAD COMPLETED SUCCESSFULLY")
+                    logger.info(f"{'='*80}")
                     logger.info("=" * 80)
                     logger.info("DATABASE DOWNLOAD COMPLETED SUCCESSFULLY")
                     logger.info("=" * 80)
@@ -2024,15 +2015,15 @@ class MusicBrainzManagerV2Optimized:
                     return True
 
                 except (httpx.HTTPError, httpx.RequestError) as e:
-                    print(f"\n❌ Request exception on attempt {attempt + 1}: {type(e).__name__}")
-                    print(f"   Error: {e}")
+                    logger.error(f"\n❌ Request exception on attempt {attempt + 1}: {type(e).__name__}")
+                    logger.error(f"   Error: {e}")
                     logger.error(f"Request exception (attempt {attempt + 1}): {e}", exc_info=True)
 
                     if attempt < max_retries - 1:
                         # Exponential backoff with jitter
                         import random
                         sleep_time = retry_delay * (2 ** attempt) + random.uniform(0, 1)
-                        print(f"   🔄 Retrying in {sleep_time:.1f} seconds...")
+                        logger.info(f"   🔄 Retrying in {sleep_time:.1f} seconds...")
                         logger.info(f"Retrying in {sleep_time:.1f} seconds")
 
                         if progress_callback:
@@ -2040,27 +2031,27 @@ class MusicBrainzManagerV2Optimized:
 
                         time.sleep(sleep_time)
                     else:
-                        print(f"   ❌ All {max_retries} attempts exhausted")
+                        logger.error(f"   ❌ All {max_retries} attempts exhausted")
                         logger.error(f"All {max_retries} download attempts failed")
                         raise
 
                 except Exception as e:
-                    print(f"\n❌ Unexpected error on attempt {attempt + 1}: {type(e).__name__}")
-                    print(f"   Error: {e}")
+                    logger.error(f"\n❌ Unexpected error on attempt {attempt + 1}: {type(e).__name__}")
+                    logger.error(f"   Error: {e}")
                     logger.error(f"Unexpected error (attempt {attempt + 1}): {e}", exc_info=True)
                     raise
 
-            print(f"\n❌ Download failed after {max_retries} attempts")
+            logger.error(f"\n❌ Download failed after {max_retries} attempts")
             logger.error(f"Download failed after {max_retries} attempts")
             return False
 
         except Exception as e:
-            print(f"\n{'='*80}")
-            print(f"❌ DATABASE DOWNLOAD FAILED")
-            print(f"{'='*80}")
-            print(f"Error type: {type(e).__name__}")
-            print(f"Error message: {e}")
-            print(f"{'='*80}\n")
+            logger.info(f"\n{'='*80}")
+            logger.error(f"❌ DATABASE DOWNLOAD FAILED")
+            logger.info(f"{'='*80}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error message: {e}")
+            logger.info(f"{'='*80}\n")
 
             logger.error("=" * 80)
             logger.error("DATABASE DOWNLOAD FAILED")
@@ -2087,90 +2078,90 @@ class MusicBrainzManagerV2Optimized:
                    combined_lookup, score
         """
         try:
-            print(f"\n{'='*80}")
-            print(f"🔄 MANUAL IMPORT DEBUG - START")
-            print(f"{'='*80}")
-            print(f"📁 File path: {file_path}")
+            logger.info(f"\n{'='*80}")
+            logger.debug(f"🔄 MANUAL IMPORT DEBUG - START")
+            logger.info(f"{'='*80}")
+            logger.info(f"📁 File path: {file_path}")
             logger.info("Manual import from %s", file_path)
             file_path_obj = Path(file_path)
 
             if not file_path_obj.exists():
                 error_msg = f"Error: File not found: {file_path}"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 if progress_callback:
                     progress_callback(error_msg, 0)
                 logger.error(f"File not found: {file_path}")
                 return False
 
             file_extension = file_path_obj.suffix.lower()
-            print(f"📝 Initial extension detected: {file_extension}")
+            logger.info(f"📝 Initial extension detected: {file_extension}")
 
             # Handle .tar.zst extension (e.g., file.tar.zst)
             if file_path_obj.name.endswith('.tar.zst'):
                 file_extension = '.tar.zst'
-                print(f"📝 Corrected extension to: {file_extension} (detected .tar.zst)")
+                logger.info(f"📝 Corrected extension to: {file_extension} (detected .tar.zst)")
 
             file_size_mb = file_path_obj.stat().st_size / (1024 * 1024)
-            print(f"📊 File size: {file_size_mb:.2f} MB")
+            logger.print_always(f"📊 File size: {file_size_mb:.2f} MB")
 
             if progress_callback:
                 progress_callback(f"Validating file format: {file_extension}", 10)
 
             # Check file extension
-            print(f"🔍 Checking if extension '{file_extension}' is valid...")
-            print(f"   Valid extensions: ['.csv', '.tsv', '.tar.zst']")
+            logger.debug(f"🔍 Checking if extension '{file_extension}' is valid...")
+            logger.info(f"   Valid extensions: ['.csv', '.tsv', '.tar.zst']")
             if file_extension not in ['.csv', '.tsv', '.tar.zst']:
                 error_msg = f"Error: Invalid format '{file_extension}'. Expected .tar.zst, .csv, or .tsv (MusicBrainz canonical data)"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 if progress_callback:
                     progress_callback(error_msg, 0)
                 logger.error(f"Invalid file extension: {file_extension}")
                 return False
 
-            print(f"✅ Extension '{file_extension}' is valid")
+            logger.print_always(f"✅ Extension '{file_extension}' is valid")
 
             # If tar.zst, extract it first
             if file_extension == '.tar.zst':
-                print(f"\n📦 Extracting .tar.zst archive...")
+                logger.info(f"\n📦 Extracting .tar.zst archive...")
                 if progress_callback:
                     progress_callback("Extracting compressed archive...", 20)
 
                 try:
-                    print(f"   Importing required modules...")
+                    logger.info(f"   Importing required modules...")
                     import tarfile
                     import tempfile
                     import zstandard as zstd
-                    print(f"   ✅ Modules imported successfully")
+                    logger.print_always(f"   ✅ Modules imported successfully")
 
                     # Create extraction directory
                     extract_dir = Path(tempfile.mkdtemp(prefix='musicbrainz_extract_'))
-                    print(f"   📁 Created extraction directory: {extract_dir}")
+                    logger.info(f"   📁 Created extraction directory: {extract_dir}")
                     logger.info(f"Extracting to: {extract_dir}")
 
                     # Decompress and extract
-                    print(f"   🔓 Opening compressed file...")
+                    logger.info(f"   🔓 Opening compressed file...")
                     with open(file_path_obj, 'rb') as compressed:
-                        print(f"   🔓 Creating ZStandard decompressor...")
+                        logger.info(f"   🔓 Creating ZStandard decompressor...")
                         dctx = zstd.ZstdDecompressor()
-                        print(f"   🔓 Creating stream reader...")
+                        logger.info(f"   🔓 Creating stream reader...")
                         with dctx.stream_reader(compressed) as reader:
-                            print(f"   📂 Opening tar archive...")
+                            logger.info(f"   📂 Opening tar archive...")
                             with tarfile.open(fileobj=reader, mode='r|') as tar:
-                                print(f"   📂 Extracting files from tar archive...")
+                                logger.info(f"   📂 Extracting files from tar archive...")
                                 tar.extractall(path=extract_dir)
-                                print(f"   ✅ Extraction complete!")
+                                logger.print_always(f"   ✅ Extraction complete!")
 
                     # Find the CSV file
-                    print(f"\n   🔍 Searching for CSV files in extraction directory...")
+                    logger.debug(f"\n   🔍 Searching for CSV files in extraction directory...")
                     csv_candidates = list(extract_dir.rglob("*.csv"))
-                    print(f"   📊 Found {len(csv_candidates)} CSV file(s)")
+                    logger.print_always(f"   📊 Found {len(csv_candidates)} CSV file(s)")
 
                     if not csv_candidates:
                         error_msg = "Error: No CSV file found in archive"
-                        print(f"   ❌ {error_msg}")
-                        print(f"   📁 Contents of {extract_dir}:")
+                        logger.error(f"   ❌ {error_msg}")
+                        logger.info(f"   📁 Contents of {extract_dir}:")
                         for item in extract_dir.rglob("*"):
-                            print(f"      - {item.name} ({item.stat().st_size} bytes)")
+                            logger.info(f"      - {item.name} ({item.stat().st_size} bytes)")
                         if progress_callback:
                             progress_callback(error_msg, 0)
                         logger.error("No CSV found in tar.zst archive")
@@ -2181,16 +2172,16 @@ class MusicBrainzManagerV2Optimized:
                     file_extension = '.csv'
                     file_size_mb = file_path_obj.stat().st_size / (1024 * 1024)
 
-                    print(f"   ✅ Selected CSV: {file_path_obj.name} ({file_size_mb:.1f} MB)")
+                    logger.print_always(f"   ✅ Selected CSV: {file_path_obj.name} ({file_size_mb:.1f} MB)")
                     logger.info(f"Extracted CSV: {file_path_obj} ({file_size_mb:.1f} MB)")
                     if progress_callback:
                         progress_callback(f"Extracted {file_size_mb:.1f} MB CSV file", 40)
 
                 except Exception as e:
                     error_msg = f"Error extracting archive: {str(e)}"
-                    print(f"   ❌ {error_msg}")
+                    logger.error(f"   ❌ {error_msg}")
                     import traceback
-                    print(f"   🔍 Traceback:")
+                    logger.debug(f"   🔍 Traceback:")
                     traceback.print_exc()
                     if progress_callback:
                         progress_callback(error_msg, 0)
@@ -2198,11 +2189,11 @@ class MusicBrainzManagerV2Optimized:
                     return False
 
             # Basic size validation (canonical data CSV is typically 25-30 GB)
-            print(f"\n📏 Validating file size...")
-            print(f"   File size: {file_size_mb:.1f} MB")
+            logger.info(f"\n📏 Validating file size...")
+            logger.info(f"   File size: {file_size_mb:.1f} MB")
             if file_size_mb < 1000:  # Less than 1GB is suspiciously small
                 warning_msg = f"File is only {file_size_mb:.1f} MB (expected ~28GB)"
-                print(f"   ⚠️  {warning_msg}")
+                logger.warning(f"   ⚠️  {warning_msg}")
                 logger.warning(f"File size {file_size_mb:.1f} MB seems small for canonical data (expected ~28GB)")
                 if progress_callback:
                     progress_callback(
@@ -2210,18 +2201,18 @@ class MusicBrainzManagerV2Optimized:
                         50
                     )
             else:
-                print(f"   ✅ File size looks good")
+                logger.print_always(f"   ✅ File size looks good")
 
             # Validate CSV structure (check first few lines)
-            print(f"\n🔍 Validating CSV structure...")
+            logger.debug(f"\n🔍 Validating CSV structure...")
             if progress_callback:
                 progress_callback("Validating CSV structure...", 60)
 
             try:
-                print(f"   📖 Reading first line of CSV...")
+                logger.info(f"   📖 Reading first line of CSV...")
                 with open(file_path_obj, 'r', encoding='utf-8') as f:
                     first_line = f.readline().strip()
-                    print(f"   📝 First line (first 200 chars): {first_line[:200]}...")
+                    logger.info(f"   📝 First line (first 200 chars): {first_line[:200]}...")
 
                     # Check for expected columns
                     expected_columns = [
@@ -2229,107 +2220,107 @@ class MusicBrainzManagerV2Optimized:
                         'release_mbid', 'release_name', 'recording_mbid', 'recording_name',
                         'combined_lookup', 'score'
                     ]
-                    print(f"   📋 Expected columns: {', '.join(expected_columns[:4])}...")
+                    logger.info(f"   📋 Expected columns: {', '.join(expected_columns[:4])}...")
 
                     # Handle both CSV and TSV delimiters
                     delimiter = '\t' if file_extension == '.tsv' else ','
-                    print(f"   📋 Using delimiter: {'TAB' if delimiter == '\\t' else 'COMMA'}")
+                    logger.info(f"   📋 Using delimiter: {'TAB' if delimiter == '\\t' else 'COMMA'}")
                     header_columns = [col.strip() for col in first_line.split(delimiter)]
-                    print(f"   📋 Found columns ({len(header_columns)}): {', '.join(header_columns[:5])}...")
+                    logger.info(f"   📋 Found columns ({len(header_columns)}): {', '.join(header_columns[:5])}...")
 
                     # Check if header matches (allow some flexibility)
                     matches = [expected_col in header_columns for expected_col in expected_columns[:3]]
-                    print(f"   🔍 Column match check: {matches}")
+                    logger.debug(f"   🔍 Column match check: {matches}")
                     if not any(matches):
                         error_msg = f"CSV structure doesn't match MusicBrainz canonical format. Expected columns like: {', '.join(expected_columns[:4])}..."
-                        print(f"   ❌ {error_msg}")
-                        print(f"   ❌ Found columns: {', '.join(header_columns[:5])}")
+                        logger.error(f"   ❌ {error_msg}")
+                        logger.error(f"   ❌ Found columns: {', '.join(header_columns[:5])}")
                         if progress_callback:
                             progress_callback(f"Error: {error_msg}", 0)
                         logger.error(f"CSV header doesn't match expected format. Found: {header_columns[:5]}")
                         return False
 
-                    print(f"   ✅ CSV structure validation passed")
+                    logger.print_always(f"   ✅ CSV structure validation passed")
 
             except Exception as e:
-                print(f"   ⚠️  CSV validation warning: {e}")
+                logger.warning(f"   ⚠️  CSV validation warning: {e}")
                 logger.warning(f"CSV validation warning: {e}")
                 # Continue anyway if we can't validate structure
 
             # Copy file to destination
-            print(f"\n📋 Copying file to database location...")
-            print(f"   Source: {file_path_obj}")
-            print(f"   Destination: {self.csv_file}")
-            print(f"   Size: {file_size_mb:.1f} MB")
+            logger.info(f"\n📋 Copying file to database location...")
+            logger.info(f"   Source: {file_path_obj}")
+            logger.info(f"   Destination: {self.csv_file}")
+            logger.info(f"   Size: {file_size_mb:.1f} MB")
             if progress_callback:
                 progress_callback(f"Copying {file_size_mb:.1f} MB to {self.csv_file}...", 70)
 
-            print(f"   📁 Creating canonical directory: {self.canonical_dir}")
+            logger.info(f"   📁 Creating canonical directory: {self.canonical_dir}")
             self.canonical_dir.mkdir(parents=True, exist_ok=True)
-            print(f"   ✅ Directory created/verified")
+            logger.print_always(f"   ✅ Directory created/verified")
 
             # Use shutil.copy2 to preserve metadata
-            print(f"   📋 Starting file copy...")
+            logger.info(f"   📋 Starting file copy...")
             shutil.copy2(file_path_obj, self.csv_file)
-            print(f"   ✅ File copied successfully to: {self.csv_file}")
+            logger.print_always(f"   ✅ File copied successfully to: {self.csv_file}")
 
             if progress_callback:
                 progress_callback("Clearing old optimization data...", 80)
 
             # Clear optimization state to force rebuild
-            print(f"\n🔄 Clearing old optimization data...")
+            logger.info(f"\n🔄 Clearing old optimization data...")
             self._optimization_complete = False
             self._optimization_in_progress = False
 
             if self.duckdb_file.exists():
-                print(f"   🗑️  Removing old DuckDB file: {self.duckdb_file}")
+                logger.info(f"   🗑️  Removing old DuckDB file: {self.duckdb_file}")
                 if self._conn:
                     try:
                         self._conn.close()
                         self._conn = None
-                        print(f"   ✅ Closed DuckDB connection")
+                        logger.print_always(f"   ✅ Closed DuckDB connection")
                     except Exception as close_err:
-                        print(f"   ⚠️  Error closing connection: {close_err}")
+                        logger.warning(f"   ⚠️  Error closing connection: {close_err}")
                 self.duckdb_file.unlink()
-                print(f"   ✅ DuckDB file removed")
+                logger.print_always(f"   ✅ DuckDB file removed")
 
             # Clear metadata to force re-check
             if self.meta_file.exists():
-                print(f"   🗑️  Removing old metadata file: {self.meta_file}")
+                logger.info(f"   🗑️  Removing old metadata file: {self.meta_file}")
                 self.meta_file.unlink()
-                print(f"   ✅ Metadata file removed")
+                logger.print_always(f"   ✅ Metadata file removed")
 
             # Update metadata
-            print(f"\n💾 Saving new metadata...")
+            logger.print_always(f"\n💾 Saving new metadata...")
             from datetime import datetime
             version = "manual-" + datetime.now().strftime("%Y%m%d")
             optimized_at = datetime.now().isoformat()
 
             self._save_metadata(version, optimized_at)
-            print(f"   ✅ Metadata saved (version: {version}, timestamp: {optimized_at})")
+            logger.print_always(f"   ✅ Metadata saved (version: {version}, timestamp: {optimized_at})")
 
             if progress_callback:
                 progress_callback("Import complete!", 100)
 
-            print(f"\n{'='*80}")
-            print(f"✅ MANUAL IMPORT SUCCESSFUL")
-            print(f"{'='*80}")
-            print(f"📊 File size: {file_size_mb:.1f} MB")
-            print(f"📁 Saved to: {self.csv_file}")
-            print(f"{'='*80}\n")
+            logger.info(f"\n{'='*80}")
+            logger.print_always(f"✅ MANUAL IMPORT SUCCESSFUL")
+            logger.info(f"{'='*80}")
+            logger.print_always(f"📊 File size: {file_size_mb:.1f} MB")
+            logger.info(f"📁 Saved to: {self.csv_file}")
+            logger.info(f"{'='*80}\n")
 
             logger.info(f"Manual import successful: {file_size_mb:.1f} MB")
             return True
 
         except Exception as e:
-            print(f"\n{'='*80}")
-            print(f"❌ MANUAL IMPORT FAILED - EXCEPTION CAUGHT")
-            print(f"{'='*80}")
-            print(f"Error: {str(e)}")
+            logger.info(f"\n{'='*80}")
+            logger.error(f"❌ MANUAL IMPORT FAILED - EXCEPTION CAUGHT")
+            logger.info(f"{'='*80}")
+            logger.error(f"Error: {str(e)}")
             import traceback
-            print(f"Traceback:")
+            logger.info(f"Traceback:")
             traceback.print_exc()
-            print(f"{'='*80}\n")
+            logger.info(f"{'='*80}\n")
 
             logger.error(f"Manual import error: {e}")
             if progress_callback:
@@ -2340,7 +2331,7 @@ class MusicBrainzManagerV2Optimized:
         """Cancel the current download operation."""
         self._cancellation_requested = True
         logger.info("Download cancellation requested")
-        print("🛑 Download cancellation requested...")
+        logger.info("🛑 Download cancellation requested...")
 
     def delete_database(self) -> bool:
         """Delete MusicBrainz database files."""

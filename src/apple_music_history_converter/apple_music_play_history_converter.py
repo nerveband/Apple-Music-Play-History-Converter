@@ -6,7 +6,7 @@ Converts Apple Music CSV files to Last.fm compatible format.
 
 import toga
 from toga.style import Pack
-from toga.style.pack import COLUMN, ROW, START, CENTER, END
+from toga.style.pack import COLUMN, ROW, START, CENTER, END, HIDDEN, VISIBLE
 import pandas as pd
 import httpx
 import time
@@ -24,17 +24,20 @@ from pathlib import Path
 from threading import Lock
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
 try:
     from . import music_search_service_v2
     from . import optimization_modal
     from .trace_utils import TRACE_ENABLED, instrument_widget, trace_call, trace_log
     from .ultra_fast_csv_processor import UltraFastCSVProcessor
+    from .logging_config import get_logger
 except ImportError:
     import music_search_service_v2
     import optimization_modal
     from trace_utils import TRACE_ENABLED, instrument_widget, trace_call, trace_log
     from ultra_fast_csv_processor import UltraFastCSVProcessor
+    from logging_config import get_logger
+
+logger = get_logger(__name__)
 MusicSearchService = music_search_service_v2.MusicSearchServiceV2
 import re
 import asyncio
@@ -48,21 +51,52 @@ class AppleMusicConverterApp(toga.App):
     """Main application class for Apple Music Play History Converter using Toga."""
     
     def _schedule_ui_update(self, coro):
-        """Helper to safely schedule async UI updates from sync code."""
+        """
+        Schedule async UI updates from any thread (thread-safe).
+
+        This helper enables background threads to safely schedule UI updates
+        on the main event loop. Required because Toga runs the event loop on
+        the main thread, but processing happens in background daemon threads.
+
+        Args:
+            coro: Coroutine to schedule on the main event loop
+
+        Returns:
+            Future representing the scheduled coroutine
+        """
+        # Try to get event loop if not yet captured (Windows compatibility)
+        if self._toga_event_loop is None:
+            try:
+                self._toga_event_loop = asyncio.get_running_loop()
+                logger.info("Event loop lazy-initialized in _schedule_ui_update")
+            except RuntimeError:
+                logger.warning("No running event loop available")
+                return None
+
         try:
-            loop = asyncio.get_running_loop()
-            return asyncio.create_task(coro)
-        except RuntimeError:
-            # No loop running, create task directly
-            return asyncio.create_task(coro)
+            return asyncio.run_coroutine_threadsafe(coro, self._toga_event_loop)
+        except (AttributeError, RuntimeError) as e:
+            # Event loop not yet initialized or stopped
+            logger.error(f"Error scheduling UI update: {e}")
+            return None
 
     @trace_call("App.startup")
     def startup(self):
         """Initialize the application and create the main window."""
         if TRACE_ENABLED:
             trace_log.debug("Startup sequence initiated")
-        # NOTE: Toga manages the event loop automatically - no manual storage needed
-        # Removed: self.main_loop = asyncio.get_event_loop()
+
+        # CRITICAL: Store Toga's event loop for thread-safe UI updates
+        # This is needed because background daemon threads need to schedule
+        # UI updates on the main event loop via run_coroutine_threadsafe()
+        # On Windows, we need to use get_running_loop() or create new loop
+        try:
+            self._toga_event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop yet (Windows initialization issue)
+            # Will be set later in startup() when Toga's loop is running
+            self._toga_event_loop = None
+            logger.info("Event loop not yet running, will initialize in startup()")
 
         # Initialize state variables
         self.pause_itunes_search_flag = False
@@ -88,6 +122,7 @@ class AppleMusicConverterApp(toga.App):
         self.active_search_provider = None  # Track what's currently running
         self.is_search_interrupted = False  # Track if search was stopped by user
         self.failed_requests = []  # Track failed iTunes requests for retry reporting
+        self.rate_limited_tracks = []  # Track tracks that hit 403 rate limit (can retry later)
 
         # Processing counters
         self.musicbrainz_count = 0
@@ -109,6 +144,14 @@ class AppleMusicConverterApp(toga.App):
             size=(1200, 900)  # Increased size to accommodate larger content areas
         )
 
+        # Ensure event loop is captured (critical for Windows)
+        if self._toga_event_loop is None:
+            try:
+                self._toga_event_loop = asyncio.get_running_loop()
+                logger.info("Event loop captured after main_window creation")
+            except RuntimeError:
+                logger.warning("Still no running event loop - will retry later")
+
         # Initialize V2 music search service with modal integration
         self.music_search_service = MusicSearchService()
         self.music_search_service.set_parent_window(self.main_window)
@@ -117,7 +160,7 @@ class AppleMusicConverterApp(toga.App):
         self.music_search_service.rate_limit_wait_callback = self.on_rate_limit_wait
         self.music_search_service.rate_limit_hit_callback = self.on_actual_rate_limit_detected
         self.music_search_service.rate_limit_discovered_callback = self.on_rate_limit_discovered
-        print(f"DEBUG: V2 MusicSearchService initialized with provider: {self.music_search_service.get_search_provider()}")
+        logger.debug(f"DEBUG: V2 MusicSearchService initialized with provider: {self.music_search_service.get_search_provider()}")
 
         # Build the UI
         self.build_ui()
@@ -130,7 +173,28 @@ class AppleMusicConverterApp(toga.App):
         
         # Show the main window
         self.main_window.show()
-    
+
+    def on_exit(self, widget=None, **kwargs):
+        """Clean up resources when app exits to prevent crashes."""
+        logger.info("🛑 Application exit requested - cleaning up resources...")
+
+        # Stop any active searches
+        if hasattr(self, 'is_search_interrupted'):
+            self.is_search_interrupted = True
+            logger.info("   Stopped active searches")
+
+        # Stop rate limit waits
+        if hasattr(self, 'stop_itunes_search_flag'):
+            self.stop_itunes_search_flag = True
+            logger.info("   Stopped rate limit waits")
+
+        # Give threads a moment to finish
+        import time
+        time.sleep(0.5)
+
+        logger.info("✅ Cleanup complete - exiting gracefully")
+        return True  # Allow exit to proceed
+
     def setup_theme(self):
         """Setup application theme based on system preference."""
         try:
@@ -723,6 +787,29 @@ class AppleMusicConverterApp(toga.App):
         self.optimization_status_container.add(self.optimize_now_button)
         db_box.add(self.optimization_status_container)
 
+        # Log directory reveal button
+        log_row = toga.Box(
+            style=Pack(
+                direction=ROW,
+                margin_top=self.spacing["xs"],
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+
+        self.reveal_log_button = toga.Button(
+            "View Logs",
+            on_press=self.reveal_log_directory,
+            style=Pack(
+                flex=1,
+                margin_top=self.spacing["xxs"],
+                margin_bottom=self.spacing["xxs"],
+                margin_right=self.spacing["xxs"]
+            )
+        )
+        instrument_widget(self.reveal_log_button, "reveal_log_button")
+        log_row.add(self.reveal_log_button)
+        db_box.add(log_row)
+
         info_container = toga.Box(
             style=Pack(
                 direction=COLUMN,
@@ -1146,7 +1233,7 @@ class AppleMusicConverterApp(toga.App):
         )
         search_section.add(search_title)
 
-        # Buttons row - left group + spacer + right-aligned export button
+        # First buttons row - Search + Stop buttons
         buttons_row = toga.Box(
             style=Pack(
                 direction=ROW,
@@ -1182,18 +1269,6 @@ class AppleMusicConverterApp(toga.App):
         instrument_widget(self.process_stop_button, "process_stop_button")
         buttons_row.add(self.process_stop_button)
 
-        # Skip Rate Limit button
-        self.skip_wait_button = toga.Button(
-            "Skip Rate Limit Wait",
-            on_press=self.skip_current_wait,
-            enabled=False,
-            style=Pack(
-                margin_right=self.spacing["xs"]
-            )
-        )
-        instrument_widget(self.skip_wait_button, "skip_wait_button")
-        buttons_row.add(self.skip_wait_button)
-
         # Spacer to push Export button to the right
         spacer = toga.Box(style=Pack(flex=1))
         buttons_row.add(spacer)
@@ -1209,6 +1284,66 @@ class AppleMusicConverterApp(toga.App):
         buttons_row.add(self.save_missing_button)
 
         search_section.add(buttons_row)
+
+        # Second row - Rate Limit controls (inline like preview row) - iTunes API only
+        self.rate_limit_row = toga.Box(
+            style=Pack(
+                direction=ROW,
+                align_items=CENTER,
+                margin_top=self.spacing["xs"]
+            )
+        )
+
+        # Label
+        self.rate_limit_label = toga.Label(
+            "Manage Rate Limit",
+            style=self.get_pack_style(
+                **self.typography["body"],
+                color=self.colors["text_secondary"],
+                margin_right=self.spacing["xs"]
+            )
+        )
+        self.rate_limit_row.add(self.rate_limit_label)
+
+        # Skip Rate Limit button
+        self.skip_wait_button = toga.Button(
+            "Skip Rate Limit Wait",
+            on_press=self.skip_current_wait,
+            enabled=False,
+            style=Pack(
+                margin_right=self.spacing["xs"]
+            )
+        )
+        instrument_widget(self.skip_wait_button, "skip_wait_button")
+        self.rate_limit_row.add(self.skip_wait_button)
+
+        # Retry Rate-Limited Tracks button
+        self.retry_rate_limited_button = toga.Button(
+            "Retry Rate-Limited (0)",
+            on_press=self.retry_rate_limited_tracks,
+            enabled=False,
+            style=Pack(
+                margin_right=self.spacing["xs"]
+            )
+        )
+        instrument_widget(self.retry_rate_limited_button, "retry_rate_limited_button")
+        self.rate_limit_row.add(self.retry_rate_limited_button)
+
+        # Export Rate-Limited Tracks button
+        self.export_rate_limited_button = toga.Button(
+            "Export Rate-Limited List",
+            on_press=self.export_rate_limited_csv,
+            enabled=False,
+            style=Pack()
+        )
+        instrument_widget(self.export_rate_limited_button, "export_rate_limited_button")
+        self.rate_limit_row.add(self.export_rate_limited_button)
+
+        # Initially hide rate limit row (show only when iTunes is active provider)
+        if initial_provider == "musicbrainz":
+            self.rate_limit_row.style.visibility = HIDDEN
+
+        search_section.add(self.rate_limit_row)
         results_box.add(search_section)
 
         # Log section
@@ -1453,8 +1588,8 @@ class AppleMusicConverterApp(toga.App):
             self.save_button.enabled = True
             self.copy_button.enabled = True
 
-            print(f"📂 Resumed session from: {file_path}")
-            print(f"💾 Progress will auto-save to: {file_path}")
+            logger.info(f"📂 Resumed session from: {file_path}")
+            logger.print_always(f"💾 Progress will auto-save to: {file_path}")
 
             # Automatically start search
             await self.reprocess_missing_artists(None)
@@ -1535,8 +1670,19 @@ class AppleMusicConverterApp(toga.App):
                         return
                     
                     # Comprehensive file analysis like tkinter version
+                    # Run in background thread to avoid blocking UI on large files
                     try:
-                        success = self.analyze_file_comprehensive(self.current_file_path)
+                        # Show loading indicator
+                        self.update_progress("Analyzing file...", 0)
+
+                        # Run analysis in background thread
+                        loop = asyncio.get_running_loop()
+                        success = await loop.run_in_executor(
+                            None,
+                            self.analyze_file_comprehensive,
+                            self.current_file_path
+                        )
+
                         if not success:
                             await self.main_window.dialog(toga.ErrorDialog(
                                 title="File Analysis Error",
@@ -1552,7 +1698,6 @@ class AppleMusicConverterApp(toga.App):
                             return
                         
                         # Update songs counter with comprehensive info
-                        # self.songs_processed_label.text = f" Songs: 0/{self.row_count:,}"  # Stats removed
                         
                         # Update time estimates based on comprehensive analysis
                         self.update_time_estimate()
@@ -1586,7 +1731,7 @@ class AppleMusicConverterApp(toga.App):
                     try:
                         self.update_time_estimate()
                     except Exception as e:
-                        print(f"Error updating time estimate: {e}")
+                        logger.error(f"Error updating time estimate: {e}")
 
                     # Check if this is an already converted CSV (resume detection)
                     try:
@@ -1598,7 +1743,7 @@ class AppleMusicConverterApp(toga.App):
                                                                         pd.read_csv(self.current_file_path)):
                             return  # Converted CSV was handled, don't continue with normal flow
                     except Exception as e:
-                        print(f"Note: Could not check for converted CSV (will treat as new file): {e}")
+                        logger.info(f"Note: Could not check for converted CSV (will treat as new file): {e}")
                         # Continue with normal flow if detection fails
 
                     # Enable convert button
@@ -1608,7 +1753,7 @@ class AppleMusicConverterApp(toga.App):
                     try:
                         await self.load_immediate_preview()
                     except Exception as e:
-                        print(f"Error loading immediate preview: {e}")
+                        logger.error(f"Error loading immediate preview: {e}")
                     
                     # Update results with comprehensive info
                     try:
@@ -1618,7 +1763,7 @@ class AppleMusicConverterApp(toga.App):
                                           f"🔍 Detected Type: {self.detected_file_type}\n"
                                           f"📈 Ready for conversion!")
                     except Exception as e:
-                        print(f"Error updating results display: {e}")
+                        logger.error(f"Error updating results display: {e}")
                         
                 except Exception as e:
                     await self.main_window.dialog(toga.ErrorDialog(
@@ -1695,7 +1840,6 @@ class AppleMusicConverterApp(toga.App):
         
         # Update UI for processing
         self.convert_button.enabled = False
-        # self.process_pause_button.enabled = True  # Pause button removed
         self.process_stop_button.enabled = True
         # Disable copy and save buttons during processing
         self.copy_button.enabled = False
@@ -1741,7 +1885,6 @@ class AppleMusicConverterApp(toga.App):
                 return
 
             total_tracks = len(all_tracks)
-            # self.songs_processed_label.text = f" Songs: {total_tracks:,}/{total_tracks:,}"  # Stats removed
 
             # Phase 2: Convert to final format (NO artist search here!)
             self.update_progress("🎧 Converting to Last.fm format...", 50)
@@ -1778,7 +1921,6 @@ class AppleMusicConverterApp(toga.App):
                 return
 
             total_tracks = len(all_tracks)
-            # self.songs_processed_label.text = f" Songs: {total_tracks:,}/{total_tracks:,}"  # Stats removed
 
             # Phase 2: Final format preparation (data already in Last.fm format from DuckDB)
             self.update_progress("🎧 Finalizing Last.fm format...", 50)
@@ -1821,7 +1963,7 @@ class AppleMusicConverterApp(toga.App):
             return result
             
         except Exception as e:
-            print(f"Error in load_entire_csv_async: {e}")
+            logger.error(f"Error in load_entire_csv_async: {e}")
             return None
     
     async def process_with_musicbrainz_async(self, all_tracks, total_tracks):
@@ -1850,30 +1992,15 @@ class AppleMusicConverterApp(toga.App):
             return processed_tracks
             
         except Exception as e:
-            print(f"Error in process_with_musicbrainz_async: {e}")
+            logger.error(f"Error in process_with_musicbrainz_async: {e}")
             return all_tracks  # Return original tracks on error
     
     async def process_missing_with_musicbrainz_async(self, missing_tracks, processed_tracks, completed_count, total_tracks):
         """REMOVED: Old row-by-row implementation. Use reprocess_missing_artists instead."""
-        print("❌ ERROR: process_missing_with_musicbrainz_async() is deprecated!")
-        print("   Use the 'Search for Missing Artists' button instead.")
+        logger.error("❌ ERROR: process_missing_with_musicbrainz_async() is deprecated!")
+        logger.info("   Use the 'Search for Missing Artists' button instead.")
         return processed_tracks
 
-    async def process_missing_with_itunes_async(self, missing_tracks, processed_tracks, completed_count, total_tracks):
-        """Async version of iTunes API processing."""
-        try:
-            # For now, use the existing synchronous method with yields
-            await asyncio.sleep(0.001)
-
-            result = self.process_missing_with_itunes(missing_tracks, processed_tracks, completed_count, total_tracks)
-
-            await asyncio.sleep(0.001)
-            return result
-
-        except Exception as e:
-            print(f"Error in process_missing_with_itunes_async: {e}")
-            return processed_tracks
-    
     @trace_call("App.finalize_processing_async")
     async def finalize_processing_async(self, final_results, start_time):
         """Async version of processing finalization."""
@@ -1887,7 +2014,7 @@ class AppleMusicConverterApp(toga.App):
             await asyncio.sleep(0.001)
             
         except Exception as e:
-            print(f"Error in finalize_processing_async: {e}")
+            logger.error(f"Error in finalize_processing_async: {e}")
             self.update_results(f"Error: Error in finalization: {str(e)}")
     
     @trace_call("App.optimize_musicbrainz_async")
@@ -1914,11 +2041,11 @@ class AppleMusicConverterApp(toga.App):
                 await self._update_optimization_complete()
                 
             except Exception as e:
-                print(f"Optimization error: {e}")
+                logger.error(f"Optimization error: {e}")
                 await self._update_optimization_error()
                 
         except Exception as e:
-            print(f"Error in optimize_musicbrainz_async: {e}")
+            logger.error(f"Error in optimize_musicbrainz_async: {e}")
             await self._update_optimization_error()
     
     def load_entire_csv(self, file_path, file_type):
@@ -1980,7 +2107,7 @@ class AppleMusicConverterApp(toga.App):
                 raise ValueError("CSV file has no columns")
                 
             # Log successful encoding detection
-            print(f"Successfully loaded CSV with {encoding_used} encoding: {len(df)} rows, {len(df.columns)} columns")
+            logger.info(f"Successfully loaded CSV with {encoding_used} encoding: {len(df)} rows, {len(df.columns)} columns")
             
             # Use DuckDB processing for reliable and fast processing
             # This replaces the old row-by-row normalize_track_data approach
@@ -1991,14 +2118,14 @@ class AppleMusicConverterApp(toga.App):
                 
                 # Convert DataFrame to list of dicts for compatibility
                 tracks = processed_df.to_dict('records')
-                print(f"Successfully processed {len(tracks)} tracks from CSV")
+                logger.info(f"Successfully processed {len(tracks)} tracks from CSV")
                 return tracks
                 
             except Exception as e:
                 raise RuntimeError(f"Error processing CSV data: {str(e)}")
                 
         except Exception as e:
-            print(f"Error in load_entire_csv: {e}")
+            logger.error(f"Error in load_entire_csv: {e}")
             raise RuntimeError(f"Failed to load CSV file: {str(e)}") from e
     
     def normalize_track_data(self, row, file_type, index):
@@ -2094,16 +2221,16 @@ class AppleMusicConverterApp(toga.App):
                 return track
                 
         except Exception as e:
-            print(f"Error normalizing track at index {index}: {e}")
+            logger.error(f"Error normalizing track at index {index}: {e}")
             
         return None
     
     def process_with_musicbrainz(self, all_tracks, total_tracks):
         """Phase 1: ULTRA-FAST MusicBrainz artist resolution using batch processing."""
-        print(f"\n{'='*70}")
-        print(f"🔍 DEBUG: process_with_musicbrainz() called")
-        print(f"🔍 DEBUG: This is the ULTRA-FAST batch processing version!")
-        print(f"{'='*70}\n")
+        logger.info(f"\n{'='*70}")
+        logger.debug(f"🔍 DEBUG: process_with_musicbrainz() called")
+        logger.debug(f"🔍 DEBUG: This is the ULTRA-FAST batch processing version!")
+        logger.info(f"{'='*70}\n")
 
         # Check if MusicBrainz is available
         musicbrainz_available = (
@@ -2127,10 +2254,10 @@ class AppleMusicConverterApp(toga.App):
         # Start timing for MusicBrainz phase
         musicbrainz_start_time = time.time()
 
-        print(f"\n{'='*70}")
-        print(f"🚀 ULTRA-FAST MUSICBRAINZ BATCH PROCESSING")
-        print(f"{'='*70}")
-        print(f"Total tracks: {total_tracks:,}")
+        logger.info(f"\n{'='*70}")
+        logger.print_always(f"🚀 ULTRA-FAST MUSICBRAINZ BATCH PROCESSING")
+        logger.info(f"{'='*70}")
+        logger.info(f"Total tracks: {total_tracks:,}")
 
         # Convert tracks to DataFrame for batch processing
         self.update_progress("🔄 Preparing data for batch search...", 22)
@@ -2142,11 +2269,11 @@ class AppleMusicConverterApp(toga.App):
         missing_count = missing_mask.sum()
         has_artist_count = total_tracks - missing_count
 
-        print(f"📊 Tracks with artists: {has_artist_count:,}")
-        print(f"📊 Tracks missing artists: {missing_count:,}")
+        logger.print_always(f"📊 Tracks with artists: {has_artist_count:,}")
+        logger.print_always(f"📊 Tracks missing artists: {missing_count:,}")
 
         if missing_count == 0:
-            print("✅ No missing artists - skipping MusicBrainz search")
+            logger.print_always("✅ No missing artists - skipping MusicBrainz search")
             self.update_progress("✅ All tracks have artists", 60)
             elapsed_time = time.time() - musicbrainz_start_time
             self.musicbrainz_search_time = elapsed_time
@@ -2205,14 +2332,14 @@ class AppleMusicConverterApp(toga.App):
             # Calculate throughput
             throughput = missing_count / elapsed_time if elapsed_time > 0 else 0
 
-            print(f"\n{'='*70}")
-            print(f"✅ MUSICBRAINZ BATCH SEARCH COMPLETE")
-            print(f"{'='*70}")
-            print(f"⏱️  Time: {elapsed_time:.1f}s")
-            print(f"📊 Searched: {missing_count:,} tracks")
-            print(f"✅ Found: {found_count:,} ({found_count/missing_count*100:.1f}%)")
-            print(f"⚡ Throughput: {throughput:,.0f} tracks/sec")
-            print(f"{'='*70}\n")
+            logger.info(f"\n{'='*70}")
+            logger.print_always(f"✅ MUSICBRAINZ BATCH SEARCH COMPLETE")
+            logger.info(f"{'='*70}")
+            logger.info(f"⏱️  Time: {elapsed_time:.1f}s")
+            logger.print_always(f"📊 Searched: {missing_count:,} tracks")
+            logger.print_always(f"✅ Found: {found_count:,} ({found_count/missing_count*100:.1f}%)")
+            logger.info(f"⚡ Throughput: {throughput:,.0f} tracks/sec")
+            logger.info(f"{'='*70}\n")
 
             self.update_progress(
                 f"✅ MusicBrainz: Found {found_count:,}/{missing_count:,} artists in {elapsed_time:.1f}s",
@@ -2223,7 +2350,7 @@ class AppleMusicConverterApp(toga.App):
             self.update_missing_artist_count()
 
         except Exception as e:
-            print(f"❌ Error in batch MusicBrainz search: {e}")
+            logger.error(f"❌ Error in batch MusicBrainz search: {e}")
             import traceback
             traceback.print_exc()
             # Fall back to returning tracks as-is
@@ -2231,83 +2358,6 @@ class AppleMusicConverterApp(toga.App):
             self.musicbrainz_search_time = elapsed_time
 
         return all_tracks
-    
-    def process_missing_with_itunes(self, missing_tracks, all_processed_tracks, completed_count, total_tracks):
-        """Process missing tracks with iTunes API (Phase-2 batch processing)."""
-        # Start timing for iTunes phase
-        itunes_start_time = time.time()
-
-        print(f"\n{'='*70}")
-        print(f"🌐 ITUNES API SEARCH")
-        print(f"{'='*70}")
-        print(f"Missing tracks to search: {len(missing_tracks):,}")
-
-        results = []
-        itunes_processed = 0
-
-        for i, track_data in enumerate(missing_tracks):
-            # Check for process control (matches tkinter specs)
-            if self.stop_itunes_search_flag:
-                break
-
-            # Wait if paused (matches tkinter specs)
-            while getattr(self, 'process_paused', False) and not self.stop_itunes_search_flag:
-                time.sleep(0.1)
-
-            if self.stop_itunes_search_flag:
-                break
-
-            # Update progress (60-80% range for Phase-2)
-            itunes_processed += 1
-            progress = 60 + int((itunes_processed / len(missing_tracks)) * 20)
-            elapsed_str = self._get_elapsed_time_str()
-            self.update_progress(f"🌐 iTunes: {itunes_processed:,}/{len(missing_tracks):,} missing artists searched{elapsed_str}", progress)
-
-            # Search with iTunes API (Phase-2)
-            # Handle both dict formats: {'track': ...} and {'Track': ...}
-            track_name = track_data.get('track') or track_data.get('Track', '')
-            album_name = track_data.get('album') or track_data.get('Album', '')
-
-            try:
-                found_artist = self._search_itunes_api(track_name, album_name)
-                if found_artist:
-                    track_data['found_artist'] = found_artist
-                    self.itunes_found += 1
-            except Exception as e:
-                # Individual track lookup failed, track for retry reporting
-                found_artist = None
-                failed_request = {
-                    'track': track_name,
-                    'album': album_name,
-                    'row_index': track_data.get('index', i),
-                    'error': str(e)
-                }
-                self.failed_requests.append(failed_request)
-
-            # Update the corresponding track in results (matches tkinter specs)
-            final_track = self.convert_to_final_format(track_data, track_data.get('index', i), total_tracks)
-            results.append(final_track)
-
-            # Update stats display
-            self.update_stats_display()
-
-        # Calculate and store timing
-        elapsed_time = time.time() - itunes_start_time
-        self.itunes_search_time = elapsed_time
-
-        # Calculate throughput
-        throughput = itunes_processed / elapsed_time if elapsed_time > 0 else 0
-
-        print(f"\n{'='*70}")
-        print(f"✅ ITUNES API SEARCH COMPLETE")
-        print(f"{'='*70}")
-        print(f"⏱️  Time: {elapsed_time:.1f}s")
-        print(f"📊 Searched: {itunes_processed:,} tracks")
-        print(f"✅ Found: {self.itunes_found:,} ({self.itunes_found/itunes_processed*100:.1f}% if itunes_processed > 0 else 0)")
-        print(f"⚡ Throughput: {throughput:.1f} tracks/sec")
-        print(f"{'='*70}\n")
-
-        return results
     
     def _get_elapsed_time_str(self):
         """Get formatted elapsed time string since processing started."""
@@ -2362,8 +2412,8 @@ class AppleMusicConverterApp(toga.App):
                 duration                # Duration (int seconds)
             ]
         except Exception as e:
-            print(f"Error converting track {index}: {e}")
-            print(f"Track data keys: {list(track.keys()) if hasattr(track, 'keys') else 'Not a dict'}")
+            logger.error(f"Error converting track {index}: {e}")
+            logger.info(f"Track data keys: {list(track.keys()) if hasattr(track, 'keys') else 'Not a dict'}")
             return None
     
     def process_csv_file(self):
@@ -2373,23 +2423,23 @@ class AppleMusicConverterApp(toga.App):
         try:
             # Record start time for comprehensive stats
             self._processing_start_time = time.time()
-            print(f"\n📁 === CSV PROCESSING SESSION START ===\n")
-            print(f"📁 File path: {self.current_file_path}")
-            print(f"💾 File size: {self.format_file_size(self.file_size)}")
-            print(f"🕐 Processing started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self._processing_start_time))}")
+            logger.info(f"\n📁 === CSV PROCESSING SESSION START ===\n")
+            logger.info(f"📁 File path: {self.current_file_path}")
+            logger.print_always(f"💾 File size: {self.format_file_size(self.file_size)}")
+            logger.info(f"🕐 Processing started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self._processing_start_time))}")
 
             # Update progress
             self.update_progress(f"📁 Reading CSV file ({self.format_file_size(self.file_size)})...", 10)
             
             # Determine optimal chunk size based on file size
             chunk_size = self.calculate_chunk_size()
-            print(f"📄 Calculated chunk size: {chunk_size:,} rows")
+            logger.info(f"📄 Calculated chunk size: {chunk_size:,} rows")
 
             # Try multiple encodings like original tkinter version with timing
             encoding_start = time.time()
             encodings_to_try = ['utf-8', 'utf-8-sig', 'latin1', 'cp1252']
             encoding_used = None
-            print(f"🔡 Testing file encodings: {encodings_to_try}")
+            logger.info(f"🔡 Testing file encodings: {encodings_to_try}")
 
             # First, try to read just the header to determine encoding
             for i, encoding in enumerate(encodings_to_try):
@@ -2397,41 +2447,41 @@ class AppleMusicConverterApp(toga.App):
                     pd.read_csv(self.current_file_path, encoding=encoding, nrows=0)
                     encoding_used = encoding
                     encoding_time = time.time() - encoding_start
-                    print(f"✅ Encoding detected: {encoding} (tried {i+1}/{len(encodings_to_try)} in {encoding_time*1000:.1f}ms)")
+                    logger.print_always(f"✅ Encoding detected: {encoding} (tried {i+1}/{len(encodings_to_try)} in {encoding_time*1000:.1f}ms)")
                     break
                 except (UnicodeDecodeError, UnicodeError) as e:
-                    print(f"❌ Encoding {encoding} failed: {str(e)[:50]}...")
+                    logger.error(f"❌ Encoding {encoding} failed: {str(e)[:50]}...")
                     continue
 
             if encoding_used is None:
-                print(f"❌ FATAL: Could not read CSV file with any supported encoding")
+                logger.error(f"❌ FATAL: Could not read CSV file with any supported encoding")
                 raise Exception("Could not read CSV file with any supported encoding")
 
             # Count total rows for progress tracking with timing
             row_count_start = time.time()
-            print(f"📈 Counting total rows...")
+            logger.info(f"📈 Counting total rows...")
             with open(self.current_file_path, 'r', encoding=encoding_used) as f:
                 self.row_count = sum(1 for line in f) - 1  # Subtract header row
             row_count_time = time.time() - row_count_start
-            print(f"📊 Total rows: {self.row_count:,} (counted in {row_count_time:.2f}s)")
+            logger.print_always(f"📊 Total rows: {self.row_count:,} (counted in {row_count_time:.2f}s)")
 
             # Calculate estimated processing time
             estimated_processing_time = self.row_count / 10000  # ~10k rows per second estimate
-            print(f"⏱️ Estimated processing time: {estimated_processing_time:.1f} seconds")
+            logger.info(f"⏱️ Estimated processing time: {estimated_processing_time:.1f} seconds")
 
             self.update_progress(f"📄 Processing {self.row_count:,} rows in {chunk_size:,}-row chunks...", 15)
             
             # Process file in chunks with comprehensive timing
             file_type = self.file_type_selection.value
-            print(f"📋 File type: {file_type}")
-            print(f"🚀 Starting chunk processing...\n")
+            logger.info(f"📋 File type: {file_type}")
+            logger.print_always(f"🚀 Starting chunk processing...\n")
 
             chunk_processing_start = time.time()
             processed_data = self.process_csv_in_chunks(encoding_used, chunk_size, file_type)
             chunk_processing_time = time.time() - chunk_processing_start
 
-            print(f"\n✅ Chunk processing completed in {chunk_processing_time:.2f} seconds")
-            print(f"📊 Processed data: {len(processed_data) if processed_data else 0} items")
+            logger.print_always(f"\n✅ Chunk processing completed in {chunk_processing_time:.2f} seconds")
+            logger.print_always(f"📊 Processed data: {len(processed_data) if processed_data else 0} items")
 
             # Finalize processing like tkinter app with timing
             finalization_start = time.time()
@@ -2443,23 +2493,23 @@ class AppleMusicConverterApp(toga.App):
             total_processing_time = time.time() - self._processing_start_time
             rows_per_second = self.row_count / total_processing_time if total_processing_time > 0 else 0
 
-            print(f"\n📊 === CSV PROCESSING COMPLETE ===\n")
-            print(f"⏱️ Total processing time: {total_processing_time:.2f} seconds")
-            print(f"📄 Chunk processing: {chunk_processing_time:.2f}s")
-            print(f"🔄 Finalization: {finalization_time:.2f}s")
-            print(f"⚡ Processing rate: {rows_per_second:.0f} rows/second")
-            print(f"✅ Successfully processed: {len(processed_data) if processed_data else 0} items")
-            print(f"\n=== END PROCESSING ===\n")
+            logger.print_always(f"\n📊 === CSV PROCESSING COMPLETE ===\n")
+            logger.info(f"⏱️ Total processing time: {total_processing_time:.2f} seconds")
+            logger.info(f"📄 Chunk processing: {chunk_processing_time:.2f}s")
+            logger.info(f"🔄 Finalization: {finalization_time:.2f}s")
+            logger.info(f"⚡ Processing rate: {rows_per_second:.0f} rows/second")
+            logger.print_always(f"✅ Successfully processed: {len(processed_data) if processed_data else 0} items")
+            logger.info(f"\n=== END PROCESSING ===\n")
 
             # Mark processing as successful
             processing_successful = True
 
         except Exception as e:
             total_error_time = time.time() - self._processing_start_time
-            print(f"\n❌ === CSV PROCESSING FAILED ===\n")
-            print(f"⚠️ Error after {total_error_time:.2f} seconds: {str(e)}")
-            print(f"🔍 Error type: {type(e).__name__}")
-            print(f"\n=== END ERROR ===\n")
+            logger.error(f"\n❌ === CSV PROCESSING FAILED ===\n")
+            logger.warning(f"⚠️ Error after {total_error_time:.2f} seconds: {str(e)}")
+            logger.debug(f"🔍 Error type: {type(e).__name__}")
+            logger.error(f"\n=== END ERROR ===\n")
 
             self.update_results(f"Error: Error: {str(e)}")
             self.update_progress("❌ Processing failed", 0)
@@ -2474,30 +2524,29 @@ class AppleMusicConverterApp(toga.App):
     
     def enable_copy_save_buttons(self):
         """Enable copy, save, and missing artists buttons - synchronous version."""
-        print(f"DEBUG: enable_copy_save_buttons called")
+        logger.debug(f"DEBUG: enable_copy_save_buttons called")
 
         # Enable copy and save buttons
         if hasattr(self, 'copy_button'):
             self.copy_button.enabled = True
-            print(f"DEBUG: copy_button enabled")
+            logger.debug(f"DEBUG: copy_button enabled")
 
         if hasattr(self, 'save_button'):
             self.save_button.enabled = True
-            print(f"DEBUG: save_button enabled")
+            logger.debug(f"DEBUG: save_button enabled")
 
         # Enable save missing artists button
         if hasattr(self, 'save_missing_button'):
             self.save_missing_button.enabled = True
-            print(f"DEBUG: save_missing_button enabled")
+            logger.debug(f"DEBUG: save_missing_button enabled")
 
         # Disable pause/stop buttons since processing is complete
-        # if hasattr(self, 'process_pause_button'):  # Pause button removed
         #     self.process_pause_button.enabled = False
         #     print(f"DEBUG: process_pause_button disabled")
 
         if hasattr(self, 'process_stop_button'):
             self.process_stop_button.enabled = False
-            print(f"DEBUG: process_stop_button disabled")
+            logger.debug(f"DEBUG: process_stop_button disabled")
 
     async def _enable_copy_save_buttons(self):
         """Enable copy and save buttons on main thread."""
@@ -2525,14 +2574,14 @@ class AppleMusicConverterApp(toga.App):
     def finalize_processing(self, final_results, start_time):
         """Finalize processing and display results like tkinter app."""
         try:
-            print(f"DEBUG: finalize_processing called with {len(final_results)} results")
+            logger.debug(f"DEBUG: finalize_processing called with {len(final_results)} results")
             if final_results:
-                print(f"DEBUG: First result type: {type(final_results[0])}, content: {final_results[0]}")
+                logger.debug(f"DEBUG: First result type: {type(final_results[0])}, content: {final_results[0]}")
             
             # Create DataFrame with exact same columns as tkinter
             columns = ['Artist', 'Track', 'Album', 'Timestamp', 'Album Artist', 'Duration']
             self.processed_df = pd.DataFrame(final_results, columns=columns)
-            print(f"DEBUG: Created DataFrame with {len(self.processed_df)} rows")
+            logger.debug(f"DEBUG: Created DataFrame with {len(self.processed_df)} rows")
 
             # No auto-save to temp - user must explicitly save before searching
             self.current_save_path = None
@@ -2680,26 +2729,26 @@ class AppleMusicConverterApp(toga.App):
             self.update_progress(stats_text + format_info, 100)
             
             # Update stats display with final counts
-            print(f"DEBUG: Updating stats display")
+            logger.debug(f"DEBUG: Updating stats display")
             try:
                 self.update_stats_display()
-                print(f"DEBUG: Stats updated - MB: {self.musicbrainz_found}, iTunes: {self.itunes_found}")
+                logger.debug(f"DEBUG: Stats updated - MB: {self.musicbrainz_found}, iTunes: {self.itunes_found}")
             except Exception as e:
-                print(f"ERROR: Failed to update stats: {e}")
+                logger.error(f"ERROR: Failed to update stats: {e}")
 
             # Enable copy and save buttons after successful conversion (direct call since we're in main thread context)
-            print(f"DEBUG: Enabling copy and save buttons")
+            logger.debug(f"DEBUG: Enabling copy and save buttons")
             try:
                 self.enable_copy_save_buttons()
-                print(f"DEBUG: Buttons enabled successfully")
+                logger.debug(f"DEBUG: Buttons enabled successfully")
             except Exception as e:
-                print(f"ERROR: Failed to enable buttons: {e}")
+                logger.error(f"ERROR: Failed to enable buttons: {e}")
                 import traceback
                 traceback.print_exc()
             
             # Enable reprocess button if there are missing artists (only missing artists can be searched)
-            print(f"DEBUG: finalize_processing missing_artists count: {missing_artists}")
-            print(f"DEBUG: total_tracks: {total_tracks}")
+            logger.debug(f"DEBUG: finalize_processing missing_artists count: {missing_artists}")
+            logger.debug(f"DEBUG: total_tracks: {total_tracks}")
 
             # Update button state based on save status (not force-enabled)
             self.update_search_button_state()
@@ -2743,9 +2792,9 @@ class AppleMusicConverterApp(toga.App):
         
         # Convert processed data to final Last.fm format with comprehensive timing
         conversion_start_time = time.time()
-        print(f"\n🎧 === LAST.FM CONVERSION START ===\n")
-        print(f"📊 Converting {len(processed_data):,} tracks to Last.fm format...")
-        print(f"🕐 Conversion started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(conversion_start_time))}")
+        logger.info(f"\n🎧 === LAST.FM CONVERSION START ===\n")
+        logger.print_always(f"📊 Converting {len(processed_data):,} tracks to Last.fm format...")
+        logger.info(f"🕐 Conversion started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(conversion_start_time))}")
 
         self.update_progress(f"🎧 Converting {len(processed_data):,} tracks to Last.fm format...", 90)
 
@@ -2756,7 +2805,7 @@ class AppleMusicConverterApp(toga.App):
 
         for index, track_data in enumerate(processed_data):
             if self.stop_itunes_search_flag:
-                print(f"🛑 Last.fm conversion stopped by user at track {index+1}/{len(processed_data)}")
+                logger.info(f"🛑 Last.fm conversion stopped by user at track {index+1}/{len(processed_data)}")
                 break
 
             try:
@@ -2767,12 +2816,12 @@ class AppleMusicConverterApp(toga.App):
                     conversion_errors += 1
                     if conversion_errors <= 5:  # Log first 5 errors
                         track_name = track_data.get('Track', track_data.get('track', 'Unknown'))
-                        print(f"⚠️ Conversion error #{conversion_errors}: Failed to convert '{track_name}'")
+                        logger.warning(f"⚠️ Conversion error #{conversion_errors}: Failed to convert '{track_name}'")
             except Exception as e:
                 conversion_errors += 1
                 if conversion_errors <= 5:  # Log first 5 errors
                     track_name = track_data.get('Track', track_data.get('track', 'Unknown'))
-                    print(f"❌ Conversion exception #{conversion_errors}: '{track_name}' - {str(e)}")
+                    logger.error(f"❌ Conversion exception #{conversion_errors}: '{track_name}' - {str(e)}")
 
             # Update progress with timing info
             current_time = time.time()
@@ -2797,12 +2846,12 @@ class AppleMusicConverterApp(toga.App):
         conversion_rate = len(final_results) / conversion_time if conversion_time > 0 else 0
         success_rate = len(final_results) / len(processed_data) * 100 if processed_data else 0
 
-        print(f"\n📊 === LAST.FM CONVERSION COMPLETE ===\n")
-        print(f"⏱️ Conversion time: {conversion_time:.2f} seconds")
-        print(f"⚡ Conversion rate: {conversion_rate:.0f} tracks/second")
-        print(f"✅ Successfully converted: {len(final_results):,}/{len(processed_data):,} tracks ({success_rate:.1f}%)")
-        print(f"❌ Conversion errors: {conversion_errors}")
-        print(f"\n=== END CONVERSION ===\n")
+        logger.print_always(f"\n📊 === LAST.FM CONVERSION COMPLETE ===\n")
+        logger.info(f"⏱️ Conversion time: {conversion_time:.2f} seconds")
+        logger.info(f"⚡ Conversion rate: {conversion_rate:.0f} tracks/second")
+        logger.print_always(f"✅ Successfully converted: {len(final_results):,}/{len(processed_data):,} tracks ({success_rate:.1f}%)")
+        logger.error(f"❌ Conversion errors: {conversion_errors}")
+        logger.info(f"\n=== END CONVERSION ===\n")
 
         # Final progress update with comprehensive info
         self.update_progress(
@@ -2849,17 +2898,17 @@ class AppleMusicConverterApp(toga.App):
     
     async def _reset_buttons_ui(self, widget=None, keep_results_buttons=False):
         """Reset button states on main thread."""
-        print(f"DEBUG: _reset_buttons_ui called with keep_results_buttons={keep_results_buttons}")
+        logger.debug(f"DEBUG: _reset_buttons_ui called with keep_results_buttons={keep_results_buttons}")
         self.convert_button.text = "Convert to Last.fm Format"
         self.convert_button.enabled = True
         # Process control buttons are handled by main process controls
         # Only disable copy and save buttons if not preserving results
         if not keep_results_buttons:
-            print("DEBUG: Disabling copy/save buttons (keep_results_buttons=False)")
+            logger.debug("DEBUG: Disabling copy/save buttons (keep_results_buttons=False)")
             self.copy_button.enabled = False
             self.save_button.enabled = False
         else:
-            print("DEBUG: Keeping copy/save buttons enabled (keep_results_buttons=True)")
+            logger.debug("DEBUG: Keeping copy/save buttons enabled (keep_results_buttons=True)")
     
     def process_csv_data(self, df, file_type):
         """Process CSV data using DuckDB for all file types (like tkinter version)."""
@@ -2872,7 +2921,7 @@ class AppleMusicConverterApp(toga.App):
             return self.process_csv_data_with_duckdb(file_type)
         
         except Exception as e:
-            print(f"Error processing CSV data: {e}")
+            logger.error(f"Error processing CSV data: {e}")
             # Fallback to small file processing
             return self.process_csv_data_small(df, file_type)
     
@@ -2896,10 +2945,10 @@ class AppleMusicConverterApp(toga.App):
         import time
 
         duckdb_start_time = time.time()
-        print(f"\n🦆 === DUCKDB PROCESSING START ===\n")
-        print(f"📁 File type: {file_type}")
-        print(f"💾 File path: {self.current_file_path}")
-        print(f"🕐 DuckDB processing started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(duckdb_start_time))}")
+        logger.info(f"\n🦆 === DUCKDB PROCESSING START ===\n")
+        logger.info(f"📁 File type: {file_type}")
+        logger.print_always(f"💾 File path: {self.current_file_path}")
+        logger.info(f"🕐 DuckDB processing started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(duckdb_start_time))}")
 
         try:
             import duckdb
@@ -2910,15 +2959,15 @@ class AppleMusicConverterApp(toga.App):
             connection_start = time.time()
             conn = duckdb.connect(':memory:')
             connection_time = time.time() - connection_start
-            print(f"🔗 DuckDB connection established in {connection_time*1000:.1f}ms")
+            logger.info(f"🔗 DuckDB connection established in {connection_time*1000:.1f}ms")
 
             # Get appropriate SQL query based on file type
             query_generation_start = time.time()
             query = self.get_duckdb_query_for_file_type(file_type)
             query_generation_time = time.time() - query_generation_start
-            print(f"📝 SQL query generated in {query_generation_time*1000:.1f}ms")
-            print(f"\n📊 Query preview:")
-            print(f"   {query[:200]}{'...' if len(query) > 200 else ''}")
+            logger.info(f"📝 SQL query generated in {query_generation_time*1000:.1f}ms")
+            logger.print_always(f"\n📊 Query preview:")
+            logger.info(f"   {query[:200]}{'...' if len(query) > 200 else ''}")
 
             self.update_progress(f"🦆 Executing DuckDB query for {file_type}...", 50)
 
@@ -2926,13 +2975,13 @@ class AppleMusicConverterApp(toga.App):
             query_start = time.time()
             result_df = conn.execute(query).fetchdf()
             query_time = time.time() - query_start
-            print(f"\n✅ DuckDB query executed successfully")
-            print(f"⏱️ Query execution time: {query_time:.2f} seconds")
-            print(f"📊 Raw results: {len(result_df):,} rows")
+            logger.print_always(f"\n✅ DuckDB query executed successfully")
+            logger.info(f"⏱️ Query execution time: {query_time:.2f} seconds")
+            logger.print_always(f"📊 Raw results: {len(result_df):,} rows")
 
             if len(result_df) > 0:
-                print(f"📋 Sample columns: {list(result_df.columns)}")
-                print(f"📈 Processing rate: {len(result_df)/query_time:.0f} rows/second")
+                logger.info(f"📋 Sample columns: {list(result_df.columns)}")
+                logger.info(f"📈 Processing rate: {len(result_df)/query_time:.0f} rows/second")
 
             self.update_progress(f"🔄 Post-processing {len(result_df):,} results...", 75)
 
@@ -2940,8 +2989,8 @@ class AppleMusicConverterApp(toga.App):
             postprocess_start = time.time()
             result_df = self.post_process_duckdb_results(result_df, file_type)
             postprocess_time = time.time() - postprocess_start
-            print(f"🔄 Post-processing completed in {postprocess_time:.2f} seconds")
-            print(f"🎧 Final Last.fm format: {len(result_df):,} tracks")
+            logger.info(f"🔄 Post-processing completed in {postprocess_time:.2f} seconds")
+            logger.info(f"🎧 Final Last.fm format: {len(result_df):,} tracks")
 
             conn.close()
 
@@ -2949,17 +2998,17 @@ class AppleMusicConverterApp(toga.App):
             total_duckdb_time = time.time() - duckdb_start_time
             total_rate = len(result_df) / total_duckdb_time if total_duckdb_time > 0 else 0
 
-            print(f"\n📊 === DUCKDB PROCESSING COMPLETE ===\n")
-            print(f"⏱️ Total DuckDB time: {total_duckdb_time:.2f} seconds")
-            print(f"⚡ Overall processing rate: {total_rate:.0f} tracks/second")
-            print(f"✅ Successfully processed: {len(result_df):,} tracks")
-            print(f"\n=== END DUCKDB PROCESSING ===\n")
+            logger.print_always(f"\n📊 === DUCKDB PROCESSING COMPLETE ===\n")
+            logger.info(f"⏱️ Total DuckDB time: {total_duckdb_time:.2f} seconds")
+            logger.info(f"⚡ Overall processing rate: {total_rate:.0f} tracks/second")
+            logger.print_always(f"✅ Successfully processed: {len(result_df):,} tracks")
+            logger.info(f"\n=== END DUCKDB PROCESSING ===\n")
 
             self.update_progress(f"✅ DuckDB processed {len(result_df):,} tracks in {total_duckdb_time:.1f}s", 100)
             return result_df
             
         except Exception as e:
-            print(f"DuckDB processing failed for {file_type}: {e}")
+            logger.error(f"DuckDB processing failed for {file_type}: {e}")
             # Fallback to chunked processing
             return self.process_csv_data_chunked(file_type)
     
@@ -3016,12 +3065,12 @@ class AppleMusicConverterApp(toga.App):
         else:
             # Generic CSV - try to auto-detect columns
             # First, inspect available columns to avoid binding errors
-            print(f"   📋 Reading CSV header to detect columns...")
+            logger.info(f"   📋 Reading CSV header to detect columns...")
             try:
                 import pandas as pd
                 header_df = pd.read_csv(file_path, nrows=0)
                 available_cols = set(header_df.columns)
-                print(f"   📋 Available columns: {list(available_cols)}")
+                logger.info(f"   📋 Available columns: {list(available_cols)}")
 
                 # Build column selection based on what's actually available
                 artist_expr = []
@@ -3059,7 +3108,7 @@ class AppleMusicConverterApp(toga.App):
                 # If file has timestamp column, preserve it; otherwise DuckDB will use NULL
                 timestamp_select = f"COALESCE({', '.join(timestamp_expr)}, NULL) as Timestamp" if timestamp_expr else "NULL as Timestamp"
 
-                print(f"   📋 Generated query with dynamic columns")
+                logger.info(f"   📋 Generated query with dynamic columns")
 
                 return f"""
                 SELECT
@@ -3072,7 +3121,7 @@ class AppleMusicConverterApp(toga.App):
                 WHERE {track_where}
                 """
             except Exception as e:
-                print(f"   ⚠️  Error detecting columns: {e}, using fallback query")
+                logger.warning(f"   ⚠️  Error detecting columns: {e}, using fallback query")
                 # Fallback to basic query
                 return f"""
                 SELECT
@@ -3188,7 +3237,7 @@ class AppleMusicConverterApp(toga.App):
                 return pd.DataFrame(columns=['Artist', 'Track', 'Album', 'Timestamp'])
                 
         except Exception as e:
-            print(f"Chunked processing failed: {e}")
+            logger.error(f"Chunked processing failed: {e}")
             return pd.DataFrame(columns=['Artist', 'Track', 'Album', 'Timestamp'])
     
     def process_play_activity_row(self, row):
@@ -3363,7 +3412,7 @@ class AppleMusicConverterApp(toga.App):
             return self.process_play_activity_data_with_duckdb()
             
         except Exception as e:
-            print(f"Error in process_play_activity_data: {e}")
+            logger.error(f"Error in process_play_activity_data: {e}")
             # Fallback to regular processing
             return self.process_play_activity_data_small(df)
     
@@ -3477,7 +3526,7 @@ class AppleMusicConverterApp(toga.App):
             return result_df
             
         except Exception as e:
-            print(f"DuckDB processing failed: {e}, falling back to chunked processing")
+            logger.error(f"DuckDB processing failed: {e}, falling back to chunked processing")
             # Fallback to chunked processing if DuckDB fails
             return self.process_play_activity_data_chunked()
     
@@ -3519,7 +3568,7 @@ class AppleMusicConverterApp(toga.App):
                 return pd.DataFrame(columns=['Artist', 'Track', 'Album', 'Timestamp'])
                 
         except Exception as e:
-            print(f"Chunked processing also failed: {e}")
+            logger.error(f"Chunked processing also failed: {e}")
             # Return empty DataFrame with proper columns
             return pd.DataFrame(columns=['Artist', 'Track', 'Album', 'Timestamp'])
     
@@ -3554,9 +3603,9 @@ class AppleMusicConverterApp(toga.App):
                 
                 # DEBUG: Print first few track descriptions to see what we're getting
                 if index < 3:
-                    print(f"DEBUG Play History Row {index}: Found column '{track_desc_col}', Track Description = '{track_info}'")
+                    logger.debug(f"DEBUG Play History Row {index}: Found column '{track_desc_col}', Track Description = '{track_info}'")
                     if index == 0:
-                        print(f"DEBUG: Available columns: {list(df.columns)}")
+                        logger.debug(f"DEBUG: Available columns: {list(df.columns)}")
                 
                 if ' - ' in track_info:
                     artist, track = track_info.split(' - ', 1)
@@ -3610,8 +3659,8 @@ class AppleMusicConverterApp(toga.App):
                 track_desc_col = col
                 break
         
-        print(f"DEBUG Recently Played: Using column '{track_desc_col}' for track data")
-        print(f"DEBUG: Available columns: {list(df.columns)}")
+        logger.debug(f"DEBUG Recently Played: Using column '{track_desc_col}' for track data")
+        logger.debug(f"DEBUG: Available columns: {list(df.columns)}")
         
         for index, row in df.iterrows():
             try:
@@ -3626,7 +3675,7 @@ class AppleMusicConverterApp(toga.App):
                     track_desc = str(row.get('Track Description', '')).strip() if pd.notna(row.get('Track Description', '')) else ''
                 
                 if index < 3:
-                    print(f"DEBUG Recently Played Row {index}: Track data = '{track_desc}'")
+                    logger.debug(f"DEBUG Recently Played Row {index}: Track data = '{track_desc}'")
                 
                 # Parse "Artist - Track" format from Track Description (matches tkinter version)
                 if ' - ' in track_desc:
@@ -3763,9 +3812,9 @@ class AppleMusicConverterApp(toga.App):
     @trace_call("App.search_artist_for_track")
     async def search_artist_for_track(self, track_name, album_name=None, strict_provider=False):
         """REMOVED: Old row-by-row MusicBrainz search. Use ultra-fast batch processor instead."""
-        print(f"❌ ERROR: search_artist_for_track() is deprecated!")
-        print(f"   This old row-by-row implementation has been replaced with ultra-fast batch processing.")
-        print(f"   Use the 'Search for Missing Artists' button which uses batch processing.")
+        logger.error(f"❌ ERROR: search_artist_for_track() is deprecated!")
+        logger.info(f"   This old row-by-row implementation has been replaced with ultra-fast batch processing.")
+        logger.info(f"   Use the 'Search for Missing Artists' button which uses batch processing.")
         return None
     
     def check_api_rate_limit(self):
@@ -3790,213 +3839,6 @@ class AppleMusicConverterApp(toga.App):
                             self.skip_wait_requested = False
                             break
                         time.sleep(0.1)
-    
-    def search_itunes_api(self, track_name, album_name=None):
-        """Search iTunes API for artist information with proper rate limiting."""
-        return self._search_itunes_api(track_name, album_name)
-        
-    def _search_itunes_api(self, track, album):
-        """Search using iTunes API with rate limiting (matches tkinter implementation)."""
-
-        print(f"\n🎵 === iTunes API Search Session ===")
-        print(f"Input track: '{track}'")
-        print(f"Input album: '{album}'")
-
-        # Validate input - skip empty track names
-        if not track or not track.strip():
-            print(f"❌ iTunes API SEARCH SKIPPED: Empty track name")
-            return None
-
-        # Rate limiting: ensure no more than X calls per minute
-        with self.api_lock:
-            current_time = time.time()
-            rate_limit = int(getattr(self.rate_limit_input, 'value', '20') or '20')
-
-            print(f"🔄 RATE LIMIT CHECK START")
-            print(f"  Current time: {time.strftime('%H:%M:%S', time.localtime(current_time))}")
-            print(f"  Rate limit: {rate_limit} calls/minute")
-
-            # Remove API calls older than 1 minute
-            old_calls_count = len(self.api_calls)
-            while self.api_calls and current_time - self.api_calls[0] > 60:
-                self.api_calls.popleft()
-            removed_calls = old_calls_count - len(self.api_calls)
-            if removed_calls > 0:
-                print(f"  🗑️  Removed {removed_calls} expired API calls")
-
-            calls_in_window = len(self.api_calls)
-            print(f"  📊 Current API calls in 60s window: {calls_in_window}/{rate_limit}")
-
-            # If we've made rate_limit calls in the last minute, wait
-            if calls_in_window >= rate_limit:
-                self.wait_duration = 60 - (current_time - self.api_calls[0])
-                if self.wait_duration > 0:
-                    print(f"  ⏳ RATE LIMIT TRIGGERED: Must wait {self.wait_duration:.1f}s")
-                    self.update_api_status("API Status: Rate Limited")
-                    self.api_wait_start = current_time
-                    self.skip_wait_requested = False  # Reset skip flag
-                    self.show_skip_button()
-                    self.update_rate_limit_timer()
-                    self._interruptible_wait(self.wait_duration)
-                    print(f"  ✅ RATE LIMIT WAIT COMPLETED, proceeding with search")
-            else:
-                print(f"  ✅ RATE LIMIT OK: {calls_in_window}/{rate_limit} calls used")
-
-            try:
-                print(f"🎯 SEARCH STRATEGY: Two-phase approach per spec")
-
-                # Phase 1: Try track name only
-                print(f"   🔍 Phase 1: Searching for '{track}' (track only)")
-                artist = self._try_search(track)
-
-                if not artist and album:
-                    print(f"   🔍 Phase 2: Searching for '{track} {album}' (track + album)")
-                    # If no result or artist not found, try with album
-                    artist = self._try_search(f"{track} {album}")
-
-                if artist:
-                    print(f"✅ iTunes API SEARCH COMPLETE: Found artist = '{artist}'")
-                    self.update_api_status("API Status: Success")
-                    return artist
-                else:
-                    print(f"❌ iTunes API SEARCH COMPLETE: No matching artist found")
-                    self.update_api_status("API Status: No match found")
-                    return None
-
-            except Exception as e:
-                print(f"❌ iTunes API SEARCH ERROR: {str(e)}")
-                self.update_api_status(f"API Status: Error - {str(e)}")
-                raise
-    
-    def _try_search(self, search_term):
-        """Helper method to perform the actual iTunes API search (matches tkinter implementation)."""
-        import urllib.parse
-
-        # API REQUEST START
-        print(f"\n🌐 === API REQUEST START ===")
-        print(f"Search term: '{search_term}'")
-
-        try:
-            # URL encode the search term
-            encoded_term = urllib.parse.quote(search_term)
-            url = f"https://itunes.apple.com/search?term={encoded_term}&entity=song&limit=5&country=US&media=music"  # Get top 5 results
-            print(f"📝 URL encoding: '{search_term}' → '{encoded_term}'")
-            print(f"🔗 Request URL: {url}")
-
-            # Check rate limiting status before making request
-            current_api_calls = len(self.api_calls)
-            rate_limit = int(getattr(self.rate_limit_input, 'value', '20') or '20')
-            print(f"📊 Pre-request call count: {current_api_calls}/{rate_limit}")
-
-            # Record the API call time BEFORE making request (per spec)
-            self.api_calls.append(time.time())
-            print(f"📈 API call recorded (new count: {len(self.api_calls)})")
-
-            # Make the API call with timeout
-            print(f"🚀 Making iTunes API HTTP request...")
-            start_time = time.time()
-            response = httpx.get(url, timeout=10)
-            request_duration = time.time() - start_time
-
-            print(f"⏱️  Request completed in {request_duration:.3f}s")
-            print(f"📋 HTTP Status Code: {response.status_code}")
-            print(f"📋 Response headers: {dict(list(response.headers.items())[:3])}...")  # First 3 headers
-
-            if response.status_code == 429:
-                # Rate limit hit
-                self.rate_limit_hits += 1
-                self.last_rate_limit_time = time.time()
-                print(f"🚨 HTTP 429 RATE LIMIT HIT for '{search_term}' - Hit #{self.rate_limit_hits} at {time.strftime('%H:%M:%S')}")
-                print(f"📄 Response body preview: {response.text[:200]}")
-                # Schedule UI update from main thread
-                self.update_stats_display()
-                print(f"🌐 === API REQUEST END (RATE LIMITED) ===")
-                raise Exception(f"Rate limit exceeded (429) for search: {search_term}")
-
-            if response.status_code == 200:
-                print(f"✅ HTTP 200 OK - Processing JSON response...")
-                try:
-                    data = response.json()
-                    result_count = len(data.get('results', []))
-                    print(f"📊 JSON parsed: {result_count} results returned")
-
-                    if data.get('results'):
-                        print(f"📋 Results preview (first 3 of {result_count}):")
-                        for i, result in enumerate(data['results'][:3]):  # Show first 3 results
-                            print(f"  [{i+1}] Track: '{result.get('trackName', 'N/A')}'")
-                            print(f"      Artist: '{result.get('artistName', 'N/A')}'")
-                            print(f"      Album: '{result.get('collectionName', 'N/A')}'")
-                            print(f"      Kind: '{result.get('kind', 'N/A')}'")
-                        if result_count > 3:
-                            print(f"      ... and {result_count - 3} more results")
-                    else:
-                        print(f"📊 No results in JSON response")
-
-                except json.JSONDecodeError as e:
-                    print(f"❌ JSON decode error: {e}")
-                    print(f"📄 Response body: {response.text[:500]}")
-                    print(f"🌐 === API REQUEST END (JSON ERROR) ===")
-                    return None
-
-                if data.get('results'):
-                    print(f"🔍 RESULT SELECTION HEURISTIC: Applying spec-compliant matching...")
-
-                    # Look for exact match first (prefer tracks that start with search term)
-                    exact_matches = []
-                    for i, result in enumerate(data['results']):
-                        track_name = result.get('trackName', '').lower()
-                        search_lower = search_term.lower()
-
-                        print(f"  🔍 Checking result {i+1}: '{track_name}' vs '{search_lower}'")
-                        if track_name.startswith(search_lower):
-                            exact_matches.append((i, result))
-                            print(f"    ✅ EXACT MATCH found!")
-                        else:
-                            print(f"    ❌ No exact match")
-
-                    if exact_matches:
-                        # Use first exact match
-                        match_index, best_result = exact_matches[0]
-                        selected_artist = best_result.get('artistName')
-                        print(f"🎯 SELECTED: Exact match #{match_index+1}, Artist = '{selected_artist}'")
-                        print(f"🌐 === API REQUEST END (SUCCESS - EXACT MATCH) ===")
-                        return selected_artist
-
-                    # Fall back to first result (iTunes returns results by relevance)
-                    best_match = data['results'][0]
-                    selected_artist = best_match.get('artistName')
-                    print(f"🎯 SELECTED: Fallback to first result, Artist = '{selected_artist}'")
-                    print(f"   Track: '{best_match.get('trackName', 'N/A')}'")
-                    print(f"🌐 === API REQUEST END (SUCCESS - FALLBACK) ===")
-                    return selected_artist
-                else:
-                    print(f"❌ No results returned from iTunes API")
-                    print(f"🌐 === API REQUEST END (NO RESULTS) ===")
-                    return None
-            else:
-                print(f"❌ Non-200 HTTP status: {response.status_code}")
-                print(f"📄 Response body: {response.text[:200]}")
-                print(f"🌐 === API REQUEST END (HTTP ERROR) ===")
-                raise Exception(f"iTunes API returned status code: {response.status_code}")
-
-        except httpx.TimeoutException:
-            print(f"⏰ REQUEST TIMEOUT after 10 seconds")
-            print(f"🌐 === API REQUEST END (TIMEOUT) ===")
-            raise Exception("Request timed out")
-        except (httpx.HTTPError, httpx.RequestError) as e:
-            print(f"🌐 NETWORK ERROR: {str(e)}")
-            print(f"🌐 === API REQUEST END (NETWORK ERROR) ===")
-            raise Exception(f"Network error: {str(e)}")
-        except ValueError as e:
-            # JSON decoding error
-            print(f"📄 JSON DECODE ERROR: {str(e)}")
-            print(f"🌐 === API REQUEST END (JSON DECODE ERROR) ===")
-            raise Exception("Invalid response format")
-        except Exception as e:
-            if "429" not in str(e) and "rate limit" not in str(e).lower():
-                print(f"💥 UNEXPECTED ERROR for '{search_term}': {str(e)}")
-            print(f"🌐 === API REQUEST END (UNEXPECTED ERROR) ===")
-            raise
     
     def process_play_activity(self, df):
         """Process Play Activity CSV format."""
@@ -4050,7 +3892,7 @@ class AppleMusicConverterApp(toga.App):
         try:
             # Validate input DataFrame
             if df is None or df.empty:
-                asyncio.run_coroutine_threadsafe(
+                self._schedule_ui_update(
                     self.main_window.dialog(toga.ErrorDialog(
                         title="Save Error",
                         message="No data to save. Please process a CSV file first."
@@ -4094,7 +3936,7 @@ class AppleMusicConverterApp(toga.App):
                         ]
                         lastfm_data.append(lastfm_row)
                     except Exception as e:
-                        print(f"Error processing row in save: {e}")
+                        logger.error(f"Error processing row in save: {e}")
                         continue
                         
                 if not lastfm_data:
@@ -4202,7 +4044,7 @@ class AppleMusicConverterApp(toga.App):
                 new_log = new_log[:10000]
             self.results_text.value = new_log
         except Exception as e:
-            print(f"⚠️  Error appending to log: {e}")
+            logger.warning(f"⚠️  Error appending to log: {e}")
     
     def update_preview(self, df, total_rows=None):
         """Update the preview table."""
@@ -4215,12 +4057,12 @@ class AppleMusicConverterApp(toga.App):
     async def _update_preview_ui(self, widget=None):
         """Update preview UI on main thread."""
         try:
-            print(f"🔄 _update_preview_ui() called on main thread")
-            print(f"   DataFrame rows: {len(self._pending_preview_df):,}")
+            logger.info(f"🔄 _update_preview_ui() called on main thread")
+            logger.info(f"   DataFrame rows: {len(self._pending_preview_df):,}")
 
             # Clear existing data
             self.preview_table.data.clear()
-            print(f"   ✅ Cleared preview table")
+            logger.print_always(f"   ✅ Cleared preview table")
 
             # Add more rows for better visibility - up to 200 for reasonable performance with scrolling
             rows_added = 0
@@ -4243,8 +4085,8 @@ class AppleMusicConverterApp(toga.App):
                 self.preview_table.data.append((artist, track, album, timestamp, album_artist, duration))
                 rows_added += 1
 
-            print(f"   ✅ Added {rows_added} rows to preview table")
-            print(f"   📊 Artists with data in preview: {artists_with_data}/{preview_limit}")
+            logger.print_always(f"   ✅ Added {rows_added} rows to preview table")
+            logger.print_always(f"   📊 Artists with data in preview: {artists_with_data}/{preview_limit}")
 
             # Update preview info label with row count information
             total_rows = getattr(self, '_pending_total_rows', len(self._pending_preview_df))
@@ -4253,10 +4095,10 @@ class AppleMusicConverterApp(toga.App):
             else:
                 self.preview_info_label.text = f"Showing all {total_rows:,} rows"
 
-            print(f"   ✅ Updated preview info label")
-            print(f"   ✅ UI table refresh complete!\n")
+            logger.print_always(f"   ✅ Updated preview info label")
+            logger.print_always(f"   ✅ UI table refresh complete!\n")
         except Exception as e:
-            print(f"❌ Error updating preview: {e}")
+            logger.error(f"❌ Error updating preview: {e}")
             import traceback
             traceback.print_exc()
     
@@ -4286,11 +4128,11 @@ class AppleMusicConverterApp(toga.App):
                 except (UnicodeDecodeError, UnicodeError):
                     continue
                 except Exception as e:
-                    print(f"Error reading CSV with {encoding}: {e}")
+                    logger.error(f"Error reading CSV with {encoding}: {e}")
                     continue
             
             if preview_df is None or preview_df.empty:
-                print("Could not load CSV preview")
+                logger.info("Could not load CSV preview")
                 return
             
             # Process the preview data through the same column mapping as the main processing
@@ -4301,12 +4143,12 @@ class AppleMusicConverterApp(toga.App):
                     # Update preview with processed data - show total file rows if we know them
                     total_file_rows = getattr(self, 'row_count', len(processed_preview))
                     self.update_preview(processed_preview, total_rows=total_file_rows)
-                    print(f"Loaded immediate preview: {len(processed_preview)} rows")
+                    logger.info(f"Loaded immediate preview: {len(processed_preview)} rows")
                 else:
-                    print("Processed preview data is empty")
+                    logger.info("Processed preview data is empty")
             except Exception as e:
                 # If processing fails, show raw data preview
-                print(f"Error processing preview data, showing raw preview: {e}")
+                logger.error(f"Error processing preview data, showing raw preview: {e}")
                 # Map common columns for raw preview
                 raw_preview = pd.DataFrame()
                 
@@ -4341,10 +4183,10 @@ class AppleMusicConverterApp(toga.App):
                     # Show total file rows if we know them
                     total_file_rows = getattr(self, 'row_count', len(raw_preview))
                     self.update_preview(raw_preview, total_rows=total_file_rows)
-                    print(f"Loaded raw preview: {len(raw_preview)} rows")
+                    logger.info(f"Loaded raw preview: {len(raw_preview)} rows")
                 
         except Exception as e:
-            print(f"Error in load_immediate_preview: {e}")
+            logger.error(f"Error in load_immediate_preview: {e}")
             import traceback
             traceback.print_exc()
     
@@ -4365,11 +4207,11 @@ class AppleMusicConverterApp(toga.App):
                 except (UnicodeDecodeError, UnicodeError):
                     continue
                 except Exception as e:
-                    print(f"Error reading Play Activity CSV with {encoding}: {e}")
+                    logger.error(f"Error reading Play Activity CSV with {encoding}: {e}")
                     continue
             
             if preview_df is None or preview_df.empty:
-                print("Could not load Play Activity preview")
+                logger.info("Could not load Play Activity preview")
                 return
             
             # Create simplified preview for Play Activity files
@@ -4401,12 +4243,12 @@ class AppleMusicConverterApp(toga.App):
                 # Show total file rows if we know them
                 total_file_rows = getattr(self, 'row_count', len(simplified_preview))
                 self.update_preview(simplified_preview, total_rows=total_file_rows)
-                print(f"Loaded Play Activity preview: {len(simplified_preview)} rows (optimized for large file)")
+                logger.info(f"Loaded Play Activity preview: {len(simplified_preview)} rows (optimized for large file)")
             else:
-                print("No trackable content found in Play Activity preview")
+                logger.info("No trackable content found in Play Activity preview")
                 
         except Exception as e:
-            print(f"Error in load_play_activity_preview: {e}")
+            logger.error(f"Error in load_play_activity_preview: {e}")
             import traceback
             traceback.print_exc()
     
@@ -4438,7 +4280,7 @@ class AppleMusicConverterApp(toga.App):
                 # Schedule UI update on main thread
                 self._schedule_ui_update(self._update_api_status_ui(status))
         except Exception as e:
-            print(f"Error updating API status: {e}")
+            logger.error(f"Error updating API status: {e}")
     
     async def _update_api_status_ui(self, status):
         """Update API status UI on main thread."""
@@ -4452,7 +4294,7 @@ class AppleMusicConverterApp(toga.App):
                 # Schedule UI update on main thread
                 self._schedule_ui_update(self._show_skip_button_ui())
         except Exception as e:
-            print(f"Error showing skip button: {e}")
+            logger.error(f"Error showing skip button: {e}")
     
     async def _show_skip_button_ui(self):
         """Show skip button UI on main thread."""
@@ -4486,7 +4328,7 @@ class AppleMusicConverterApp(toga.App):
             if hasattr(self, 'skip_wait_button'):
                 self._schedule_ui_update(self._hide_skip_button_ui())
         except Exception as e:
-            print(f"Error hiding skip button: {e}")
+            logger.error(f"Error hiding skip button: {e}")
     
     async def _hide_skip_button_ui(self):
         """Hide skip button UI on main thread."""
@@ -4501,30 +4343,6 @@ class AppleMusicConverterApp(toga.App):
                 break
             time.sleep(0.1)  # Sleep in small increments to allow interruption
 
-    def _sync_search_itunes(self, track_name, album_name):
-        """Synchronous wrapper for iTunes API search to avoid event loop issues in threads."""
-        import time
-        print(f"\n🔍 DEBUG: _sync_search_itunes called")
-        print(f"   Track: '{track_name}'")
-        print(f"   Album: '{album_name}'")
-        try:
-            # Call _search_itunes() directly (already synchronous, no event loop needed)
-            print(f"   📝 Calling music_search_service._search_itunes() directly...")
-            search_start = time.time()
-            result = self.music_search_service._search_itunes(track_name, '', album_name)
-            search_time = time.time() - search_start
-            print(f"   ✅ _search_itunes() completed in {search_time:.2f}s")
-            print(f"   📊 Result: {result}")
-            return result
-        except Exception as e:
-            print(f"❌ Error in sync iTunes search: {e}")
-            import traceback
-            try:
-                traceback.print_exc()
-            except (BrokenPipeError, OSError):
-                pass  # Ignore broken pipe errors in traceback printing
-            return {'success': False, 'error': str(e)}
-
     def update_missing_artist_count(self):
         """Update the Export Missing Artists button with current count."""
         try:
@@ -4535,7 +4353,7 @@ class AppleMusicConverterApp(toga.App):
                 # Schedule UI update on main thread
                 self._schedule_ui_update(self._update_missing_artist_count_ui(missing_count))
         except Exception as e:
-            print(f"⚠️  Error updating missing artist count: {e}")
+            logger.warning(f"⚠️  Error updating missing artist count: {e}")
 
     async def _update_missing_artist_count_ui(self, missing_count):
         """Update missing artist count UI on main thread."""
@@ -4557,7 +4375,7 @@ class AppleMusicConverterApp(toga.App):
                 else:
                     self.save_status_label.text = "Save required to enable search"
         except Exception as e:
-            print(f"Error updating save status: {e}")
+            logger.error(f"Error updating save status: {e}")
 
     def update_search_button_state(self):
         """Enable/disable Search for Missing Artists button based on save status."""
@@ -4568,7 +4386,7 @@ class AppleMusicConverterApp(toga.App):
                 is_saved = hasattr(self, 'current_save_path') and self.current_save_path is not None
                 self.reprocess_button.enabled = has_data and is_saved
         except Exception as e:
-            print(f"⚠️  Error updating search button state: {e}")
+            logger.warning(f"⚠️  Error updating search button state: {e}")
 
     def on_rate_limit_hit(self, sleep_time):
         """Callback when rate limit is hit - updates UI and enables skip button."""
@@ -4576,12 +4394,12 @@ class AppleMusicConverterApp(toga.App):
             # Enable skip button
             self._schedule_ui_update(self._enable_skip_button())
         except Exception as e:
-            print(f"⚠️  Error in rate limit callback: {e}")
+            logger.warning(f"⚠️  Error in rate limit callback: {e}")
 
     def on_actual_rate_limit_detected(self):
         """Callback when iTunes API actually returns a 429 rate limit error."""
         self.append_log(f"⚠️  iTunes API rate limit hit! Discovering actual limit...")
-        print(f"⚠️  ACTUAL rate limit detected from iTunes - discovering limit")
+        logger.warning(f"⚠️  ACTUAL rate limit detected from iTunes - discovering limit")
 
     def on_rate_limit_discovered(self, discovered_limit):
         """Callback when actual rate limit is discovered from 429 error."""
@@ -4589,7 +4407,7 @@ class AppleMusicConverterApp(toga.App):
         effective_limit = int(discovered_limit * safety_margin)
 
         self.append_log(f"✅ Discovered iTunes rate limit: {discovered_limit} req/min (using {effective_limit} with {int(safety_margin*100)}% safety)")
-        print(f"✅ Discovered rate limit: {discovered_limit}, will use {effective_limit} going forward")
+        logger.print_always(f"✅ Discovered rate limit: {discovered_limit}, will use {effective_limit} going forward")
 
         # Update the discovered limit display if it exists
         self._schedule_ui_update(self._update_discovered_limit_ui(discovered_limit, effective_limit))
@@ -4628,21 +4446,21 @@ class AppleMusicConverterApp(toga.App):
 
             # Check if stop was requested
             if hasattr(self, 'stop_itunes_search_flag') and self.stop_itunes_search_flag:
-                print(f"⏹️ Rate limit wait stopped due to stop button")
+                logger.info(f"⏹️ Rate limit wait stopped due to stop button")
                 self.skip_wait_requested = False  # Reset flag
                 # Don't reset rate limit when stopping - just exit
                 break
 
             # Check if skip was requested
             if self.skip_wait_requested:
-                print(f"🚀 Rate limit wait skipped by user")
+                logger.print_always(f"🚀 Rate limit wait skipped by user")
                 self.skip_wait_requested = False  # Reset flag
 
                 # Clear rate limit queue to force full 60-second wait before next batch
                 # This prevents immediately hitting the rate limit again after skip
                 if hasattr(self, 'music_search_service') and hasattr(self.music_search_service, 'itunes_requests'):
                     self.music_search_service.itunes_requests.clear()
-                    print(f"   🔄 Cleared rate limit queue - forcing full 60s wait before next request")
+                    logger.info(f"   🔄 Cleared rate limit queue - forcing full 60s wait before next request")
                     self.append_log(f"✅ Skipped wait - will wait full 60s before next request batch")
                 break
 
@@ -4701,14 +4519,18 @@ class AppleMusicConverterApp(toga.App):
             if hasattr(self, 'itunes_radio') and hasattr(self, 'musicbrainz_radio'):
                 self.itunes_radio.value = True
                 self.musicbrainz_radio.value = False
-                print(f"✅ Switched radio to iTunes")
+                logger.print_always(f"✅ Switched radio to iTunes")
 
             # Update search button text
             if hasattr(self, 'reprocess_button'):
                 self.reprocess_button.text = "Search with iTunes"
-                print(f"✅ Updated button text to 'Search with iTunes' ({missing_count:,} tracks remaining)")
+                logger.print_always(f"✅ Updated button text to 'Search with iTunes' ({missing_count:,} tracks remaining)")
+
+            # Show rate limit controls
+            if hasattr(self, 'rate_limit_row'):
+                self.rate_limit_row.style.visibility = VISIBLE
         except Exception as e:
-            print(f"⚠️  Error switching to iTunes UI: {e}")
+            logger.warning(f"⚠️  Error switching to iTunes UI: {e}")
 
     async def _reset_search_button_text(self):
         """Reset search button text to default."""
@@ -4716,7 +4538,7 @@ class AppleMusicConverterApp(toga.App):
             if hasattr(self, 'reprocess_button'):
                 self.reprocess_button.text = "Search for Missing Artists"
         except Exception as e:
-            print(f"⚠️  Error resetting search button text: {e}")
+            logger.warning(f"⚠️  Error resetting search button text: {e}")
 
     def skip_current_wait(self, widget=None):
         """Skip the current rate limit wait (Clear Queue functionality)."""
@@ -4727,7 +4549,7 @@ class AppleMusicConverterApp(toga.App):
         # Clear the entire rate limit queue to reset rate limiting
         with self.api_lock:
             self.api_calls.clear()
-            print(f"🚀 Rate limit queue cleared - skipping wait and resetting rate limiter")
+            logger.print_always(f"🚀 Rate limit queue cleared - skipping wait and resetting rate limiter")
         
         # Update API status to show queue was cleared
         self.update_api_status("API Status: Queue Cleared")
@@ -4736,14 +4558,12 @@ class AppleMusicConverterApp(toga.App):
         """Update the statistics display in the UI."""
         try:
             # Update MusicBrainz stats
-            # if hasattr(self, 'musicbrainz_stats_label'):  # Stats removed
             #     asyncio.run_coroutine_threadsafe(
             #         self._update_musicbrainz_stats_ui(f" MusicBrainz: {self.musicbrainz_found}"),
             #         self.main_loop
             #     )
 
             # Update iTunes stats
-            # if hasattr(self, 'itunes_stats_label'):  # Stats removed
             #     asyncio.run_coroutine_threadsafe(
             #         self._update_itunes_stats_ui(f"🌐 iTunes: {self.itunes_found}"),
             #         self.main_loop
@@ -4769,17 +4589,13 @@ class AppleMusicConverterApp(toga.App):
             if hasattr(self, 'rate_limit_stats_label'):
                 self._schedule_ui_update(self._update_rate_limit_stats_ui(rate_limit_text))
         except Exception as e:
-            print(f"Error updating stats display: {e}")
+            logger.error(f"Error updating stats display: {e}")
     
     async def _update_musicbrainz_stats_ui(self, text):
         """Update MusicBrainz stats UI on main thread."""
-        # if hasattr(self, 'musicbrainz_stats_label'):  # Stats removed
-            # self.musicbrainz_stats_label.text = text  # Stats removed
             
     async def _update_itunes_stats_ui(self, text):
         """Update iTunes stats UI on main thread.""" 
-        # if hasattr(self, 'itunes_stats_label'):  # Stats removed
-            # self.itunes_stats_label.text = text  # Stats removed
             
     async def _update_rate_limit_stats_ui(self, text):
         """Update rate limit stats UI on main thread."""
@@ -4793,12 +4609,17 @@ class AppleMusicConverterApp(toga.App):
         self.rate_limit_hits = 0
         self.last_rate_limit_time = None
         self.failed_requests.clear()
+        self.rate_limited_tracks.clear()  # Clear rate-limited tracks list
 
         # Reset timing tracking
         self.musicbrainz_search_time = 0
         self.itunes_search_time = 0
 
         self.update_stats_display()
+
+        # Update retry button count
+        if hasattr(self, 'retry_rate_limited_button'):
+            self.update_rate_limited_button_count()
     
     @trace_call("App.show_instructions")
     async def show_instructions(self, widget):
@@ -4835,7 +4656,10 @@ Supported formats:
             # Update search button text
             if hasattr(self, 'reprocess_button') and not self.is_search_interrupted:
                 self.reprocess_button.text = "Search with MusicBrainz"
-            print(f"🔍 Switched to MusicBrainz")
+            # Hide rate limit controls (MusicBrainz doesn't have rate limits)
+            if hasattr(self, 'rate_limit_row'):
+                self.rate_limit_row.style.visibility = HIDDEN
+            logger.debug(f"🔍 Switched to MusicBrainz")
 
     def on_itunes_selected(self, widget):
         """Handle iTunes radio button selection."""
@@ -4847,7 +4671,10 @@ Supported formats:
             # Update search button text
             if hasattr(self, 'reprocess_button') and not self.is_search_interrupted:
                 self.reprocess_button.text = "Search with iTunes"
-            print(f"🔍 Switched to iTunes API")
+            # Show rate limit controls (iTunes has rate limits)
+            if hasattr(self, 'rate_limit_row'):
+                self.rate_limit_row.style.visibility = VISIBLE
+            logger.debug(f"🔍 Switched to iTunes API")
 
     def on_itunes_api_changed(self, widget):
         """Handle iTunes API switch change."""
@@ -5042,7 +4869,7 @@ Supported formats:
                         self.progress_label.text = f"Downloading to: {db_path} • Time: {time_str}{speed_info}"
                         
                     except Exception as e:
-                        print(f"Error updating progress UI: {e}")
+                        logger.error(f"Error updating progress UI: {e}")
                     
                     await asyncio.sleep(0.5)  # Update every 500ms
             
@@ -5157,7 +4984,7 @@ Supported formats:
                         if progress_data["message"]:
                             self.update_progress(progress_data["message"], progress_data["percent"])
                     except Exception as e:
-                        print(f"Error updating import UI: {e}")
+                        logger.error(f"Error updating import UI: {e}")
 
                     await asyncio.sleep(0.5)  # Update every 500ms
 
@@ -5669,8 +5496,8 @@ The import will validate the file format and show progress."""
                             message=message_text
                         ))
 
-                        print(f"💾 Saved to: {save_path}")
-                        print(f"   Future auto-saves will update this file")
+                        logger.print_always(f"💾 Saved to: {save_path}")
+                        logger.info(f"   Future auto-saves will update this file")
                     except Exception as size_error:
                         # Fallback if we can't get file size
                         await self.main_window.dialog(toga.InfoDialog(
@@ -5724,7 +5551,7 @@ The import will validate the file format and show progress."""
                     lastfm_data.append(lastfm_row)
                 except Exception as e:
                     failed_rows += 1
-                    print(f"Error processing row {index}: {e}")
+                    logger.error(f"Error processing row {index}: {e}")
                     continue
             
             # Check if we have any valid data
@@ -5732,7 +5559,7 @@ The import will validate the file format and show progress."""
                 raise ValueError("No valid data rows found after processing.")
                 
             if failed_rows > 0:
-                print(f"Warning: {failed_rows} rows failed to process and were skipped.")
+                logger.error(f"Warning: {failed_rows} rows failed to process and were skipped.")
             
             # Create DataFrame with proper Last.fm headers
             try:
@@ -5759,7 +5586,7 @@ The import will validate the file format and show progress."""
                     raise RuntimeError("Created file is empty.")
                     
                 file_size_formatted = self.format_file_size(file_size)
-                print(f"Successfully saved {len(lastfm_df)} rows to {file_path} ({file_size_formatted})")
+                logger.info(f"Successfully saved {len(lastfm_df)} rows to {file_path} ({file_size_formatted})")
                 return file_path
                 
             except PermissionError as e:
@@ -5877,7 +5704,7 @@ The import will validate the file format and show progress."""
 
             if is_resume:
                 # Resuming interrupted search - skip confirmation
-                print(f"📝 Resuming {self.active_search_provider} search...")
+                logger.info(f"📝 Resuming {self.active_search_provider} search...")
             else:
                 # New search - show confirmation dialog
                 confirm = await self.main_window.dialog(toga.ConfirmDialog(
@@ -5930,9 +5757,9 @@ The import will validate the file format and show progress."""
                 # Check if required columns exist (handle both formats)
                 artist_col = 'artist' if 'artist' in self.processed_df.columns else 'Artist'
 
-                print(f"DEBUG: Available columns: {list(self.processed_df.columns)}")
-                print(f"DEBUG: Using artist column: {artist_col}")
-                print(f"DEBUG: Total rows in dataframe: {len(self.processed_df)}")
+                logger.debug(f"DEBUG: Available columns: {list(self.processed_df.columns)}")
+                logger.debug(f"DEBUG: Using artist column: {artist_col}")
+                logger.debug(f"DEBUG: Total rows in dataframe: {len(self.processed_df)}")
 
                 if artist_col not in self.processed_df.columns:
                     await self.main_window.dialog(toga.ErrorDialog(
@@ -5962,17 +5789,17 @@ The import will validate the file format and show progress."""
                 # Preserve the original DataFrame index when converting to dict
                 missing_artists = missing_artists_df.reset_index().to_dict('records')
 
-                print(f"DEBUG: Missing artists found: {len(missing_artists)}")
+                logger.debug(f"DEBUG: Missing artists found: {len(missing_artists)}")
                 if len(missing_artists) > 0:
-                    print(f"DEBUG: First few missing artist entries:")
+                    logger.debug(f"DEBUG: First few missing artist entries:")
                     for i, entry in enumerate(missing_artists[:3]):
-                        print(f"  {i+1}: {entry}")
+                        logger.info(f"  {i+1}: {entry}")
                 else:
-                    print(f"DEBUG: Sample artist values from dataframe:")
+                    logger.debug(f"DEBUG: Sample artist values from dataframe:")
                     sample_artists = self.processed_df[artist_col].head(10).tolist()
                     for i, artist in enumerate(sample_artists):
                         is_empty = (pd.isna(artist) or str(artist).strip() == '' or artist == 'Unknown Artist')
-                        print(f"  {i+1}: '{artist}' (empty: {is_empty})")
+                        logger.info(f"  {i+1}: '{artist}' (empty: {is_empty})")
                 
             except Exception as e:
                 await self.main_window.dialog(toga.ErrorDialog(
@@ -5994,33 +5821,38 @@ The import will validate the file format and show progress."""
                 current_provider = self.active_search_provider
                 self.music_search_service.set_search_provider(current_provider)
                 provider_name = "iTunes API" if current_provider == "itunes" else "MusicBrainz"
-                print(f"🔄 Resuming {provider_name} search...")
+                logger.info(f"🔄 Resuming {provider_name} search...")
             elif self.force_itunes_next:
                 # MusicBrainz completed with remaining artists - force iTunes
                 current_provider = "itunes"
                 self.music_search_service.set_search_provider("itunes")
                 provider_name = "iTunes API"
                 self.force_itunes_next = False  # Reset flag after use
-                print(f"🔍 Using iTunes for remaining artists after MusicBrainz")
+                logger.debug(f"🔍 Using iTunes for remaining artists after MusicBrainz")
             elif force_provider:
                 current_provider = force_provider
                 self.music_search_service.set_search_provider(force_provider)
                 provider_name = "iTunes API" if force_provider == "itunes" else "MusicBrainz"
-                print(f"🔍 Using FORCED search provider: {provider_name}")
+                logger.debug(f"🔍 Using FORCED search provider: {provider_name}")
             else:
                 # Get current provider from the radio button state
                 current_provider = self.current_provider
                 self.music_search_service.set_search_provider(current_provider)
                 provider_name = "iTunes API" if current_provider == "itunes" else "MusicBrainz"
-                print(f"🔍 Using search provider: {provider_name}")
+                logger.debug(f"🔍 Using search provider: {provider_name}")
 
             # Check provider-specific prerequisites
             if current_provider == "itunes":
-                # Check internet connection for iTunes API
+                # Check internet connection for iTunes API using httpx + certifi (works in packaged apps)
                 try:
-                    import urllib.request
-                    urllib.request.urlopen('https://itunes.apple.com', timeout=10)
-                except Exception:
+                    import httpx
+                    import ssl
+                    import certifi
+                    ssl_context = ssl.create_default_context(cafile=certifi.where())
+                    response = httpx.get('https://itunes.apple.com', timeout=10, verify=ssl_context)
+                    logger.debug(f"iTunes API connectivity check passed: {response.status_code}")
+                except Exception as e:
+                    logger.error(f"iTunes API connectivity check failed: {e}")
                     await self.main_window.dialog(toga.ErrorDialog(
                         title="Connection Error",
                         message="Cannot connect to iTunes API. Please check your internet connection."
@@ -6049,7 +5881,10 @@ The import will validate the file format and show progress."""
                         self.musicbrainz_radio.value = False
                         current_provider = "itunes"
                         provider_name = "iTunes API"
-                        print(f"🔍 Switched to: {provider_name}")
+                        # Show rate limit controls (iTunes has rate limits)
+                        if hasattr(self, 'rate_limit_row'):
+                            self.rate_limit_row.style.visibility = VISIBLE
+                        logger.debug(f"🔍 Switched to: {provider_name}")
                         # Don't return - continue with the search using iTunes
                     else:
                         # User declined to switch, abort
@@ -6103,7 +5938,6 @@ The import will validate the file format and show progress."""
                     self.reprocess_button.enabled = False
                     # Keep current button text (might be "Search Remaining with iTunes")
                     # self.reprocess_button.text = "Search for Missing Artists"  # Don't reset here
-                    # self.process_pause_button.enabled = True  # Pause button removed
                     self.process_stop_button.enabled = True
                     # Update stop button text based on provider
                     if current_provider == "itunes":
@@ -6114,7 +5948,7 @@ The import will validate the file format and show progress."""
                         self.process_stop_button.text = "Stop"
                 except AttributeError:
                     # Buttons might not exist yet, handle gracefully
-                    print("Control buttons not available")
+                    logger.info("Control buttons not available")
 
                 # Reset search flags
                 self.stop_itunes_search_flag = False
@@ -6140,7 +5974,6 @@ The import will validate the file format and show progress."""
                     # Re-enable buttons on error
                     try:
                         self.reprocess_button.enabled = True
-                        # self.process_pause_button.enabled = False  # Pause button removed
                         self.process_stop_button.enabled = False
                     except AttributeError:
                         pass
@@ -6165,16 +5998,16 @@ The import will validate the file format and show progress."""
         # Initialize timing
         search_start_time = time.time()
 
-        print(f"\n{'='*70}")
-        print(f"🚀 ULTRA-FAST MISSING ARTISTS SEARCH")
-        print(f"{'='*70}")
-        print(f"📊 Total tracks to search: {len(missing_artists_tracks):,}")
-        print(f"🕐 Search started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(search_start_time))}")
+        logger.info(f"\n{'='*70}")
+        logger.print_always(f"🚀 ULTRA-FAST MISSING ARTISTS SEARCH")
+        logger.info(f"{'='*70}")
+        logger.print_always(f"📊 Total tracks to search: {len(missing_artists_tracks):,}")
+        logger.info(f"🕐 Search started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(search_start_time))}")
 
         try:
             # Validate input
             if not missing_artists_tracks:
-                print(f"❌ ERROR: No missing artists to process")
+                logger.error(f"❌ ERROR: No missing artists to process")
                 self.update_results("Error: No missing artists to process.")
                 return
 
@@ -6182,18 +6015,18 @@ The import will validate the file format and show progress."""
 
             # Use provider passed from main thread (ensures correct provider)
             current_provider = provider if provider else self.music_search_service.get_search_provider()
-            print(f"🔍 Search provider: {current_provider}")
+            logger.debug(f"🔍 Search provider: {current_provider}")
 
             if current_provider == "musicbrainz":
                 # Check MusicBrainz database status
                 mb_manager = self.music_search_service.musicbrainz_manager
                 if mb_manager and mb_manager.is_database_available():
                     db_info = mb_manager.get_database_info()
-                    print(f"💾 MusicBrainz DB: {db_info.get('size_mb', 0):.1f} MB, {db_info.get('track_count', 0):,} tracks")
-                    print(f"📅 Last updated: {db_info.get('last_updated', 'Unknown')}")
+                    logger.print_always(f"💾 MusicBrainz DB: {db_info.get('size_mb', 0):.1f} MB, {db_info.get('track_count', 0):,} tracks")
+                    logger.info(f"📅 Last updated: {db_info.get('last_updated', 'Unknown')}")
 
                     # Use ULTRA-FAST batch processor!
-                    print(f"\n🔥 Using ULTRA-FAST batch processor")
+                    logger.print_always(f"\n🔥 Using ULTRA-FAST batch processor")
                     self.update_progress(f"🔥 Batch searching {total_tracks:,} tracks in MusicBrainz...", 10)
 
                     # Convert track data to DataFrame
@@ -6209,7 +6042,7 @@ The import will validate the file format and show progress."""
                     processor = UltraFastCSVProcessor(mb_manager)
 
                     # Clean and prepare data (add track_clean column)
-                    print(f"🧹 Cleaning track names...")
+                    logger.info(f"🧹 Cleaning track names...")
                     # Manually add track_clean since _vectorized_clean expects specific column names
                     df['track_clean'] = (
                         df['track']
@@ -6234,9 +6067,9 @@ The import will validate the file format and show progress."""
                     track_to_artist = processor._batch_search(df, progress_cb)
 
                     # Update DataFrame with found artists
-                    print(f"\n{'='*70}")
-                    print(f"📝 UPDATING DATAFRAME WITH FOUND ARTISTS")
-                    print(f"{'='*70}")
+                    logger.info(f"\n{'='*70}")
+                    logger.info(f"📝 UPDATING DATAFRAME WITH FOUND ARTISTS")
+                    logger.info(f"{'='*70}")
 
                     found_count = 0
                     for loop_idx, row in df.iterrows():
@@ -6249,29 +6082,30 @@ The import will validate the file format and show progress."""
                             artist = track_to_artist[track_clean]
                             # Update in processed_df (using the ORIGINAL index, not loop index)
                             if hasattr(self, 'processed_df'):
-                                self.processed_df.at[original_idx, 'Artist'] = artist
-                                self.processed_df.at[original_idx, 'Album Artist'] = artist
+                                # Explicitly cast to string to avoid dtype warnings
+                                self.processed_df.at[original_idx, 'Artist'] = str(artist)
+                                self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
                             found_count += 1
 
                         # Progress update every 10,000 rows
                         if loop_idx > 0 and loop_idx % 10000 == 0:
-                            print(f"   Updated {loop_idx:,}/{total_tracks:,} rows...")
+                            logger.info(f"   Updated {loop_idx:,}/{total_tracks:,} rows...")
 
-                    print(f"✅ Updated {found_count:,} artists in DataFrame")
-                    print(f"{'='*70}\n")
+                    logger.print_always(f"✅ Updated {found_count:,} artists in DataFrame")
+                    logger.info(f"{'='*70}\n")
 
                     # Calculate timing
                     elapsed_time = time.time() - search_start_time
                     throughput = total_tracks / elapsed_time if elapsed_time > 0 else 0
 
-                    print(f"\n{'='*70}")
-                    print(f"✅ ULTRA-FAST SEARCH COMPLETE")
-                    print(f"{'='*70}")
-                    print(f"⏱️  Time: {elapsed_time:.1f}s")
-                    print(f"📊 Searched: {total_tracks:,} tracks")
-                    print(f"✅ Found: {found_count:,} ({found_count/total_tracks*100:.1f}%)")
-                    print(f"⚡ Throughput: {throughput:,.0f} tracks/sec")
-                    print(f"{'='*70}\n")
+                    logger.info(f"\n{'='*70}")
+                    logger.print_always(f"✅ ULTRA-FAST SEARCH COMPLETE")
+                    logger.info(f"{'='*70}")
+                    logger.info(f"⏱️  Time: {elapsed_time:.1f}s")
+                    logger.print_always(f"📊 Searched: {total_tracks:,} tracks")
+                    logger.print_always(f"✅ Found: {found_count:,} ({found_count/total_tracks*100:.1f}%)")
+                    logger.info(f"⚡ Throughput: {throughput:,.0f} tracks/sec")
+                    logger.info(f"{'='*70}\n")
 
                     self.musicbrainz_count = found_count
 
@@ -6284,24 +6118,24 @@ The import will validate the file format and show progress."""
                                 encoding='utf-8-sig'
                             )
                             save_msg = f"💾 Auto-saved progress to: {self.current_save_path.name}"
-                            print(f"💾 Auto-saved progress after MusicBrainz search to: {self.current_save_path}")
+                            logger.print_always(f"💾 Auto-saved progress after MusicBrainz search to: {self.current_save_path}")
                             self.append_log(save_msg)
                         except Exception as e:
                             error_msg = f"⚠️  Auto-save failed: {e}"
-                            print(error_msg)
+                            logger.error(error_msg)
                             self.append_log(error_msg)
 
                     # Check for remaining missing artists
                     missing_after_mb = total_tracks - found_count
                     if missing_after_mb > 0:
-                        print(f"\n⚠️  {missing_after_mb:,} artists still missing after MusicBrainz")
+                        logger.warning(f"\n⚠️  {missing_after_mb:,} artists still missing after MusicBrainz")
 
                         # Set flags SYNCHRONOUSLY before async UI updates
                         # This ensures they're set before the finally block runs
                         self.force_itunes_next = True
                         self.current_provider = "itunes"
                         self.music_search_service.set_search_provider("itunes")
-                        print(f"✅ Set force_itunes_next=True and switched provider to iTunes")
+                        logger.print_always(f"✅ Set force_itunes_next=True and switched provider to iTunes")
 
                         # Update progress message with results and suggestion
                         self.update_progress(
@@ -6325,19 +6159,19 @@ The import will validate the file format and show progress."""
                         self.update_missing_artist_count()
 
                     # Refresh the UI table to show updated artists
-                    print(f"{'='*70}")
-                    print(f"🔄 REFRESHING UI WITH UPDATED DATA")
-                    print(f"{'='*70}")
-                    print(f"📊 DataFrame shape: {self.processed_df.shape if hasattr(self, 'processed_df') else 'N/A'}")
-                    print(f"📊 Artists filled: {self.processed_df['Artist'].notna().sum() if hasattr(self, 'processed_df') else 0:,}")
+                    logger.info(f"{'='*70}")
+                    logger.info(f"🔄 REFRESHING UI WITH UPDATED DATA")
+                    logger.info(f"{'='*70}")
+                    logger.print_always(f"📊 DataFrame shape: {self.processed_df.shape if hasattr(self, 'processed_df') else 'N/A'}")
+                    logger.print_always(f"📊 Artists filled: {self.processed_df['Artist'].notna().sum() if hasattr(self, 'processed_df') else 0:,}")
 
                     if hasattr(self, 'processed_df') and self.processed_df is not None:
-                        print(f"🔄 Calling update_preview() to refresh UI table...")
+                        logger.info(f"🔄 Calling update_preview() to refresh UI table...")
                         self.update_preview(self.processed_df, len(self.processed_df))
-                        print(f"✅ UI table refresh complete!")
+                        logger.print_always(f"✅ UI table refresh complete!")
 
                         # Regenerate CSV output for the converted output text box
-                        print(f"📝 Regenerating CSV output for text box...")
+                        logger.info(f"📝 Regenerating CSV output for text box...")
                         total_rows = len(self.processed_df)
                         display_limit = 1000
 
@@ -6353,128 +6187,131 @@ The import will validate the file format and show progress."""
                             csv_string = csv_buffer.getvalue()
 
                         self.update_results(csv_string)
-                        print(f"✅ CSV text output updated!")
-                        print(f"✅ CSV data is ready for Copy to Clipboard / Save CSV")
+                        logger.print_always(f"✅ CSV text output updated!")
+                        logger.print_always(f"✅ CSV data is ready for Copy to Clipboard / Save CSV")
                     else:
-                        print(f"⚠️  Warning: processed_df not available for UI update")
+                        logger.warning(f"⚠️  Warning: processed_df not available for UI update")
 
-                    print(f"{'='*70}\n")
+                    logger.info(f"{'='*70}\n")
 
                 else:
-                    print(f"❌ MusicBrainz database not available")
+                    logger.error(f"❌ MusicBrainz database not available")
                     self.update_progress("❌ MusicBrainz not available", 0)
                     return
             else:
-                # iTunes API - row-by-row fallback (slower but works)
-                print(f"🌐 Using iTunes API (row-by-row, slower)")
-                self.update_progress(f"🌐 Searching {total_tracks:,} tracks with iTunes API...", 10)
+                # iTunes API - use batch/parallel processor
+                use_parallel = self.music_search_service.settings.get("use_parallel_requests", False)
+                mode_str = "PARALLEL" if use_parallel else "sequential"
+                logger.info(f"🌐 Using iTunes API batch search ({mode_str} mode)")
+                self.update_progress(f"🌐 Searching {total_tracks:,} tracks with iTunes API ({mode_str})...", 10)
 
                 # Clear log for fresh start
                 self.update_results("")
-                self.append_log(f"Starting iTunes search for {total_tracks:,} tracks...")
+                self.append_log(f"Starting iTunes batch search for {total_tracks:,} tracks...")
+                import os
+                debug_log_path = os.path.expanduser("~/itunes_api_debug.log")
+                self.append_log(f"📝 Detailed debug log: {debug_log_path}")
 
+                # Extract track names for batch search
+                track_names = [track_data.get('Track', track_data.get('track', '')) for track_data in missing_artists_tracks]
+
+                # Track found artists count
                 found_artists = 0
-                for i, track_data in enumerate(missing_artists_tracks):
-                    # Check for cancellation/pause
-                    if self.stop_itunes_search_flag:
-                        print(f"🛑 Search cancelled by user after {i} searches")
-                        break
 
-                    while self.pause_itunes_search_flag and not self.stop_itunes_search_flag:
-                        time.sleep(0.1)
+                # Define progress callback for live updates during parallel search
+                def itunes_progress_callback(track_idx, track_name, result, completed_count, total_count):
+                    nonlocal found_artists
 
-                    if self.stop_itunes_search_flag:
-                        break
+                    # Get the original DataFrame index
+                    original_idx = missing_artists_tracks[track_idx].get('index', track_idx)
 
-                    # Get the original DataFrame index (preserved from reset_index())
-                    original_idx = track_data.get('index', i)
+                    # Track if artist was found (to determine if we need to update missing count)
+                    artist_was_found = False
 
-                    # Search iTunes API
-                    track_name = track_data.get('Track', track_data.get('track', ''))
-                    album_name = track_data.get('Album', track_data.get('album', ''))
-
-                    try:
-                        print(f"🔍 Searching iTunes for: '{track_name}' (track {i+1}/{total_tracks})")
-                        self.append_log(f"🔍 Searching: {track_name}")
-
-                        # Use synchronous search wrapper
-                        search_result = self._sync_search_itunes(track_name, album_name)
-
-                        print(f"   Result: {search_result}")
-
-                        if search_result and search_result.get('success'):
-                            artist = search_result.get('artist')
-                            if artist:
-                                print(f"   ✅ Found artist: {artist} for track: '{track_name}'")
-                                self.append_log(f"  ✅ Found: {artist}")
-                                # Update in processed_df (using the ORIGINAL index, not loop index)
-                                if hasattr(self, 'processed_df'):
-                                    self.processed_df.at[original_idx, 'Artist'] = artist
-                                    self.processed_df.at[original_idx, 'Album Artist'] = artist
-                                found_artists += 1
-
-                                # Save immediately after each successful find
-                                if hasattr(self, 'current_save_path') and self.current_save_path:
-                                    try:
-                                        self.processed_df.to_csv(
-                                            self.current_save_path,
-                                            index=False,
-                                            encoding='utf-8-sig'
-                                        )
-                                    except Exception as e:
-                                        print(f"⚠️  Auto-save failed: {e}")
+                    # Process result
+                    if result and result.get('success'):
+                        artist = result.get('artist')
+                        if artist:
+                            logger.print_always(f"   ✅ Found artist: {artist} for track: '{track_name}'")
+                            self.append_log(f"✅ [{completed_count}/{total_count}] {track_name} -> {artist}")
+                            # Update in processed_df (using the ORIGINAL index)
+                            if hasattr(self, 'processed_df'):
+                                self.processed_df.at[original_idx, 'Artist'] = str(artist)
+                                self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
+                            found_artists += 1
+                            artist_was_found = True
                         else:
-                            print(f"   ❌ No artist found for track: '{track_name}'")
-                            self.append_log(f"  ❌ Not found")
-                    except Exception as e:
-                        print(f"⚠️  iTunes search failed for '{track_name}': {e}")
-                        import traceback
-                        try:
-                            traceback.print_exc()
-                        except (BrokenPipeError, OSError):
-                            pass  # Ignore broken pipe errors in traceback printing
+                            self.append_log(f"❌ [{completed_count}/{total_count}] {track_name} -> No artist found")
+                    else:
+                        error_msg = result.get('error', 'Unknown error') if result else 'No result'
 
-                    # Update progress every track with live timer and rate limit info
+                        # Check if this is a rate limit (403) error
+                        if result and result.get('rate_limited'):
+                            # Track separately for retry after rate limit expires
+                            track_info = missing_artists_tracks[track_idx].copy()
+                            track_info['original_index'] = original_idx
+                            self.rate_limited_tracks.append(track_info)
+                            logger.warning(f"   ⏸️  Rate limited: '{track_name}' (can retry later)")
+                            self.append_log(f"⏸️  [{completed_count}/{total_count}] {track_name} -> Rate limited (403)")
+                        else:
+                            # Permanent failure
+                            logger.error(f"   ❌ Search failed for track: '{track_name}' ({error_msg})")
+                            self.append_log(f"❌ [{completed_count}/{total_count}] {track_name} -> {error_msg}")
+
+                    # Update progress with live stats
                     elapsed = time.time() - search_start_time
                     elapsed_mins = int(elapsed // 60)
                     elapsed_secs = int(elapsed % 60)
                     time_str = f"{elapsed_mins}m {elapsed_secs}s" if elapsed_mins > 0 else f"{elapsed_secs}s"
 
-                    progress = 10 + int((i / total_tracks) * 80)
-
-                    # Build progress message with rate limit countdown if active
-                    progress_msg = f"🌐 iTunes: {i+1:,}/{total_tracks:,} | Found: {found_artists} | {time_str} elapsed"
-                    if hasattr(self, 'in_rate_limit_wait') and self.in_rate_limit_wait and hasattr(self, 'rate_limit_remaining'):
-                        rate_limit_secs = int(self.rate_limit_remaining)
-                        progress_msg += f" | ⏸️  Rate limit: {rate_limit_secs}s"
+                    progress = 10 + int((completed_count / total_count) * 80)
+                    progress_msg = f"🌐 iTunes: {completed_count:,}/{total_count:,} | Found: {found_artists} | {time_str} elapsed"
 
                     self.update_progress(progress_msg, progress)
 
-                    # Update missing artist count every 10 tracks
-                    if i % 10 == 0:
+                    # Update missing artist count whenever we find an artist (count decreased)
+                    # or every 10 tracks to keep it fresh
+                    if artist_was_found or completed_count % 10 == 0:
                         self.update_missing_artist_count()
 
                     # Auto-save checkpoint every 50 tracks
-                    if (i + 1) % 50 == 0 and hasattr(self, 'current_save_path') and self.current_save_path:
+                    if completed_count % 50 == 0 and hasattr(self, 'current_save_path') and self.current_save_path:
                         try:
                             self.processed_df.to_csv(
                                 self.current_save_path,
                                 index=False,
                                 encoding='utf-8-sig'
                             )
-                            print(f"💾 Auto-saved progress: {i+1}/{total_tracks} tracks")
+                            logger.print_always(f"💾 Auto-saved progress: {completed_count}/{total_count} tracks")
                         except Exception as e:
-                            print(f"⚠️  Auto-save failed: {e}")
+                            logger.warning(f"⚠️  Auto-save failed: {e}")
+
+                # Perform batch search with live progress callback and interrupt check
+                logger.print_always(f"🚀 Calling search_itunes_batch_parallel with {len(track_names)} tracks...")
+                batch_results = self.music_search_service.search_itunes_batch_parallel(
+                    track_names,
+                    progress_callback=itunes_progress_callback,
+                    interrupt_check=lambda: self.is_search_interrupted
+                )
 
                 elapsed_time = time.time() - search_start_time
-                print(f"\n✅ iTunes API search complete:")
-                print(f"   Found: {found_artists}/{total_tracks}")
-                print(f"   Time: {elapsed_time:.1f}s")
+                rate_limited_count = len(self.rate_limited_tracks)
+
+                logger.print_always(f"\n✅ iTunes API search complete:")
+                logger.info(f"   Found: {found_artists}/{total_tracks}")
+                logger.info(f"   Time: {elapsed_time:.1f}s")
+                if rate_limited_count > 0:
+                    logger.print_always(f"⏸️  Rate limited: {rate_limited_count} tracks (can retry later)")
+                    logger.info(f"   Rate limited tracks: {rate_limited_count}")
+
                 self.itunes_found = found_artists
-                self.update_progress(
-                    f"✅ iTunes: Found {found_artists}/{total_tracks} in {elapsed_time:.1f}s",
-                    100
-                )
+
+                # Build progress message with rate limit info if applicable
+                progress_msg = f"✅ iTunes: Found {found_artists}/{total_tracks} in {elapsed_time:.1f}s"
+                if rate_limited_count > 0:
+                    progress_msg += f" | {rate_limited_count} rate limited"
+
+                self.update_progress(progress_msg, 100)
 
                 # Update missing artist count on Export button
                 self.update_missing_artist_count()
@@ -6487,9 +6324,9 @@ The import will validate the file format and show progress."""
                             index=False,
                             encoding='utf-8-sig'
                         )
-                        print(f"💾 Final auto-save after iTunes search to: {self.current_save_path}")
+                        logger.print_always(f"💾 Final auto-save after iTunes search to: {self.current_save_path}")
                     except Exception as e:
-                        print(f"⚠️  Final auto-save failed: {e}")
+                        logger.warning(f"⚠️  Final auto-save failed: {e}")
 
                 # Update missing artist count on Export button
                 self.update_missing_artist_count()
@@ -6499,7 +6336,7 @@ The import will validate the file format and show progress."""
                     self.update_preview(self.processed_df, len(self.processed_df))
 
                     # Regenerate CSV output for the converted output text box
-                    print(f"📝 Regenerating CSV output for text box...")
+                    logger.info(f"📝 Regenerating CSV output for text box...")
                     total_rows = len(self.processed_df)
                     display_limit = 1000
 
@@ -6515,8 +6352,17 @@ The import will validate the file format and show progress."""
                         csv_string = csv_buffer.getvalue()
 
                     self.update_results(csv_string)
-                    print(f"✅ CSV text output updated!")
-                    print(f"✅ CSV data is ready for Copy to Clipboard / Save CSV")
+                    logger.print_always(f"✅ CSV text output updated!")
+                    logger.print_always(f"✅ CSV data is ready for Copy to Clipboard / Save CSV")
+
+                    # Log rate-limited tracks summary if any
+                    if rate_limited_count > 0:
+                        logger.print_always(f"\n⏸️  {rate_limited_count} tracks were rate limited (403 Forbidden)")
+                        logger.print_always(f"   These can be retried after waiting for the rate limit to reset")
+                        self.append_log(f"\n⏸️  {rate_limited_count} rate-limited tracks available for retry")
+
+                    # Update retry button count
+                    self.update_rate_limited_button_count()
         except Exception as e:
             self.update_results(f"Error: Error during artist search: {str(e)}")
             self.update_progress("Error occurred", 0)
@@ -6591,6 +6437,9 @@ The import will validate the file format and show progress."""
                 self.itunes_radio.value = False
                 self.current_provider = "musicbrainz"
                 self.music_search_service.set_search_provider("musicbrainz")
+                # Hide rate limit controls (MusicBrainz doesn't have rate limits)
+                if hasattr(self, 'rate_limit_row'):
+                    self.rate_limit_row.style.visibility = HIDDEN
                 # Update search button text if not interrupted
                 if hasattr(self, 'reprocess_button') and not self.is_search_interrupted:
                     self.reprocess_button.text = "Search with MusicBrainz"
@@ -6724,6 +6573,59 @@ The import will validate the file format and show progress."""
             await self.main_window.dialog(toga.ErrorDialog(
                 title="Error",
                 message=f"Could not open database location: {str(e)}"
+            ))
+
+    async def reveal_log_directory(self, widget):
+        """Reveal the log directory in file system."""
+        try:
+            from apple_music_history_converter.app_directories import get_user_log_dir
+
+            log_dir = get_user_log_dir()
+            if not log_dir.exists():
+                # Create the log directory if it doesn't exist
+                log_dir.mkdir(parents=True, exist_ok=True)
+
+            # Convert to Path object for safety and resolve to absolute path
+            log_path = Path(log_dir).resolve()
+
+            # Platform-specific secure commands (shell=False prevents injection)
+            try:
+                if sys.platform == "darwin":  # macOS
+                    subprocess.run(
+                        ["open", str(log_path)],
+                        check=True,
+                        shell=False,  # Critical: prevents shell injection
+                        timeout=5  # Prevent hanging
+                    )
+                elif sys.platform == "win32":  # Windows
+                    subprocess.run(
+                        ["explorer", str(log_path)],
+                        check=True,
+                        shell=False,
+                        timeout=5
+                    )
+                else:  # Linux
+                    subprocess.run(
+                        ["xdg-open", str(log_path)],
+                        check=True,
+                        shell=False,
+                        timeout=5
+                    )
+            except subprocess.CalledProcessError as e:
+                await self.main_window.dialog(toga.ErrorDialog(
+                    title="Error Opening Location",
+                    message=f"Failed to open log directory: {e}"
+                ))
+            except subprocess.TimeoutExpired:
+                await self.main_window.dialog(toga.ErrorDialog(
+                    title="Timeout",
+                    message="File manager took too long to respond."
+                ))
+        except Exception as e:
+            logger.error(f"Error revealing log directory: {e}")
+            await self.main_window.dialog(toga.ErrorDialog(
+                title="Error",
+                message=f"Could not open log directory: {str(e)}"
             ))
 
     async def optimize_musicbrainz_handler(self, widget):
@@ -6899,20 +6801,6 @@ The import will validate the file format and show progress."""
         # Update time estimates when rate limit changes
         self.update_time_estimate()
     
-    def toggle_process_pause(self, widget):
-        """Toggle pause state for main processing."""
-        if not hasattr(self, 'process_paused'):
-            self.process_paused = False
-            
-        self.process_paused = not self.process_paused
-        
-        if self.process_paused:
-            widget.text = "Resume"
-            self.update_progress("⏸️ Processing paused (click Resume to continue)", self.progress_bar.value)
-        else:
-            widget.text = "Pause"
-            self.update_progress(" Processing resumed...", self.progress_bar.value)
-    
     def stop_process(self, widget):
         """Stop the entire processing."""
         self.stop_itunes_search_flag = True
@@ -6925,7 +6813,7 @@ The import will validate the file format and show progress."""
         # Stop any ongoing rate limit wait
         if hasattr(self, 'in_rate_limit_wait') and self.in_rate_limit_wait:
             self.skip_wait_requested = True
-            print(f"⏹️ Stopping active rate limit wait...")
+            logger.info(f"⏹️ Stopping active rate limit wait...")
 
         # Auto-save current progress when stopped
         saved_path = None
@@ -6937,13 +6825,12 @@ The import will validate the file format and show progress."""
                     encoding='utf-8-sig'
                 )
                 saved_path = self.current_save_path.name
-                print(f"💾 Auto-saved progress to: {self.current_save_path}")
+                logger.print_always(f"💾 Auto-saved progress to: {self.current_save_path}")
                 self.append_log(f"💾 Auto-saved to: {saved_path}")
             except Exception as e:
-                print(f"⚠️  Auto-save failed: {e}")
+                logger.warning(f"⚠️  Auto-save failed: {e}")
 
         # Disable control buttons
-        # self.process_pause_button.enabled = False  # Pause button removed
         self.process_stop_button.enabled = False
 
         # Re-enable search button with appropriate resume text based on what was running
@@ -6969,7 +6856,7 @@ The import will validate the file format and show progress."""
     
     def skip_current_wait(self, widget):
         """Skip the current API rate limit wait."""
-        print(f"🚀 Skip button clicked - setting skip_wait_requested flag")
+        logger.print_always(f"🚀 Skip button clicked - setting skip_wait_requested flag")
         self.skip_wait_requested = True
 
         # The actual queue clearing happens in on_rate_limit_wait when skip is detected
@@ -6977,7 +6864,111 @@ The import will validate the file format and show progress."""
 
         # Append to log
         self.append_log(f"🚀 Skipping current wait - next request will wait full 60s...")
-    
+
+    async def retry_rate_limited_tracks(self, widget):
+        """Retry tracks that were rate-limited (403) by iTunes API."""
+        if not hasattr(self, 'rate_limited_tracks') or len(self.rate_limited_tracks) == 0:
+            await self.main_window.dialog(toga.InfoDialog(
+                title="No Rate-Limited Tracks",
+                message="There are no rate-limited tracks to retry."
+            ))
+            return
+
+        # Confirm retry with user
+        count = len(self.rate_limited_tracks)
+        result = await self.main_window.dialog(toga.ConfirmDialog(
+            title="Retry Rate-Limited Tracks",
+            message=f"Retry {count} tracks that were rate-limited by iTunes API?\n\nNote: Wait 60+ seconds after the last rate limit to avoid immediate 403 errors."
+        ))
+
+        if not result:
+            return
+
+        logger.print_always(f"🔄 Retrying {count} rate-limited tracks with iTunes API...")
+        self.append_log(f"🔄 Retrying {count} rate-limited tracks...")
+
+        # Disable retry button during retry
+        self.retry_rate_limited_button.enabled = False
+        self.reprocess_button.enabled = False
+        self.process_stop_button.enabled = True
+        self.process_stop_button.text = "Stop Retry"
+
+        # Copy rate-limited tracks list (will be cleared on success)
+        tracks_to_retry = self.rate_limited_tracks.copy()
+
+        # Clear rate-limited list (will be repopulated if they fail again)
+        self.rate_limited_tracks.clear()
+        self.update_rate_limited_button_count()
+
+        # Reset interrupt flag
+        self.is_search_interrupted = False
+
+        # Start retry in background thread
+        retry_thread = threading.Thread(
+            target=self.reprocess_missing_artists_thread,
+            args=(tracks_to_retry, "itunes"),
+            daemon=True
+        )
+        retry_thread.start()
+
+    async def export_rate_limited_csv(self, widget):
+        """Export rate-limited tracks to a CSV file."""
+        if not hasattr(self, 'rate_limited_tracks') or len(self.rate_limited_tracks) == 0:
+            await self.main_window.dialog(toga.InfoDialog(
+                title="No Rate-Limited Tracks",
+                message="There are no rate-limited tracks to export."
+            ))
+            return
+
+        try:
+            # Prepare data for export
+            import pandas as pd
+
+            # Create DataFrame from rate-limited tracks
+            export_data = []
+            for track in self.rate_limited_tracks:
+                export_data.append({
+                    'Track': track.get('Track', track.get('track', '')),
+                    'Artist': track.get('Artist', track.get('artist', '')),
+                    'Album': track.get('Album', track.get('album', '')),
+                    'Reason': '403 Forbidden (Rate Limited)',
+                    'Timestamp': track.get('End Time', track.get('timestamp', ''))
+                })
+
+            df = pd.DataFrame(export_data)
+
+            # Prompt for save location
+            save_path = await self.main_window.dialog(toga.SaveFileDialog(
+                title="Save Rate-Limited Tracks CSV",
+                suggested_filename=f"rate_limited_tracks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_types=["csv"]
+            ))
+
+            if save_path:
+                # Save to CSV
+                df.to_csv(save_path, index=False, encoding='utf-8-sig')
+                logger.print_always(f"✅ Exported {len(self.rate_limited_tracks)} rate-limited tracks to: {save_path}")
+
+                await self.main_window.dialog(toga.InfoDialog(
+                    title="Export Successful",
+                    message=f"Exported {len(self.rate_limited_tracks)} rate-limited tracks to:\n{Path(save_path).name}"
+                ))
+
+        except Exception as e:
+            logger.error(f"Error exporting rate-limited tracks: {e}")
+            await self.main_window.dialog(toga.ErrorDialog(
+                title="Export Error",
+                message=f"Failed to export rate-limited tracks: {str(e)}"
+            ))
+
+    def update_rate_limited_button_count(self):
+        """Update the retry button text with current rate-limited track count."""
+        if hasattr(self, 'retry_rate_limited_button') and hasattr(self, 'rate_limited_tracks'):
+            count = len(self.rate_limited_tracks)
+            self.retry_rate_limited_button.text = f"Retry Rate-Limited ({count})"
+            self.retry_rate_limited_button.enabled = count > 0
+            self.export_rate_limited_button.enabled = count > 0
+
     def update_time_estimate(self):
         """Update processing time estimates based on file and settings like tkinter version."""
         if not hasattr(self, 'row_count') or not self.row_count:
@@ -7034,25 +7025,19 @@ The import will validate the file format and show progress."""
             if hasattr(self, 'api_status_label'):
                 self.api_status_label.text = "Please enter a valid rate limit"
         except Exception as e:
-            print(f"Error updating time estimate: {e}")
+            logger.error(f"Error updating time estimate: {e}")
             if hasattr(self, 'api_status_label'):
                 self.api_status_label.text = "Could not calculate time estimate"
     
     def update_stats_display(self):
         """Update the statistics display with current counts and proper icons."""
         # Update track count
-        # if hasattr(self, 'songs_processed_label'):  # Stats removed
         #     processed = getattr(self, 'musicbrainz_found', 0) + getattr(self, 'itunes_found', 0)
         #     total = getattr(self, 'row_count', 0)
-        #     # self.songs_processed_label.text = f"📊 Tracks: {processed:,}/{total:,}"  # Stats removed
 
         # Update search provider counters
-        # if hasattr(self, 'musicbrainz_stats_label'):  # Stats removed
-        #     # self.musicbrainz_stats_label.text = f"MusicBrainz: {self.musicbrainz_found:,}"  # Stats removed
         pass
 
-        # if hasattr(self, 'itunes_stats_label'):  # Stats removed
-        #     # self.itunes_stats_label.text = f"iTunes: {self.itunes_found:,}"  # Stats removed
 
         # Update rate limiting warning (only show when rate limit hits occur)
         rate_limit_count = getattr(self, 'rate_limit_hits', 0)
@@ -7175,7 +7160,7 @@ The import will validate the file format and show progress."""
             return int(missing_count)
             
         except Exception as e:
-            print(f"Error counting missing artists: {e}")
+            logger.error(f"Error counting missing artists: {e}")
             return 0
 
     def analyze_file_comprehensive(self, file_path):
@@ -7213,7 +7198,7 @@ The import will validate the file format and show progress."""
                 except (UnicodeDecodeError, UnicodeError):
                     continue
                 except Exception as e:
-                    print(f"Error analyzing file with {encoding}: {e}")
+                    logger.error(f"Error analyzing file with {encoding}: {e}")
                     continue
             
             self.row_count = max(0, row_count)
@@ -7228,7 +7213,7 @@ The import will validate the file format and show progress."""
             return True
             
         except Exception as e:
-            print(f"Error in comprehensive file analysis: {e}")
+            logger.error(f"Error in comprehensive file analysis: {e}")
             return False
     
     def start_background_optimization(self):
@@ -7255,7 +7240,7 @@ The import will validate the file format and show progress."""
                     self.music_search_service.start_progressive_loading(progress_callback)
                     completion_callback()
                 except Exception as e:
-                    print(f"Optimization error: {e}")
+                    logger.error(f"Optimization error: {e}")
                     self._schedule_ui_update(self._update_optimization_error())
             
             # Use async task instead of threading for UI safety
