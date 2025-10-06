@@ -659,9 +659,14 @@ class AppleMusicConverterApp(toga.App):
         content.add(self.create_provider_section())
         content.add(self.section_divider())
 
-        # Always show both database and iTunes sections per user request
+        # Create database section (visibility controlled by provider selection)
         self.database_section = self.create_database_section()
         content.add(self.database_section)
+
+        # Set initial visibility based on current provider
+        current_provider = self.music_search_service.get_search_provider()
+        if current_provider == "itunes":
+            self.database_section.style.visibility = HIDDEN
 
         content.add(self.section_divider())
         self.itunes_section = self.create_itunes_api_section()
@@ -1745,6 +1750,23 @@ class AppleMusicConverterApp(toga.App):
                     self.processed_df = None
                     self.last_output_file = None
 
+                    # Clear rate-limited and failed tracks from previous file
+                    if hasattr(self, 'rate_limited_tracks'):
+                        self.rate_limited_tracks.clear()
+                    if hasattr(self, 'failed_requests'):
+                        self.failed_requests.clear()
+
+                    # Reset interrupted state
+                    self.is_search_interrupted = False
+                    self.force_itunes_next = False
+                    self.active_search_provider = None
+                    if hasattr(self, 'process_stopped'):
+                        self.process_stopped = False
+
+                    # Update retry button to reflect cleared state
+                    if hasattr(self, 'retry_rate_limited_button'):
+                        self.update_rate_limited_button_count()
+
                     # Get and validate file size
                     try:
                         self.file_size = os.path.getsize(self.current_file_path)
@@ -1956,6 +1978,20 @@ class AppleMusicConverterApp(toga.App):
         self.force_itunes_next = False  # Reset iTunes continuation flag
         self.active_search_provider = None  # Reset active search
         self.is_search_interrupted = False  # Reset interrupted flag
+
+        # Reset process_stopped flag to allow future operations
+        if hasattr(self, 'process_stopped'):
+            self.process_stopped = False
+
+        # Clear rate-limited and failed tracks when starting new conversion
+        if hasattr(self, 'rate_limited_tracks'):
+            self.rate_limited_tracks.clear()
+        if hasattr(self, 'failed_requests'):
+            self.failed_requests.clear()
+
+        # Update retry button to reflect cleared state
+        if hasattr(self, 'retry_rate_limited_button'):
+            self.update_rate_limited_button_count()
 
         # Reset search button text on main thread
         if hasattr(self, 'reprocess_button'):
@@ -4754,9 +4790,19 @@ Supported formats:
             self.itunes_radio.value = False
             self.current_provider = "musicbrainz"
             self.music_search_service.set_search_provider("musicbrainz")
-            # Update search button text
-            if hasattr(self, 'reprocess_button') and not self.is_search_interrupted:
-                self.reprocess_button.text = "Search with MusicBrainz"
+            # Update search button text - handle both interrupted and normal states
+            if hasattr(self, 'reprocess_button'):
+                if self.is_search_interrupted:
+                    # If search was interrupted, update resume text AND active provider
+                    # so resume will use the new provider, not the old one
+                    self.reprocess_button.text = "Resume MusicBrainz Search"
+                    self.active_search_provider = "musicbrainz"
+                else:
+                    # Normal state - regular search text
+                    self.reprocess_button.text = "Search with MusicBrainz"
+            # Show database section (MusicBrainz needs database)
+            if hasattr(self, 'database_section'):
+                self.database_section.style.visibility = VISIBLE
             # Hide rate limit controls (MusicBrainz doesn't have rate limits)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = HIDDEN
@@ -4769,9 +4815,19 @@ Supported formats:
             self.musicbrainz_radio.value = False
             self.current_provider = "itunes"
             self.music_search_service.set_search_provider("itunes")
-            # Update search button text
-            if hasattr(self, 'reprocess_button') and not self.is_search_interrupted:
-                self.reprocess_button.text = "Search with iTunes"
+            # Update search button text - handle both interrupted and normal states
+            if hasattr(self, 'reprocess_button'):
+                if self.is_search_interrupted:
+                    # If search was interrupted, update resume text AND active provider
+                    # so resume will use the new provider, not the old one
+                    self.reprocess_button.text = "Resume iTunes Search"
+                    self.active_search_provider = "itunes"
+                else:
+                    # Normal state - regular search text
+                    self.reprocess_button.text = "Search with iTunes"
+            # Hide database section (iTunes doesn't need database)
+            if hasattr(self, 'database_section'):
+                self.database_section.style.visibility = HIDDEN
             # Show rate limit controls (iTunes has rate limits)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = VISIBLE
@@ -6154,6 +6210,8 @@ The import will validate the file format and show progress."""
                 # Reset search flags
                 self.stop_itunes_search_flag = False
                 self.pause_itunes_search_flag = False
+                if hasattr(self, 'process_stopped'):
+                    self.process_stopped = False
 
                 # Start reprocessing thread - PASS PROVIDER to ensure thread uses correct one
                 try:
