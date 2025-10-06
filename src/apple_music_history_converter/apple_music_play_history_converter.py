@@ -7,8 +7,8 @@ Converts Apple Music CSV files to Last.fm compatible format.
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW, START, CENTER, END, HIDDEN, VISIBLE
-import pandas as pd
-import httpx
+import pandas as pd  # Keep for now (used extensively)
+import httpx  # Keep for now
 import time
 import threading
 from collections import deque
@@ -6273,8 +6273,9 @@ The import will validate the file format and show progress."""
                 # Clear log for fresh start
                 self.update_results("")
                 self.append_log(f"Starting iTunes batch search for {total_tracks:,} tracks...")
-                import os
-                debug_log_path = os.path.expanduser("~/itunes_api_debug.log")
+                # Use Path for cross-platform path handling (prevents mixed / and \ on Windows)
+                from apple_music_history_converter.app_directories import get_user_log_dir
+                debug_log_path = get_user_log_dir() / "itunes_api_debug.log"
                 self.append_log(f"📝 Detailed debug log: {debug_log_path}")
 
                 # Extract track names for batch search
