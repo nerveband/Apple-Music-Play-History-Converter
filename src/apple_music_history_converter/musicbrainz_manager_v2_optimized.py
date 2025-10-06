@@ -1434,7 +1434,7 @@ class MusicBrainzManagerV2Optimized:
                 logger.print_always(f"🌐 Fetching directory listing from: {BASE_URL}")
                 logger.print_always(f"⏳ Sending HTTP GET request...")
 
-                with httpx.Client(http2=True, timeout=30.0) as client:
+                with httpx.Client(http2=False, timeout=30.0) as client:
                     response = client.get(BASE_URL)
 
                 logger.print_always(f"✅ HTTP {response.status_code} {response.reason_phrase}")
@@ -1559,8 +1559,9 @@ class MusicBrainzManagerV2Optimized:
                         logger.print_always(f"\n❌ No data files found in subdirectory")
                         logger.print_always(f"📄 Showing first 500 chars of subdirectory HTML:")
                         logger.print_always(subdir_html[:500])
-                        logger.print_always(f"\n⚠️  Falling back to default filename")
-                        download_url = BASE_URL + "canonical_musicbrainz_data.csv"
+                        logger.print_always(f"\n⚠️  Falling back to known dated directory")
+                        # Use a known working dated directory format (August 2024)
+                        download_url = BASE_URL + "musicbrainz-canonical-dump-20240817-080003/canonical_musicbrainz_data.csv"
                         logger.print_always(f"📍 Fallback URL: {download_url}")
                 else:
                     # Fallback: try to find files directly in root (old behavior)
@@ -1581,8 +1582,9 @@ class MusicBrainzManagerV2Optimized:
                         logger.print_always(f"❌ No files found in root directory")
                         logger.print_always(f"📄 Showing first 500 chars of root HTML:")
                         logger.print_always(html_content[:500])
-                        logger.print_always(f"\n⚠️  Using fallback filename")
-                        download_url = BASE_URL + "canonical_musicbrainz_data.csv"
+                        logger.print_always(f"\n⚠️  Using fallback with known dated directory")
+                        # Use a known working dated directory format (August 2024)
+                        download_url = BASE_URL + "musicbrainz-canonical-dump-20240817-080003/canonical_musicbrainz_data.csv"
                         logger.print_always(f"📍 Fallback URL: {download_url}")
 
             except Exception as e:
@@ -1590,8 +1592,9 @@ class MusicBrainzManagerV2Optimized:
                 logger.print_always(f"❌ Error: {e}")
                 import traceback
                 logger.print_always(f"📋 Traceback:\n{traceback.format_exc()}")
-                logger.print_always(f"⚠️  Using fallback URL...")
-                download_url = BASE_URL + "canonical_musicbrainz_data.csv"
+                logger.print_always(f"⚠️  Using fallback URL with known dated directory...")
+                # Use a known working dated directory format (August 2024)
+                download_url = BASE_URL + "musicbrainz-canonical-dump-20240817-080003/canonical_musicbrainz_data.csv"
                 logger.print_always(f"📍 Fallback URL: {download_url}")
 
             logger.print_always(f"\n" + "="*80)
