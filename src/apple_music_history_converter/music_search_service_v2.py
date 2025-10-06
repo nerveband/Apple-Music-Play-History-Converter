@@ -978,3 +978,19 @@ class MusicSearchServiceV2:
         if hasattr(self.musicbrainz_manager, 'manual_import_database'):
             return self.musicbrainz_manager.manual_import_database(file_path, progress_callback)
         return False
+
+    def close(self):
+        """Close all database connections to prevent GIL issues during shutdown.
+
+        This should be called before application exit to ensure clean shutdown.
+        The crash on quit (abort trap: 6) is caused by DuckDB trying to release
+        the GIL during cleanup when Python is already shutting down.
+        """
+        try:
+            logger.print_always("🔒 Closing MusicSearchService connections...")
+            if hasattr(self, 'musicbrainz_manager') and self.musicbrainz_manager:
+                if hasattr(self.musicbrainz_manager, 'close'):
+                    self.musicbrainz_manager.close()
+            logger.print_always("✅ MusicSearchService closed successfully")
+        except Exception as e:
+            logger.print_always(f"⚠️  Error closing MusicSearchService: {e}")

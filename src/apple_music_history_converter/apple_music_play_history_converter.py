@@ -259,22 +259,34 @@ class AppleMusicConverterApp(toga.App):
         Returns:
             bool: True to allow exit to proceed
         """
-        logger.info("🛑 Application exit requested - cleaning up resources...")
+        logger.print_always("🛑 Application exit requested - cleaning up resources...")
 
         # Stop any active searches
         if hasattr(self, 'is_search_interrupted'):
             self.is_search_interrupted = True
-            logger.info("   Stopped active searches")
+            logger.print_always("   ✅ Stopped active searches")
 
         # Stop rate limit waits
         if hasattr(self, 'stop_itunes_search_flag'):
             self.stop_itunes_search_flag = True
-            logger.info("   Stopped rate limit waits")
+            logger.print_always("   ✅ Stopped rate limit waits")
+
+        # CRITICAL: Close DuckDB connections BEFORE Python shutdown to prevent GIL crash
+        # The crash (abort trap: 6) occurs when DuckDB's destructor tries to call
+        # PyEval_SaveThread() during Python shutdown when the GIL is already released.
+        # We must explicitly close connections now while the GIL is still valid.
+        if hasattr(self, 'music_search_service') and self.music_search_service:
+            try:
+                logger.print_always("   🔒 Closing database connections...")
+                if hasattr(self.music_search_service, 'close'):
+                    self.music_search_service.close()
+            except Exception as e:
+                logger.print_always(f"   ⚠️  Error closing connections: {e}")
 
         # Don't sleep during exit - it can cause GIL issues with Toga's event loop
         # Background threads will be terminated by Python when the process exits
 
-        logger.info("✅ Cleanup complete - exiting gracefully")
+        logger.print_always("✅ Cleanup complete - exiting gracefully")
         return True  # Allow exit to proceed
 
     def setup_theme(self):
