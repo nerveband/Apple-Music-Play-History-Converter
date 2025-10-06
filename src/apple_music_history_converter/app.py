@@ -43,7 +43,10 @@ class AppleMusicHistoryConverterApp:
         logger.print_always("Starting network diagnostics...")
         logger.print_always("="*80)
         try:
-            from apple_music_history_converter.network_diagnostics import run_diagnostics
+            try:
+                from .network_diagnostics import run_diagnostics
+            except ImportError:
+                from network_diagnostics import run_diagnostics
             logger.info("Running network diagnostics...")
             logger.debug("About to call run_diagnostics()")
             diagnostics_passed = run_diagnostics(verbose=True)

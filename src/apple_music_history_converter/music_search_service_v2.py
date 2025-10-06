@@ -495,6 +495,9 @@ class MusicSearchServiceV2:
                     request_time = time.time() - request_start
                     self._debug_log(f"   ✅ iTunes API responded in {request_time:.2f}s")
                     self._debug_log(f"   📊 Status code: {response.status_code}")
+
+                    # Raise exception for bad status codes (this triggers HTTPStatusError below)
+                    response.raise_for_status()
                 except httpx.ConnectError as conn_err:
                     self._debug_log(f"   ❌ httpx.ConnectError caught: {conn_err}")
                     self._debug_log(f"   Error type: {type(conn_err).__name__}")
@@ -561,7 +564,7 @@ class MusicSearchServiceV2:
                     self._debug_log(f"   Traceback: {traceback.format_exc()}")
                     raise
 
-                response.raise_for_status()
+                # If we get here, response was successful (200 status)
                 self._debug_log(f"   📝 Parsing JSON response...")
                 data = response.json()
                 self._debug_log(f"   ✅ JSON parsed successfully")

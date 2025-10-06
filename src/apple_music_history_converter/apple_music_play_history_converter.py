@@ -12,6 +12,7 @@ import httpx  # Keep for now
 import time
 import threading
 from collections import deque
+from typing import Optional, Dict, List, Any, Callable, Tuple
 import json
 import os
 import sys
@@ -85,7 +86,7 @@ class AppleMusicConverterApp(toga.App):
        - All searches remain responsive with stop/pause controls
     """
 
-    def _schedule_ui_update(self, coro):
+    def _schedule_ui_update(self, coro) -> Optional[Any]:
         """
         Schedule async UI updates from any thread (thread-safe).
 
@@ -97,7 +98,7 @@ class AppleMusicConverterApp(toga.App):
             coro: Coroutine to schedule on the main event loop
 
         Returns:
-            Future representing the scheduled coroutine
+            Future representing the scheduled coroutine, or None if event loop unavailable
         """
         # Try to get event loop if not yet captured (Windows compatibility)
         if self._toga_event_loop is None:
@@ -116,7 +117,7 @@ class AppleMusicConverterApp(toga.App):
             return None
 
     @trace_call("App.startup")
-    def startup(self):
+    def startup(self) -> None:
         """Initialize the application and create the main window with splash screen."""
         if TRACE_ENABLED:
             trace_log.debug("Startup sequence initiated")
@@ -182,16 +183,7 @@ class AppleMusicConverterApp(toga.App):
         self.setup_theme()
         self.setup_design_language()
 
-        # STEP 4: Create main window (show splash progress)
-        try:
-            # Run this synchronously since we're in sync startup()
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.splash.update_progress("Creating window...", 1))
-        except:
-            pass  # Fail gracefully if async doesn't work
-
+        # STEP 4: Create main window
         self.main_window = toga.MainWindow(
             title=self.formal_name,
             size=(1200, 900)  # Increased size to accommodate larger content areas
@@ -206,12 +198,6 @@ class AppleMusicConverterApp(toga.App):
                 logger.warning("Still no running event loop - will retry later")
 
         # STEP 5: Initialize music search service
-        try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.splash.update_progress("Loading search service...", 2))
-        except:
-            pass
-
         self.music_search_service = MusicSearchService()
         self.music_search_service.set_parent_window(self.main_window)
         # Set rate limit callbacks to update UI
@@ -222,35 +208,25 @@ class AppleMusicConverterApp(toga.App):
         logger.debug(f"DEBUG: V2 MusicSearchService initialized with provider: {self.music_search_service.get_search_provider()}")
 
         # STEP 6: Build UI
-        try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.splash.update_progress("Building interface...", 3))
-        except:
-            pass
-
         self.build_ui()
 
         # STEP 7: Show main window FIRST, then do database checks in background
-        try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.splash.update_progress("Almost ready...", 4))
-        except:
-            pass
-
         self.main_window.show()
 
         # STEP 8: Close splash screen
-        try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.splash.update_progress("Ready!", 5))
-        except:
-            pass
-
         self.splash.close()
 
         # STEP 9: Database checks run in background (non-blocking)
         # Schedule as background task so window remains responsive
-        asyncio.create_task(self._background_startup_checks())
+        if self._toga_event_loop is not None:
+            asyncio.run_coroutine_threadsafe(
+                self._background_startup_checks(),
+                self._toga_event_loop
+            )
+        else:
+            # Fallback: run synchronously if event loop not available
+            self.check_first_time_setup()
+            self.update_database_status()
 
     async def _background_startup_checks(self):
         """
@@ -277,8 +253,12 @@ class AppleMusicConverterApp(toga.App):
             logger.error(f"Error in background startup checks: {e}")
             # Don't crash the app if background checks fail
 
-    def on_exit(self, widget=None, **kwargs):
-        """Clean up resources when app exits to prevent crashes."""
+    def on_exit(self, widget: Optional[toga.Widget] = None, **kwargs) -> bool:
+        """Clean up resources when app exits to prevent crashes.
+
+        Returns:
+            bool: True to allow exit to proceed
+        """
         logger.info("🛑 Application exit requested - cleaning up resources...")
 
         # Stop any active searches
@@ -291,9 +271,8 @@ class AppleMusicConverterApp(toga.App):
             self.stop_itunes_search_flag = True
             logger.info("   Stopped rate limit waits")
 
-        # Give threads a moment to finish
-        import time
-        time.sleep(0.5)
+        # Don't sleep during exit - it can cause GIL issues with Toga's event loop
+        # Background threads will be terminated by Python when the process exits
 
         logger.info("✅ Cleanup complete - exiting gracefully")
         return True  # Allow exit to proceed
@@ -308,7 +287,7 @@ class AppleMusicConverterApp(toga.App):
                 self.is_dark_mode = is_dark
             else:
                 self.is_dark_mode = False
-        except:
+        except Exception:
             self.is_dark_mode = False
 
     def setup_design_language(self):
@@ -2129,7 +2108,8 @@ class AppleMusicConverterApp(toga.App):
         try:
             start_time = time.time()
             
-            async def progress_callback_async(message, percent, start_time):
+            async def progress_callback_async(message: str, percent: float, start_time: float) -> None:
+                """Update optimization progress with elapsed time."""
                 elapsed = time.time() - start_time
                 timer_text = f" (Elapsed: {elapsed:.0f}s)"
                 await self._update_optimization_progress(f"🔧 Optimizing: {message}{timer_text}")
@@ -2397,7 +2377,8 @@ class AppleMusicConverterApp(toga.App):
 
             # Batch search with progress callback
             search_start = time.time()
-            def progress_cb(message, percent):
+            def progress_cb(message: str, percent: float) -> None:
+                """Map processor progress to GUI progress range and update stats."""
                 # Map processor progress (0-100) to our range (25-60)
                 gui_progress = 25 + int((percent / 100) * 35)
 
@@ -2483,7 +2464,7 @@ class AppleMusicConverterApp(toga.App):
             dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
             # Format as: Oct 4, 2025 12:29 AM
             return dt.strftime("%b %d, %Y %I:%M %p")
-        except:
+        except Exception:
             # If parsing fails, return original
             return timestamp_str
 
@@ -2624,7 +2605,8 @@ class AppleMusicConverterApp(toga.App):
         finally:
             # Re-enable buttons on main thread, preserve results buttons if successful
             keep_results = locals().get('processing_successful', False)
-            async def reset_with_params():
+            async def reset_with_params() -> None:
+                """Reset UI button states while preserving results if processing succeeded."""
                 await self._reset_buttons_ui(keep_results_buttons=keep_results)
             self._schedule_ui_update(reset_with_params())
     
@@ -3873,7 +3855,7 @@ class AppleMusicConverterApp(toga.App):
                             dur_val = row.get(col, 180)
                             if pd.notna(dur_val) and float(dur_val) > 0:
                                 duration = int(float(dur_val))
-                        except:
+                        except (ValueError, TypeError):
                             pass
                         break
                 
@@ -3912,7 +3894,7 @@ class AppleMusicConverterApp(toga.App):
                 return pd.to_datetime(timestamp_str, errors='coerce')
             else:
                 return pd.to_datetime(timestamp_str)
-        except:
+        except Exception:
             return pd.Timestamp.now()
     
     @trace_call("App.search_artist_for_track")
@@ -4007,12 +3989,13 @@ class AppleMusicConverterApp(toga.App):
                 
             # Generate output filename
             try:
-                base_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
+                current_path = Path(self.current_file_path)
+                base_name = current_path.stem
                 output_name = f"{base_name}_lastfm_format.csv"
-                output_path = os.path.join(os.path.dirname(self.current_file_path), output_name)
-                
+                output_path = current_path.parent / output_name
+
                 # Check if output directory is writable
-                output_dir = os.path.dirname(output_path)
+                output_dir = output_path.parent
                 if not os.access(output_dir, os.W_OK):
                     self._schedule_ui_update(self.main_window.dialog(toga.ErrorDialog(
                             title="Write Permission Error",
@@ -4868,6 +4851,8 @@ Supported formats:
 
     async def stop_download(self, widget):
         """Stop the current download."""
+        # Set flag to indicate user-requested cancellation
+        self._download_cancelled_by_user = True
         self.cancel_download()
         self.update_results("🛑 Stopping download...")
 
@@ -4927,7 +4912,10 @@ Supported formats:
         """Run database download with main UI progress integration."""
         import time
         download_start_time = time.time()
-        
+
+        # Initialize cancellation flag
+        self._download_cancelled_by_user = False
+
         try:
             # Show download path in progress section
             db_path = self.music_search_service.musicbrainz_manager.data_dir
@@ -4941,18 +4929,21 @@ Supported formats:
             
             # Create a progress callback that's safe to call from background thread
             progress_data = {"message": "", "percent": 0, "speed": ""}
-            
-            def background_progress_callback(message, progress_percent, extra_data=None):
+
+            def background_progress_callback(message: str, progress_percent: Optional[float], extra_data: Optional[Dict] = None) -> None:
+                """Thread-safe callback to update progress data from background thread."""
                 progress_data["message"] = message
                 if progress_percent is not None:
                     progress_data["percent"] = int(progress_percent)
-            
+
             # Define the blocking download work
-            def blocking_download():
+            def blocking_download() -> bool:
+                """Execute the download in a background thread."""
                 return self.music_search_service.download_database(background_progress_callback)
-            
+
             # Create periodic UI update task with time tracking
-            async def update_ui_periodically():
+            async def update_ui_periodically() -> None:
+                """Update UI with download progress every 500ms."""
                 while True:
                     try:
                         # Update progress and message
@@ -4996,22 +4987,46 @@ Supported formats:
             
             # Cancel UI update task
             ui_task.cancel()
-            
+
+            # Check if user cancelled the download
+            if self._download_cancelled_by_user:
+                # User cancelled - just clear UI without showing error dialog
+                self.download_button.text = "Download Database (~2GB)"
+                self.download_button.on_press = self.download_database
+                self.update_results("🛑 Download cancelled by user")
+                self.progress_label.text = "Ready to convert your Apple Music files"
+                if hasattr(self, 'detailed_stats_label'):
+                    self.detailed_stats_label.text = ""
+                self.progress_bar.value = 0
+                return
+
             # Calculate final time
             total_time = time.time() - download_start_time
             hours, remainder = divmod(int(total_time), 3600)
             minutes, seconds = divmod(remainder, 60)
-            
+
             if hours > 0:
                 final_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             else:
                 final_time_str = f"{minutes:02d}:{seconds:02d}"
-            
+
             # Handle completion
             await self.download_complete(success, final_time_str)
-            
+
         except Exception as e:
-            await self.download_failed(str(e))
+            # Check if user cancelled (exception might contain "cancelled by user")
+            if self._download_cancelled_by_user or "cancelled by user" in str(e).lower():
+                # User cancelled - just clear UI without showing error dialog
+                self.download_button.text = "Download Database (~2GB)"
+                self.download_button.on_press = self.download_database
+                self.update_results("🛑 Download cancelled by user")
+                self.progress_label.text = "Ready to convert your Apple Music files"
+                if hasattr(self, 'detailed_stats_label'):
+                    self.detailed_stats_label.text = ""
+                self.progress_bar.value = 0
+            else:
+                # Real error - show error dialog
+                await self.download_failed(str(e))
     
     async def import_complete(self, success, progress_window):
         """Handle manual import completion."""
@@ -5019,7 +5034,7 @@ Supported formats:
         if progress_window:
             try:
                 progress_window.close()
-            except:
+            except Exception:
                 pass
 
         if success:
@@ -5053,7 +5068,7 @@ Supported formats:
         if progress_window:
             try:
                 progress_window.close()
-            except:
+            except Exception:
                 pass
 
         await self.main_window.dialog(toga.ErrorDialog(
@@ -5079,19 +5094,22 @@ Supported formats:
             # Create a progress callback that's safe to call from background thread
             progress_data = {"message": "", "percent": 0}
 
-            def background_progress_callback(message, progress_percent, extra_data=None):
+            def background_progress_callback(message: str, progress_percent: Optional[float], extra_data: Optional[Dict] = None) -> None:
+                """Thread-safe callback to update import progress from background thread."""
                 progress_data["message"] = message
                 if progress_percent is not None:
                     progress_data["percent"] = int(progress_percent)
 
             # Define the blocking import work
-            def blocking_import():
+            def blocking_import() -> bool:
+                """Execute the database import in a background thread."""
                 return self.music_search_service.musicbrainz_manager.manual_import_database(
                     file_path_str, background_progress_callback
                 )
 
             # Create periodic UI update task using main progress bar
-            async def update_ui_periodically():
+            async def update_ui_periodically() -> None:
+                """Update UI with import progress every 500ms."""
                 while True:
                     try:
                         if progress_data["message"]:
@@ -5742,23 +5760,24 @@ The import will validate the file format and show progress."""
 
     async def show_missing_artists_dialog(self, missing_count, provider_name, time_estimate):
         """Show custom dialog for missing artists with proper action buttons."""
-        import asyncio
-
         # Create a modal window
         dialog_window = toga.Window(title="Missing Artists Found", size=(500, 300))
         dialog_result = None
 
-        def on_search(widget):
+        def on_search(widget: toga.Widget) -> None:
+            """Handle search button click in missing artists dialog."""
             nonlocal dialog_result
             dialog_result = "search"
             dialog_window.close()
 
-        def on_export(widget):
+        def on_export(widget: toga.Widget) -> None:
+            """Handle export button click in missing artists dialog."""
             nonlocal dialog_result
             dialog_result = "export"
             dialog_window.close()
 
-        def on_cancel(widget):
+        def on_cancel(widget: toga.Widget) -> None:
+            """Handle cancel button click in missing artists dialog."""
             nonlocal dialog_result
             dialog_result = "cancel"
             dialog_window.close()
@@ -6055,6 +6074,15 @@ The import will validate the file format and show progress."""
 
             # Start search immediately (no redundant dialog)
             try:
+                # Check if a search is already running
+                if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+                    await self.main_window.dialog(toga.InfoDialog(
+                        title="Search Already Running",
+                        message="A search is already in progress.\n\n"
+                                "Please wait for it to complete or stop it using the Stop button."
+                    ))
+                    return
+
                 # Validate provider-specific requirements
                 if current_provider == "itunes":
                     # Only check iTunes API settings when iTunes is selected
@@ -6349,7 +6377,10 @@ The import will validate the file format and show progress."""
                 self.update_results("")
                 self.append_log(f"Starting iTunes batch search for {total_tracks:,} tracks...")
                 # Use Path for cross-platform path handling (prevents mixed / and \ on Windows)
-                from apple_music_history_converter.app_directories import get_user_log_dir
+                try:
+                    from .app_directories import get_user_log_dir
+                except ImportError:
+                    from app_directories import get_user_log_dir
                 debug_log_path = get_user_log_dir() / "itunes_api_debug.log"
                 self.append_log(f"📝 Detailed debug log: {debug_log_path}")
 
@@ -6392,21 +6423,30 @@ The import will validate the file format and show progress."""
                             track_info = missing_artists_tracks[track_idx].copy()
                             track_info['original_index'] = original_idx
                             self.rate_limited_tracks.append(track_info)
-                            logger.warning(f"   ⏸️  Rate limited: '{track_name}' (can retry later)")
+                            logger.warning(f"⏸️  Rate limited: '{track_name}' (can retry later)")
                             self.append_log(f"⏸️  [{completed_count}/{total_count}] {track_name} -> Rate limited (403)")
+
+                            # Update retry button count in real-time (MUST use main thread for UI updates)
+                            self._schedule_ui_update(self._update_rate_limited_button_ui())
                         else:
                             # Permanent failure
                             logger.error(f"   ❌ Search failed for track: '{track_name}' ({error_msg})")
                             self.append_log(f"❌ [{completed_count}/{total_count}] {track_name} -> {error_msg}")
 
-                    # Update progress with live stats
+                    # Update progress with live stats including rate-limited count
                     elapsed = time.time() - search_start_time
                     elapsed_mins = int(elapsed // 60)
                     elapsed_secs = int(elapsed % 60)
                     time_str = f"{elapsed_mins}m {elapsed_secs}s" if elapsed_mins > 0 else f"{elapsed_secs}s"
 
                     progress = 10 + int((completed_count / total_count) * 80)
-                    progress_msg = f"🌐 iTunes: {completed_count:,}/{total_count:,} | Found: {found_artists} | {time_str} elapsed"
+
+                    # Include rate-limited count in progress message
+                    rate_limited_count = len(self.rate_limited_tracks)
+                    if rate_limited_count > 0:
+                        progress_msg = f"🌐 iTunes: {completed_count:,}/{total_count:,} | Found: {found_artists} | Rate-limited: {rate_limited_count} | {time_str}"
+                    else:
+                        progress_msg = f"🌐 iTunes: {completed_count:,}/{total_count:,} | Found: {found_artists} | {time_str} elapsed"
 
                     self.update_progress(progress_msg, progress)
 
@@ -6559,7 +6599,7 @@ The import will validate the file format and show progress."""
                     self.db_location_label.text = f"Location: {path_obj.parent}"
                 else:
                     self.db_location_label.text = "Location: Not set"
-            except:
+            except Exception:
                 self.db_location_label.text = "Location: Not set"
 
             # Format the timestamp for user-friendly display
@@ -6719,7 +6759,10 @@ The import will validate the file format and show progress."""
     async def reveal_log_directory(self, widget):
         """Reveal the log directory in file system."""
         try:
-            from apple_music_history_converter.app_directories import get_user_log_dir
+            try:
+                from .app_directories import get_user_log_dir
+            except ImportError:
+                from app_directories import get_user_log_dir
 
             log_dir = get_user_log_dir()
             if not log_dir.exists():
@@ -7015,18 +7058,36 @@ The import will validate the file format and show progress."""
             ))
             return
 
+        # Check if a search is already running
+        if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+            await self.main_window.dialog(toga.InfoDialog(
+                title="Search Already Running",
+                message="Cannot retry rate-limited tracks while another search is running.\n\n"
+                        "Please wait for the current search to complete or stop it using the Stop button."
+            ))
+            return
+
         # Confirm retry with user
         count = len(self.rate_limited_tracks)
         result = await self.main_window.dialog(toga.ConfirmDialog(
             title="Retry Rate-Limited Tracks",
-            message=f"Retry {count} tracks that were rate-limited by iTunes API?\n\nNote: Wait 60+ seconds after the last rate limit to avoid immediate 403 errors."
+            message=f"Retry {count} tracks that were rate-limited by iTunes API?\n\n"
+                    f"⚠️  IMPORTANT:\n"
+                    f"• Wait 60+ seconds after the last rate limit\n"
+                    f"• This will use iTunes API (even if MusicBrainz is selected)\n"
+                    f"• Rate-limited tracks cannot be searched with MusicBrainz"
         ))
 
         if not result:
             return
 
         logger.print_always(f"🔄 Retrying {count} rate-limited tracks with iTunes API...")
-        self.append_log(f"🔄 Retrying {count} rate-limited tracks...")
+        self.append_log(f"\n{'='*70}")
+        self.append_log(f"🔄 RETRYING RATE-LIMITED TRACKS")
+        self.append_log(f"{'='*70}")
+        self.append_log(f"Count: {count} tracks")
+        self.append_log(f"Provider: iTunes API (required for retry)")
+        self.append_log(f"Note: These tracks previously hit 403 Forbidden errors\n")
 
         # Disable retry button during retry
         self.retry_rate_limited_button.enabled = False
@@ -7111,13 +7172,34 @@ The import will validate the file format and show progress."""
                 message=f"Failed to export rate-limited tracks: {str(e)}"
             ))
 
-    def update_rate_limited_button_count(self):
-        """Update the retry button text with current rate-limited track count."""
+    async def _update_rate_limited_button_ui(self):
+        """Update rate-limited button UI on main thread (async for _schedule_ui_update)."""
         if hasattr(self, 'retry_rate_limited_button') and hasattr(self, 'rate_limited_tracks'):
             count = len(self.rate_limited_tracks)
             self.retry_rate_limited_button.text = f"Retry Rate-Limited ({count})"
             self.retry_rate_limited_button.enabled = count > 0
-            self.export_rate_limited_button.enabled = count > 0
+
+            if hasattr(self, 'export_rate_limited_button'):
+                self.export_rate_limited_button.enabled = count > 0
+
+            # Show informational message when rate-limiting first occurs
+            if count == 1:
+                self.append_log("\n⚠️  RATE LIMITING DETECTED")
+                self.append_log("iTunes API is blocking requests with 403 Forbidden errors.")
+                self.append_log("These tracks will be available for retry after the rate limit resets.")
+                self.append_log("Use 'Retry Rate-Limited' button after waiting 60+ seconds.\n")
+
+    def update_rate_limited_button_count(self):
+        """Update the retry button text with current rate-limited track count (sync version for main thread)."""
+        if hasattr(self, 'retry_rate_limited_button') and hasattr(self, 'rate_limited_tracks'):
+            count = len(self.rate_limited_tracks)
+            self.retry_rate_limited_button.text = f"Retry Rate-Limited ({count})"
+            self.retry_rate_limited_button.enabled = count > 0
+
+            if hasattr(self, 'export_rate_limited_button'):
+                self.export_rate_limited_button.enabled = count > 0
+
+            logger.debug(f"Updated rate-limited buttons (sync): count={count}")
 
     def update_time_estimate(self):
         """Update processing time estimates based on file and settings like tkinter version."""
@@ -7374,18 +7456,21 @@ The import will validate the file format and show progress."""
             # Show optimization status
             self.progress_label.text = " Optimizing MusicBrainz for faster searches..."
             
-            def progress_callback(message, percent, start_time):
+            def progress_callback(message: str, percent: float, start_time: float) -> None:
+                """Update optimization progress from background thread."""
                 elapsed = time.time() - start_time
                 timer_text = f" (Elapsed: {elapsed:.0f}s)"
                 # Schedule UI update
                 self._schedule_ui_update(self._update_optimization_progress(f"🔧 Optimizing: {message}{timer_text}"))
             
-            def completion_callback():
+            def completion_callback() -> None:
+                """Handle optimization completion from background thread."""
                 # Schedule UI update
                 self._schedule_ui_update(self._update_optimization_complete())
             
             # Start progressive loading in background
-            def optimize():
+            def optimize() -> None:
+                """Run MusicBrainz optimization in background thread."""
                 try:
                     self.music_search_service.start_progressive_loading(progress_callback)
                     completion_callback()

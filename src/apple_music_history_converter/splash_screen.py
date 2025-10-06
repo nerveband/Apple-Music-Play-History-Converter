@@ -54,8 +54,8 @@ class SplashScreen:
             container = toga.Box(
                 style=Pack(
                     direction=COLUMN,
-                    alignment=CENTER,
-                    padding=40
+                    align_items=CENTER,
+                    margin=40
                 )
             )
 
@@ -76,7 +76,7 @@ class SplashScreen:
                     text_align=CENTER,
                     font_size=18,
                     font_weight="bold",
-                    padding_bottom=10
+                    margin_bottom=10
                 )
             )
             container.add(title_label)
@@ -87,7 +87,7 @@ class SplashScreen:
                 style=Pack(
                     text_align=CENTER,
                     font_size=12,
-                    padding_bottom=30
+                    margin_bottom=30
                 )
             )
             container.add(version_label)
@@ -97,7 +97,7 @@ class SplashScreen:
                 max=self.total_steps,
                 style=Pack(
                     width=300,
-                    padding_bottom=15
+                    margin_bottom=15
                 )
             )
             container.add(self.progress_bar)
@@ -108,7 +108,7 @@ class SplashScreen:
                 style=Pack(
                     text_align=CENTER,
                     font_size=11,
-                    padding_bottom=10
+                    margin_bottom=10
                 )
             )
             container.add(self.progress_label)
