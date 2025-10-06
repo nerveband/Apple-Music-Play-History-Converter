@@ -1499,7 +1499,7 @@ class MusicBrainzManagerV2Optimized:
                     subdir_url = BASE_URL + latest_dir
                     logger.print_always(f"\n🌐 Fetching subdirectory: {subdir_url}")
 
-                    with httpx.Client(http2=True, timeout=30.0) as client:
+                    with httpx.Client(http2=False, timeout=30.0) as client:
                         subdir_response = client.get(subdir_url)
                     logger.print_always(f"✅ HTTP {subdir_response.status_code} {subdir_response.reason_phrase}")
 
@@ -1779,7 +1779,7 @@ class MusicBrainzManagerV2Optimized:
                         last_update_time = time.time()
                         last_downloaded = 0
 
-                        with httpx.Client(http2=True, timeout=120.0, follow_redirects=True) as client:
+                        with httpx.Client(http2=False, timeout=120.0, follow_redirects=True) as client:
                             with client.stream("GET", download_url) as response:
                                 logger.print_always(f"✅ HTTP {response.status_code} {response.reason_phrase}")
                                 response.raise_for_status()
