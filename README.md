@@ -30,24 +30,49 @@ A modern desktop application that converts Apple Music play history CSV files in
 
 **No Python required!** Download the ready-to-run app for your platform:
 
-#### macOS
-[Download Apple Music History Converter.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
-- Fully signed and notarized - no security warnings
-- Drag to Applications and run
+#### 🍎 macOS (Universal Binary)
+**[⬇️ Download Apple Music History Converter-2.0.0.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
-#### Windows
-[Download Apple_Music_History_Converter_Windows.zip](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)
-- Extract and run `Apple Music History Converter.exe`
-- If blocked: Click "More info" → "Run anyway"
+✅ **Fully signed and notarized** by Apple Developer ID
+✅ **No security warnings** - opens immediately
+✅ **Works on Apple Silicon (M1/M2/M3) and Intel Macs**
 
-#### Linux
-**Source Code Installation** (no pre-built binaries)
+**Installation:**
+1. Download the DMG file
+2. Open the DMG and drag the app to your Applications folder
+3. Double-click to run - no configuration needed!
+
+---
+
+#### 🪟 Windows (MSI Installer)
+**[⬇️ Download Apple-Music-History-Converter-2.0.0.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+
+✅ **Professional MSI installer**
+✅ **No Python installation required**
+✅ **Works on Windows 10 and Windows 11**
+
+**Installation:**
+1. Download the MSI file
+2. Double-click to install
+3. App appears in Start Menu → "Apple Music History Converter"
+
+---
+
+#### 🐧 Linux (Compile from Source)
+**⚠️ No pre-built binaries available** - Linux users must compile from source
+
+**Installation:**
 ```bash
 git clone https://github.com/nerveband/Apple-Music-Play-History-Converter.git
 cd Apple-Music-Play-History-Converter
 pip install -r requirements.txt
 python run_toga_app.py
 ```
+
+**Requirements:**
+- Python 3.12+
+- GTK 3 development libraries
+- See [Linux Build Guide](../../wiki/Linux-Installation) for distribution-specific instructions
 
 ### Run from Source
 
