@@ -4820,9 +4820,12 @@ Supported formats:
 
                     try:
                         # Start the download task using proper async pattern
+                        logger.print_always("🚀 Starting MusicBrainz download task...")
                         asyncio.create_task(self.run_database_download())
+                        logger.print_always("✅ Download task created successfully")
 
                     except Exception as e:
+                        logger.print_always(f"❌ Failed to create download task: {e}")
                         # Reset button
                         self.download_button.text = "Download Database (~2GB)"
                         self.download_button.on_press = self.download_database
@@ -4910,6 +4913,7 @@ Supported formats:
     
     async def run_database_download(self):
         """Run database download with main UI progress integration."""
+        logger.print_always("📥 run_database_download() started")
         import time
         download_start_time = time.time()
 
@@ -4917,6 +4921,7 @@ Supported formats:
         self._download_cancelled_by_user = False
 
         try:
+            logger.print_always("🔧 Initializing download components...")
             # Show download path in progress section
             db_path = self.music_search_service.musicbrainz_manager.data_dir
             self.progress_label.text = f"Downloading to: {db_path}"
@@ -4939,7 +4944,16 @@ Supported formats:
             # Define the blocking download work
             def blocking_download() -> bool:
                 """Execute the download in a background thread."""
-                return self.music_search_service.download_database(background_progress_callback)
+                logger.print_always("🧵 Blocking download function called from background thread")
+                try:
+                    result = self.music_search_service.download_database(background_progress_callback)
+                    logger.print_always(f"✅ Blocking download completed with result: {result}")
+                    return result
+                except Exception as e:
+                    logger.print_always(f"❌ Exception in blocking download: {e}")
+                    import traceback
+                    logger.print_always(f"Traceback:\n{traceback.format_exc()}")
+                    raise
 
             # Create periodic UI update task with time tracking
             async def update_ui_periodically() -> None:
@@ -4981,9 +4995,12 @@ Supported formats:
             ui_task = asyncio.create_task(update_ui_periodically())
 
             # Run download in background thread (use get_running_loop for Windows compatibility)
+            logger.print_always("🔄 Starting download in thread pool executor...")
             loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
+                logger.print_always("⏳ Awaiting blocking download in executor...")
                 success = await loop.run_in_executor(executor, blocking_download)
+                logger.print_always(f"📊 Executor returned success={success}")
             
             # Cancel UI update task
             ui_task.cancel()
@@ -5014,6 +5031,10 @@ Supported formats:
             await self.download_complete(success, final_time_str)
 
         except Exception as e:
+            logger.print_always(f"💥 Exception caught in run_database_download: {e}")
+            import traceback
+            logger.print_always(f"Full traceback:\n{traceback.format_exc()}")
+
             # Check if user cancelled (exception might contain "cancelled by user")
             if self._download_cancelled_by_user or "cancelled by user" in str(e).lower():
                 # User cancelled - just clear UI without showing error dialog
