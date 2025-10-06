@@ -5,6 +5,7 @@ Integrates with persistent DuckDB MusicBrainz manager and optimization modal.
 """
 
 import os
+import sys
 import json
 import time
 import httpx
@@ -98,8 +99,14 @@ class MusicSearchServiceV2:
             self.settings_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=2)
+            logger.debug(f"Settings saved to: {self.settings_file}")
+            # Extra logging for Windows debugging of rate limiting settings
+            if sys.platform == "win32":
+                logger.info(f"Windows settings update: parallel={self.settings.get('use_parallel_requests')}, adaptive={self.settings.get('use_adaptive_rate_limit')}")
         except Exception as e:
-            logger.error(f"Error saving settings: {e}")
+            logger.error(f"Error saving settings to {self.settings_file}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
     def get_search_provider(self) -> str:
         """Get current search provider."""

@@ -117,9 +117,18 @@ class AppleMusicConverterApp(toga.App):
 
     @trace_call("App.startup")
     def startup(self):
-        """Initialize the application and create the main window."""
+        """Initialize the application and create the main window with splash screen."""
         if TRACE_ENABLED:
             trace_log.debug("Startup sequence initiated")
+
+        # STEP 1: Show splash screen immediately for user feedback
+        try:
+            from .splash_screen import SplashScreen
+        except ImportError:
+            from splash_screen import SplashScreen
+
+        self.splash = SplashScreen(self)
+        self.splash.create()
 
         # CRITICAL: Store Toga's event loop for thread-safe UI updates
         # This is needed because background daemon threads need to schedule
@@ -133,7 +142,7 @@ class AppleMusicConverterApp(toga.App):
             self._toga_event_loop = None
             logger.info("Event loop not yet running, will initialize in startup()")
 
-        # Initialize state variables
+        # STEP 2: Initialize state variables
         self.pause_itunes_search_flag = False
         self.stop_itunes_search_flag = False
         # Removed: self.processing_thread = None (using async/await instead of threads)
@@ -145,7 +154,7 @@ class AppleMusicConverterApp(toga.App):
         self.musicbrainz_found = 0
         self.itunes_found = 0
         self.last_output_file = None  # Track last saved file for reprocessing
-        
+
         # Rate limiting setup (iTunes API)
         self.api_calls = deque(maxlen=20)  # Track last 20 API calls
         self.api_lock = Lock()  # Thread-safe lock for API calls
@@ -169,11 +178,20 @@ class AppleMusicConverterApp(toga.App):
         self.musicbrainz_search_time = 0
         self.itunes_search_time = 0
 
-        # Apply dark mode if system is using it (must be done before build_ui)
+        # STEP 3: Apply theme (fast)
         self.setup_theme()
         self.setup_design_language()
 
-        # Create main window following HIG size guidelines
+        # STEP 4: Create main window (show splash progress)
+        try:
+            # Run this synchronously since we're in sync startup()
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.splash.update_progress("Creating window...", 1))
+        except:
+            pass  # Fail gracefully if async doesn't work
+
         self.main_window = toga.MainWindow(
             title=self.formal_name,
             size=(1200, 900)  # Increased size to accommodate larger content areas
@@ -187,7 +205,13 @@ class AppleMusicConverterApp(toga.App):
             except RuntimeError:
                 logger.warning("Still no running event loop - will retry later")
 
-        # Initialize V2 music search service with modal integration
+        # STEP 5: Initialize music search service
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.splash.update_progress("Loading search service...", 2))
+        except:
+            pass
+
         self.music_search_service = MusicSearchService()
         self.music_search_service.set_parent_window(self.main_window)
         # Set rate limit callbacks to update UI
@@ -197,17 +221,61 @@ class AppleMusicConverterApp(toga.App):
         self.music_search_service.rate_limit_discovered_callback = self.on_rate_limit_discovered
         logger.debug(f"DEBUG: V2 MusicSearchService initialized with provider: {self.music_search_service.get_search_provider()}")
 
-        # Build the UI
+        # STEP 6: Build UI
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.splash.update_progress("Building interface...", 3))
+        except:
+            pass
+
         self.build_ui()
-        
-        # Check for first-time setup
-        self.check_first_time_setup()
-        
-        # Update database status
-        self.update_database_status()
-        
-        # Show the main window
+
+        # STEP 7: Show main window FIRST, then do database checks in background
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.splash.update_progress("Almost ready...", 4))
+        except:
+            pass
+
         self.main_window.show()
+
+        # STEP 8: Close splash screen
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.splash.update_progress("Ready!", 5))
+        except:
+            pass
+
+        self.splash.close()
+
+        # STEP 9: Database checks run in background (non-blocking)
+        # Schedule as background task so window remains responsive
+        asyncio.create_task(self._background_startup_checks())
+
+    async def _background_startup_checks(self):
+        """
+        Run database status checks in background after window shows.
+
+        This prevents blocking the startup sequence. The window appears instantly,
+        then database status updates asynchronously when ready.
+        """
+        try:
+            # Small delay to let window render first
+            await asyncio.sleep(0.1)
+
+            logger.info("🔍 Running background startup checks...")
+
+            # Check for first-time setup (non-blocking)
+            self.check_first_time_setup()
+
+            # Update database status (non-blocking)
+            self.update_database_status()
+
+            logger.info("✅ Background startup checks complete")
+
+        except Exception as e:
+            logger.error(f"Error in background startup checks: {e}")
+            # Don't crash the app if background checks fail
 
     def on_exit(self, widget=None, **kwargs):
         """Clean up resources when app exits to prevent crashes."""
@@ -4742,14 +4810,21 @@ Supported formats:
                         ))
                         return
                         
-                    # Check internet connection
+                    # Network connectivity check using same proven method as iTunes API
+                    # (fixes "no internet" error on Windows when iTunes API works)
                     try:
-                        import urllib.request
-                        urllib.request.urlopen('https://www.google.com', timeout=5)
-                    except Exception:
+                        import httpx
+                        import certifi
+                        import ssl
+                        ssl_context = ssl.create_default_context(cafile=certifi.where())
+                        response = httpx.get("https://www.apple.com", timeout=10, verify=ssl_context)
+                        if response.status_code != 200:
+                            raise Exception(f"Network test returned status {response.status_code}")
+                    except Exception as e:
+                        logger.error(f"Network test failed: {e}")
                         await self.main_window.dialog(toga.ErrorDialog(
                             title="Connection Error",
-                            message="No internet connection detected. Please check your connection and try again."
+                            message=f"Cannot reach internet for database download.\n\nError: {str(e)}\n\nPlease check your connection and firewall settings."
                         ))
                         return
                     
