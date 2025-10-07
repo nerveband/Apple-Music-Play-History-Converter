@@ -710,12 +710,20 @@ class AppleMusicConverterApp(toga.App):
         self.current_provider = current_provider
 
         self.musicbrainz_radio = toga.Switch(
-            "MusicBrainz",
+            "MusicBrainz (Local DB)",
             value=(current_provider == "musicbrainz"),
             on_change=self.on_musicbrainz_selected,
             style=Pack(margin_right=self.spacing["md"])
         )
         provider_buttons_box.add(self.musicbrainz_radio)
+
+        self.musicbrainz_api_radio = toga.Switch(
+            "MusicBrainz API (Online)",
+            value=(current_provider == "musicbrainz_api"),
+            on_change=self.on_musicbrainz_api_selected,
+            style=Pack(margin_right=self.spacing["md"])
+        )
+        provider_buttons_box.add(self.musicbrainz_api_radio)
 
         self.itunes_radio = toga.Switch(
             "iTunes API",
@@ -4786,7 +4794,8 @@ Supported formats:
     def on_musicbrainz_selected(self, widget):
         """Handle MusicBrainz radio button selection."""
         if widget.value:  # Only act when turned ON
-            # Turn off iTunes radio
+            # Turn off other radios
+            self.musicbrainz_api_radio.value = False
             self.itunes_radio.value = False
             self.current_provider = "musicbrainz"
             self.music_search_service.set_search_provider("musicbrainz")
@@ -4803,16 +4812,21 @@ Supported formats:
             # Show database section (MusicBrainz needs database)
             if hasattr(self, 'database_section'):
                 self.database_section.style.visibility = VISIBLE
+                self.database_section.style.update(visibility=VISIBLE)
             # Hide rate limit controls (MusicBrainz doesn't have rate limits)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = HIDDEN
-            logger.debug(f"🔍 Switched to MusicBrainz")
+                self.rate_limit_row.style.update(visibility=HIDDEN)
+                logger.debug(f"🔍 Switched to MusicBrainz - rate limit row now HIDDEN")
+            else:
+                logger.warning(f"⚠️  rate_limit_row not found when switching to MusicBrainz!")
 
     def on_itunes_selected(self, widget):
         """Handle iTunes radio button selection."""
         if widget.value:  # Only act when turned ON
-            # Turn off MusicBrainz radio
+            # Turn off other radios
             self.musicbrainz_radio.value = False
+            self.musicbrainz_api_radio.value = False
             self.current_provider = "itunes"
             self.music_search_service.set_search_provider("itunes")
             # Update search button text - handle both interrupted and normal states
@@ -4828,10 +4842,41 @@ Supported formats:
             # Hide database section (iTunes doesn't need database)
             if hasattr(self, 'database_section'):
                 self.database_section.style.visibility = HIDDEN
+                self.database_section.style.update(visibility=HIDDEN)
             # Show rate limit controls (iTunes has rate limits)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = VISIBLE
-            logger.debug(f"🔍 Switched to iTunes API")
+                self.rate_limit_row.style.update(visibility=VISIBLE)
+                logger.debug(f"🔍 Switched to iTunes API - rate limit row now VISIBLE")
+            else:
+                logger.warning(f"⚠️  rate_limit_row not found when switching to iTunes!")
+
+    def on_musicbrainz_api_selected(self, widget):
+        """Handle MusicBrainz API radio button selection."""
+        if widget.value:  # Only act when turned ON
+            # Turn off other radios
+            self.musicbrainz_radio.value = False
+            self.itunes_radio.value = False
+            self.current_provider = "musicbrainz_api"
+            self.music_search_service.set_search_provider("musicbrainz_api")
+            # Update search button text - handle both interrupted and normal states
+            if hasattr(self, 'reprocess_button'):
+                if self.is_search_interrupted:
+                    self.reprocess_button.text = "Resume MusicBrainz API Search"
+                    self.active_search_provider = "musicbrainz_api"
+                else:
+                    self.reprocess_button.text = "Search with MusicBrainz API"
+            # Hide database section (online API doesn't need local database)
+            if hasattr(self, 'database_section'):
+                self.database_section.style.visibility = HIDDEN
+                self.database_section.style.update(visibility=HIDDEN)
+            # Show rate limit controls (MusicBrainz API has rate limits: 1 req/sec)
+            if hasattr(self, 'rate_limit_row'):
+                self.rate_limit_row.style.visibility = VISIBLE
+                self.rate_limit_row.style.update(visibility=VISIBLE)
+                logger.debug(f"🔍 Switched to MusicBrainz API - rate limit row now VISIBLE")
+            else:
+                logger.warning(f"⚠️  rate_limit_row not found when switching to MusicBrainz API!")
 
     def on_itunes_api_changed(self, widget):
         """Handle iTunes API switch change."""
@@ -6068,7 +6113,12 @@ The import will validate the file format and show progress."""
                 # Resuming interrupted search - use the provider that was running
                 current_provider = self.active_search_provider
                 self.music_search_service.set_search_provider(current_provider)
-                provider_name = "iTunes API" if current_provider == "itunes" else "MusicBrainz"
+                provider_names = {
+                    "itunes": "iTunes API",
+                    "musicbrainz": "MusicBrainz",
+                    "musicbrainz_api": "MusicBrainz API"
+                }
+                provider_name = provider_names.get(current_provider, "Unknown")
                 logger.info(f"🔄 Resuming {provider_name} search...")
             elif self.force_itunes_next:
                 # MusicBrainz completed with remaining artists - force iTunes
@@ -6080,13 +6130,23 @@ The import will validate the file format and show progress."""
             elif force_provider:
                 current_provider = force_provider
                 self.music_search_service.set_search_provider(force_provider)
-                provider_name = "iTunes API" if force_provider == "itunes" else "MusicBrainz"
+                provider_names = {
+                    "itunes": "iTunes API",
+                    "musicbrainz": "MusicBrainz",
+                    "musicbrainz_api": "MusicBrainz API"
+                }
+                provider_name = provider_names.get(force_provider, "Unknown")
                 logger.debug(f"🔍 Using FORCED search provider: {provider_name}")
             else:
                 # Get current provider from the radio button state
                 current_provider = self.current_provider
                 self.music_search_service.set_search_provider(current_provider)
-                provider_name = "iTunes API" if current_provider == "itunes" else "MusicBrainz"
+                provider_names = {
+                    "itunes": "iTunes API",
+                    "musicbrainz": "MusicBrainz",
+                    "musicbrainz_api": "MusicBrainz API"
+                }
+                provider_name = provider_names.get(current_provider, "Unknown")
                 logger.debug(f"🔍 Using search provider: {provider_name}")
 
             # Check provider-specific prerequisites

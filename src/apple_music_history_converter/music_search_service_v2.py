@@ -113,8 +113,8 @@ class MusicSearchServiceV2:
         return self.settings.get("search_provider", "musicbrainz")
 
     def set_search_provider(self, provider: str):
-        """Set search provider (musicbrainz or itunes)."""
-        if provider in ["musicbrainz", "itunes"]:
+        """Set search provider (musicbrainz, musicbrainz_api, or itunes)."""
+        if provider in ["musicbrainz", "musicbrainz_api", "itunes"]:
             self.settings["search_provider"] = provider
             self._save_settings()
             logger.info(f"Search provider set to: {provider}")
@@ -263,6 +263,20 @@ class MusicSearchServiceV2:
             if auto_fallback:
                 if TRACE_ENABLED:
                     trace_log.debug("MusicBrainz miss for %s – falling back to iTunes", song_name)
+                return await self._search_itunes_async(song_name, artist_name, album_name)
+            else:
+                return result
+
+        elif provider == "musicbrainz_api":
+            # MusicBrainz API search (online, no database needed)
+            result = await self._search_musicbrainz_api_async(song_name, artist_name, album_name)
+            if result["success"]:
+                return result
+
+            # If no match and auto-fallback enabled, try iTunes
+            if auto_fallback:
+                if TRACE_ENABLED:
+                    trace_log.debug("MusicBrainz API miss for %s – falling back to iTunes", song_name)
                 return await self._search_itunes_async(song_name, artist_name, album_name)
             else:
                 return result
@@ -994,3 +1008,152 @@ class MusicSearchServiceV2:
             logger.print_always("✅ MusicSearchService closed successfully")
         except Exception as e:
             logger.print_always(f"⚠️  Error closing MusicSearchService: {e}")
+
+    @trace_call("MusicSearch._search_musicbrainz_api_async")
+    async def _search_musicbrainz_api_async(self, song_name: str, artist_name: Optional[str] = None, album_name: Optional[str] = None) -> Dict:
+        """Search MusicBrainz Web Service API with rate limiting (async wrapper)."""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._search_musicbrainz_api, song_name, artist_name, album_name
+        )
+
+    def _search_musicbrainz_api(self, song_name: str, artist_name: Optional[str] = None, album_name: Optional[str] = None) -> Dict:
+        """
+        Search MusicBrainz Web Service API.
+        
+        Rate limit: 1 request per second (MusicBrainz policy)
+        API Docs: https://musicbrainz.org/doc/MusicBrainz_API
+        """
+        import time
+        search_start = time.time()
+
+        logger.debug(f"🎵 === MUSICBRAINZ API SEARCH START ===")
+        logger.debug(f"   📊 Inputs: song='{song_name}', artist='{artist_name}', album='{album_name}'")
+
+        try:
+            # Build query string
+            query_parts = []
+            if song_name:
+                # Clean and escape song name for Lucene query
+                clean_song = song_name.replace('"', '\\"')
+                query_parts.append(f'recording:"{clean_song}"')
+            
+            if artist_name:
+                clean_artist = artist_name.replace('"', '\\"')
+                query_parts.append(f'artist:"{clean_artist}"')
+            
+            if album_name:
+                clean_album = album_name.replace('"', '\\"')
+                query_parts.append(f'release:"{clean_album}"')
+
+            if not query_parts:
+                return {
+                    "success": False,
+                    "source": "musicbrainz_api",
+                    "error": "No search terms provided"
+                }
+
+            query = " AND ".join(query_parts)
+            
+            # MusicBrainz API endpoint
+            base_url = "https://musicbrainz.org/ws/2/recording/"
+            params = {
+                "query": query,
+                "fmt": "json",
+                "limit": 10  # Get top 10 results
+            }
+
+            # Rate limiting: 1 request per second
+            with self.itunes_lock:  # Reuse iTunes lock for MB API rate limiting
+                current_time = time.time()
+                
+                # Check if we need to wait (1 second between requests)
+                if hasattr(self, '_mb_api_last_request'):
+                    time_since_last = current_time - self._mb_api_last_request
+                    if time_since_last < 1.0:
+                        wait_time = 1.0 - time_since_last
+                        logger.debug(f"⏸️  MusicBrainz API rate limit: waiting {wait_time:.2f}s")
+                        time.sleep(wait_time)
+                
+                # Make request
+                headers = {
+                    "User-Agent": "AppleMusicHistoryConverter/2.0 (https://github.com/nerveband/Apple-Music-Play-History-Converter)"
+                }
+                
+                try:
+                    with httpx.Client(http2=False, timeout=30.0) as client:
+                        response = client.get(base_url, params=params, headers=headers)
+                        self._mb_api_last_request = time.time()
+                        
+                        if response.status_code == 503:
+                            # Service unavailable (rate limited or down)
+                            elapsed = (time.time() - search_start) * 1000
+                            logger.warning(f"   ⏸️  MusicBrainz API rate limited (503) after {elapsed:.1f}ms")
+                            return {
+                                "success": False,
+                                "source": "musicbrainz_api",
+                                "error": "Rate limited (503)",
+                                "rate_limited": True
+                            }
+                        
+                        if response.status_code != 200:
+                            elapsed = (time.time() - search_start) * 1000
+                            logger.error(f"   ❌ MusicBrainz API error {response.status_code} after {elapsed:.1f}ms")
+                            return {
+                                "success": False,
+                                "source": "musicbrainz_api",
+                                "error": f"HTTP {response.status_code}"
+                            }
+                        
+                        data = response.json()
+                        recordings = data.get("recordings", [])
+                        
+                        if not recordings:
+                            elapsed = (time.time() - search_start) * 1000
+                            logger.debug(f"   ❌ MusicBrainz API NO MATCH for '{song_name}' after {elapsed:.1f}ms")
+                            return {
+                                "success": False,
+                                "source": "musicbrainz_api",
+                                "error": "No match found"
+                            }
+                        
+                        # Get artist from first result
+                        first_recording = recordings[0]
+                        artist_credits = first_recording.get("artist-credit", [])
+                        
+                        if artist_credits:
+                            artist_name = artist_credits[0].get("name", "Unknown Artist")
+                            elapsed = (time.time() - search_start) * 1000
+                            logger.debug(f"   ✅ MusicBrainz API SUCCESS: Found '{artist_name}' for '{song_name}' in {elapsed:.1f}ms")
+                            return {
+                                "success": True,
+                                "artist": artist_name,
+                                "source": "musicbrainz_api"
+                            }
+                        else:
+                            elapsed = (time.time() - search_start) * 1000
+                            logger.debug(f"   ❌ MusicBrainz API NO ARTIST for '{song_name}' after {elapsed:.1f}ms")
+                            return {
+                                "success": False,
+                                "source": "musicbrainz_api",
+                                "error": "No artist in result"
+                            }
+                
+                except httpx.RequestError as e:
+                    elapsed = (time.time() - search_start) * 1000
+                    logger.error(f"   💥 MusicBrainz API network error after {elapsed:.1f}ms: {e}")
+                    return {
+                        "success": False,
+                        "source": "musicbrainz_api",
+                        "error": f"Network error: {str(e)}"
+                    }
+
+        except Exception as e:
+            elapsed = (time.time() - search_start) * 1000
+            logger.error(f"   💥 MusicBrainz API ERROR after {elapsed:.1f}ms: {e}")
+            import traceback
+            logger.debug(f"   📚 Stack trace: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "source": "musicbrainz_api",
+                "error": str(e)
+            }
