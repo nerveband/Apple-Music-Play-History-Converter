@@ -75,7 +75,12 @@ async def test_provider(service, provider_name, test_case):
 
         if result['success']:
             found_artist = result['artist']
-            is_correct = found_artist.lower().strip() == test_case['artist'].lower().strip()
+            # Accept partial match: "Kanye West feat. Kid Cudi" matches "Kanye West"
+            expected_artist = test_case['artist'].lower().strip()
+            found_lower = found_artist.lower().strip()
+            is_correct = (found_lower == expected_artist or
+                         expected_artist in found_lower or
+                         found_lower.startswith(expected_artist + " feat"))
 
             if is_correct:
                 print(f"   ✅ CORRECT: Found '{found_artist}'")

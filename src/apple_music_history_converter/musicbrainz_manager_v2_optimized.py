@@ -1306,14 +1306,17 @@ class MusicBrainzManagerV2Optimized:
                 elif album_clean in release_clean or release_clean in album_clean:
                     weight += 3_000_000  # Large bonus for partial album match
                     score_breakdown.append(f"album_partial=+3M")
-
-        # Bonus for exact title match
-        if track_clean and release_clean == track_clean:
-            weight += 1_500_000
-            score_breakdown.append(f"title_exact=+1.5M")
-        elif track_clean and track_clean in release_clean:
-            weight += 750_000
-            score_breakdown.append(f"title_contains=+750K")
+        # CRITICAL FIX: Only apply title match bonus when NO album hint provided
+        # When we have album info, we should ONLY reward album matches
+        # This prevents "Amazing (Capshun remix)" from winning over "808s & Heartbreak"
+        elif not album_hint:
+            # Bonus for exact title match (single releases only)
+            if track_clean and release_clean == track_clean:
+                weight += 1_500_000
+                score_breakdown.append(f"title_exact=+1.5M")
+            elif track_clean and track_clean in release_clean:
+                weight += 750_000
+                score_breakdown.append(f"title_contains=+750K")
 
         # Penalties for cover/tribute/karaoke keywords
         penalty_keywords_release = [
@@ -1374,7 +1377,7 @@ class MusicBrainzManagerV2Optimized:
         return value
 
     def _result_matches_album(self, release_name: Optional[str], album_hint: Optional[str], track_clean: str = "") -> bool:
-        """Check if database release aligns with requested album."""
+        """Check if database release aligns with requested album - STRICT matching."""
         if not album_hint:
             return True
 
@@ -1387,34 +1390,55 @@ class MusicBrainzManagerV2Optimized:
         if not album_clean:
             return True
 
+        # Exact match = always valid
         if album_clean == release_clean:
             return True
 
-        if album_clean in release_clean or release_clean in album_clean:
+        # CRITICAL FIX: Remove loose substring matching that causes false positives
+        # OLD: "808s heartbreak" matched "8 from 808s" because "808" is in both
+        # NEW: Require strict token-based matching with minimum threshold
+
+        # Track-as-album special case (single releases) - ONLY when no album hint provided
+        # CRITICAL: Don't use this fallback when we have explicit album info!
+        # Example: "Amazing (Capshun remix)" cleans to "amazing" and would match track "amazing"
+        #          But we WANT "808s & Heartbreak" album, not a random remix single
+        if not album_hint and track_clean and release_clean == track_clean:
             return True
 
-        if track_clean and release_clean == track_clean:
-            return True
-
-        stop_words = {"the", "and", "a", "an", "deluxe", "edition", "bonus", "version", "feat", "featuring"}
+        # Token-based matching with ULTRA-STRICT threshold
+        stop_words = {"the", "and", "a", "an", "deluxe", "edition", "bonus", "version", "feat", "featuring", "from", "with"}
 
         album_tokens = [t for t in album_clean.split() if t not in stop_words]
         release_tokens = [t for t in release_clean.split() if t not in stop_words]
+
         if not album_tokens or not release_tokens:
             return False
 
+        # CRITICAL FIX: Require ALL significant tokens to match (not just 50%)
+        # Example: "808s & Heartbreak" has ["808s", "heartbreak"]
+        #          "8 From 808s" has ["8", "808s"]
+        #          Only "808s" matches = 1/2 = REJECT (need 2/2)
+
         matches = 0
         for token in album_tokens:
+            found_match = False
             for release_token in release_tokens:
                 if token == release_token:
                     matches += 1
+                    found_match = True
                     break
-                if len(token) >= 3 and len(release_token) >= 3 and (token in release_token or release_token in token):
-                    matches += 1
-                    break
+                # Allow partial match only for longer tokens (4+ chars) AND similar length
+                if (len(token) >= 4 and len(release_token) >= 4 and
+                    abs(len(token) - len(release_token)) <= 2):
+                    if token in release_token or release_token in token:
+                        matches += 0.5  # Partial match counts as half
+                        found_match = True
+                        break
 
+        # ULTRA-STRICT: Require 80% of album tokens to match (up from 50%)
+        # This prevents "8 From 808s" (1/2 = 50%) from matching "808s & Heartbreak"
         overlap = matches / len(album_tokens)
-        return overlap >= 0.5
+        return overlap >= 0.8
 
     def get_cache_stats(self) -> Dict:
         """Get cache performance statistics."""

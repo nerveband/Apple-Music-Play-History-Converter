@@ -24,7 +24,7 @@ async def debug_search():
     service = MusicSearchServiceV2()
     service.set_search_provider("musicbrainz")
 
-    track = "Say You Will"
+    track = "Amazing"
     album = "808s & Heartbreak"
 
     print(f"\n🔍 Searching for: {track}")
