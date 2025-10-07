@@ -1062,7 +1062,24 @@ class MusicBrainzManagerV2Optimized:
         if not clean_track:
             return None
 
-        # OPTIMIZATION: Search cascade prioritizes HOT table
+        # CRITICAL FIX: When album hint is provided, search BOTH hot and cold tables
+        # The correct track might be in COLD with lower base score but should win with album bonus
+        if album_hint:
+            logger.debug(f"🔍 Album hint provided: searching BOTH hot and cold tables")
+            # Try exact match in both tables combined
+            result = self._search_fuzzy_exact_combined(clean_track, album_hint)
+            if result:
+                return result
+            # Try prefix match in both tables combined
+            result = self._search_fuzzy_prefix_combined(clean_track, album_hint)
+            if result:
+                return result
+            # Try contains match in both tables combined
+            result = self._search_fuzzy_contains_combined(clean_track, album_hint)
+            if result:
+                return result
+
+        # OPTIMIZATION: Standard cascade for searches without album hint
         search_methods = [
             ("hot_fuzzy_exact", lambda: self._search_fuzzy_exact(clean_track, album_hint, use_hot=True)),
             ("hot_fuzzy_prefix", lambda: self._search_fuzzy_prefix(clean_track, album_hint, use_hot=True)),
@@ -1233,22 +1250,33 @@ class MusicBrainzManagerV2Optimized:
         best_overall = None
         best_overall_score = float('-inf')
 
-        for row in rows:
+        # DEBUG: Log all candidates with scores
+        logger.debug(f"🔍 Evaluating {len(rows)} candidates for track '{track_clean}' with album hint '{album_hint}'")
+
+        for i, row in enumerate(rows, 1):
             artist_credit, release_name, score = (row + (0,))[:3]
             candidate_score = self._score_candidate(artist_credit, release_name, score or 0, track_clean, album_hint)
+
+            # DEBUG: Log each candidate evaluation
+            matches_album = self._result_matches_album(release_name, album_hint, track_clean)
+            logger.debug(f"   Candidate {i}: '{artist_credit}' from '{release_name}'")
+            logger.debug(f"      Base score: {score}, Final score: {candidate_score:,.0f}, Matches album: {matches_album}")
 
             if candidate_score > best_overall_score:
                 best_overall = row
                 best_overall_score = candidate_score
 
-            if self._result_matches_album(release_name, album_hint, track_clean):
+            if matches_album:
                 if candidate_score > best_aligned_score:
                     best_aligned = row
                     best_aligned_score = candidate_score
 
         if best_aligned:
+            logger.debug(f"✅ Selected ALBUM-ALIGNED candidate: '{best_aligned[0]}' (score: {best_aligned_score:,.0f})")
             return best_aligned[0]
 
+        if best_overall:
+            logger.debug(f"✅ Selected BEST OVERALL candidate: '{best_overall[0]}' (score: {best_overall_score:,.0f})")
         return best_overall[0] if best_overall else None
 
     def _score_candidate(self, artist_credit: str, release_name: str, score: float, track_clean: str, album_hint: Optional[str] = None) -> float:
@@ -1257,9 +1285,13 @@ class MusicBrainzManagerV2Optimized:
         artist_clean = self.clean_text_conservative(artist_credit)
 
         weight = float(score)
+        score_breakdown = [f"base={weight}"]
 
         # OPTIMIZATION: Use pre-computed artist popularity cache
-        weight += self._get_artist_popularity_score(artist_credit)
+        popularity_score = self._get_artist_popularity_score(artist_credit)
+        weight += popularity_score
+        if popularity_score > 0:
+            score_breakdown.append(f"popularity=+{popularity_score}")
 
         # CRITICAL FIX: Add MASSIVE bonus for album matches (fixes "808s & Heartbreak" issue)
         # This ensures that when we have album info, we strongly prefer tracks from that album
@@ -1269,15 +1301,19 @@ class MusicBrainzManagerV2Optimized:
                 # Exact album match = HIGHEST priority
                 if album_clean == release_clean:
                     weight += 5_000_000  # Massive bonus for exact album match
+                    score_breakdown.append(f"album_exact=+5M")
                 # Partial album match = HIGH priority
                 elif album_clean in release_clean or release_clean in album_clean:
                     weight += 3_000_000  # Large bonus for partial album match
+                    score_breakdown.append(f"album_partial=+3M")
 
         # Bonus for exact title match
         if track_clean and release_clean == track_clean:
             weight += 1_500_000
+            score_breakdown.append(f"title_exact=+1.5M")
         elif track_clean and track_clean in release_clean:
             weight += 750_000
+            score_breakdown.append(f"title_contains=+750K")
 
         # Penalties for cover/tribute/karaoke keywords
         penalty_keywords_release = [
@@ -1290,15 +1326,27 @@ class MusicBrainzManagerV2Optimized:
             'lounge', 'sound-alike', 'backing track'
         ]
 
+        penalties_applied = 0
         for kw in penalty_keywords_release:
             if kw in release_clean:
                 weight -= 600_000
+                penalties_applied += 600_000
         for kw in penalty_keywords_artist:
             if kw in artist_clean:
                 weight -= 400_000
+                penalties_applied += 400_000
+
+        if penalties_applied > 0:
+            score_breakdown.append(f"penalties=-{penalties_applied/1000:.0f}K")
 
         # Prefer shorter titles
-        weight -= len(release_clean) * 100
+        length_penalty = len(release_clean) * 100
+        weight -= length_penalty
+        if length_penalty > 0:
+            score_breakdown.append(f"length=-{length_penalty}")
+
+        # DEBUG: Log score breakdown for detailed analysis
+        logger.debug(f"         Score breakdown: {' '.join(score_breakdown)} = {weight:,.0f}")
 
         return weight
 
@@ -2576,3 +2624,105 @@ class MusicBrainzManagerV2Optimized:
                 self._conn.close()
             except:
                 pass
+    def _search_fuzzy_exact_combined(self, clean_track: str, album_hint: str) -> Optional[str]:
+        """Search BOTH hot and cold tables for exact match, combine results for scoring."""
+        logger.debug(f"   🔄 Searching fuzzy_exact in BOTH hot and cold tables")
+        
+        # Query both tables
+        hot_rows = self._query_fuzzy_exact(clean_track, album_hint, use_hot=True)
+        cold_rows = self._query_fuzzy_exact(clean_track, album_hint, use_hot=False)
+        
+        # Combine results
+        all_rows = list(hot_rows) + list(cold_rows)
+        logger.debug(f"   📊 Combined {len(hot_rows)} hot + {len(cold_rows)} cold = {len(all_rows)} total candidates")
+        
+        return self._choose_candidate(all_rows, album_hint, clean_track)
+
+    def _search_fuzzy_prefix_combined(self, clean_track: str, album_hint: str) -> Optional[str]:
+        """Search BOTH hot and cold tables for prefix match, combine results for scoring."""
+        logger.debug(f"   🔄 Searching fuzzy_prefix in BOTH hot and cold tables")
+        
+        hot_rows = self._query_fuzzy_prefix(clean_track, album_hint, use_hot=True)
+        cold_rows = self._query_fuzzy_prefix(clean_track, album_hint, use_hot=False)
+        
+        all_rows = list(hot_rows) + list(cold_rows)
+        logger.debug(f"   📊 Combined {len(hot_rows)} hot + {len(cold_rows)} cold = {len(all_rows)} total candidates")
+        
+        return self._choose_candidate(all_rows, album_hint, clean_track)
+
+    def _search_fuzzy_contains_combined(self, clean_track: str, album_hint: str) -> Optional[str]:
+        """Search BOTH hot and cold tables for contains match, combine results for scoring."""
+        logger.debug(f"   🔄 Searching fuzzy_contains in BOTH hot and cold tables")
+        
+        hot_rows = self._query_fuzzy_contains(clean_track, album_hint, use_hot=True)
+        cold_rows = self._query_fuzzy_contains(clean_track, album_hint, use_hot=False)
+        
+        all_rows = list(hot_rows) + list(cold_rows)
+        logger.debug(f"   📊 Combined {len(hot_rows)} hot + {len(cold_rows)} cold = {len(all_rows)} total candidates")
+        
+        return self._choose_candidate(all_rows, album_hint, clean_track)
+
+    def _query_fuzzy_exact(self, clean_track: str, album_hint: str, use_hot: bool) -> List[Tuple]:
+        """Query exact match from specified table."""
+        table = "musicbrainz_hot" if use_hot else "musicbrainz_cold"
+        
+        sql = f"""
+            SELECT artist_credit_name, release_name, score
+            FROM {table}
+            WHERE recording_clean = ?
+            ORDER BY
+                (release_name ILIKE ?) DESC,
+                score DESC
+            LIMIT {SEARCH_ROW_LIMIT}
+        """
+        params = [clean_track, f"%{album_hint}%"]
+        
+        try:
+            return self._conn.execute(sql, params).fetchall()
+        except Exception:
+            logger.exception(f"fuzzy_exact query failed for '{clean_track}' in {table}")
+            return []
+
+    def _query_fuzzy_prefix(self, clean_track: str, album_hint: str, use_hot: bool) -> List[Tuple]:
+        """Query prefix match from specified table."""
+        table = "musicbrainz_hot" if use_hot else "musicbrainz_cold"
+        
+        sql = f"""
+            SELECT artist_credit_name, release_name, score
+            FROM {table}
+            WHERE recording_clean LIKE ? || '%'
+            ORDER BY
+                (release_name ILIKE ?) DESC,
+                length(recording_clean) ASC,
+                score DESC
+            LIMIT {SEARCH_ROW_LIMIT}
+        """
+        params = [clean_track, f"%{album_hint}%"]
+        
+        try:
+            return self._conn.execute(sql, params).fetchall()
+        except Exception:
+            logger.exception(f"fuzzy_prefix query failed for '{clean_track}' in {table}")
+            return []
+
+    def _query_fuzzy_contains(self, clean_track: str, album_hint: str, use_hot: bool) -> List[Tuple]:
+        """Query contains match from specified table."""
+        table = "musicbrainz_hot" if use_hot else "musicbrainz_cold"
+        
+        sql = f"""
+            SELECT artist_credit_name, release_name, score
+            FROM {table}
+            WHERE recording_clean LIKE '%' || ? || '%'
+            ORDER BY
+                (release_name ILIKE ?) DESC,
+                length(recording_clean) ASC,
+                score DESC
+            LIMIT {SEARCH_ROW_LIMIT}
+        """
+        params = [clean_track, f"%{album_hint}%"]
+        
+        try:
+            return self._conn.execute(sql, params).fetchall()
+        except Exception:
+            logger.exception(f"fuzzy_contains query failed for '{clean_track}' in {table}")
+            return []
