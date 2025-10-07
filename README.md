@@ -6,7 +6,7 @@
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
-> **🚀 New in v2.0.0**: Complete rewrite with Toga framework! Ultra-fast batch processing, parallel iTunes search, and fully responsive async UI. [See what's new →](#whats-new-in-v20)
+> **🚀 New in v2.0.0-beta**: Complete rewrite with Toga framework! Ultra-fast batch processing, parallel iTunes search, and fully responsive async UI. **This is a beta release** - please report any issues on GitHub. [See what's new →](#whats-new-in-v20)
 
 ## Features
 
@@ -31,7 +31,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 **No Python required!** Download the ready-to-run app for your platform:
 
 #### 🍎 macOS (Universal Binary)
-**[⬇️ Download Apple Music History Converter-2.0.0.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[⬇️ Download Apple Music History Converter-2.0.0-beta.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 ✅ **Fully signed and notarized** by Apple Developer ID
 ✅ **No security warnings** - opens immediately
@@ -45,7 +45,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 ---
 
 #### 🪟 Windows (MSI Installer)
-**[⬇️ Download Apple-Music-History-Converter-2.0.0.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[⬇️ Download Apple-Music-History-Converter-2.0.0-beta.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 ✅ **Professional MSI installer**
 ✅ **No Python installation required**
@@ -92,7 +92,10 @@ python run_toga_app.py
 3. **Click "Search for Missing Artists"** to find missing artist information
 4. **Save** the converted CSV file for Last.fm or Universal Scrobbler
 
-## What's New in v2.0
+## What's New in v2.0-beta
+
+### ⚠️ Beta Release Notice
+This is a beta release of the complete UI rewrite. While extensively tested (44/44 tests passing), please report any issues you encounter on GitHub.
 
 ### 🚀 Major Improvements
 
@@ -149,4 +152,4 @@ Built with [BeeWare Toga](https://beeware.org/) • [Pandas](https://pandas.pyda
 
 ---
 
-**Version 2.0.0** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
+**Version 2.0.0-beta** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
