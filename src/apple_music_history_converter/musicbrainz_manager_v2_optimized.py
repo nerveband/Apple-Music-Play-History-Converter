@@ -1235,7 +1235,7 @@ class MusicBrainzManagerV2Optimized:
 
         for row in rows:
             artist_credit, release_name, score = (row + (0,))[:3]
-            candidate_score = self._score_candidate(artist_credit, release_name, score or 0, track_clean)
+            candidate_score = self._score_candidate(artist_credit, release_name, score or 0, track_clean, album_hint)
 
             if candidate_score > best_overall_score:
                 best_overall = row
@@ -1251,8 +1251,8 @@ class MusicBrainzManagerV2Optimized:
 
         return best_overall[0] if best_overall else None
 
-    def _score_candidate(self, artist_credit: str, release_name: str, score: float, track_clean: str) -> float:
-        """Score a candidate match."""
+    def _score_candidate(self, artist_credit: str, release_name: str, score: float, track_clean: str, album_hint: Optional[str] = None) -> float:
+        """Score a candidate match with album hint consideration."""
         release_clean = self.clean_text_conservative(release_name) if release_name else ''
         artist_clean = self.clean_text_conservative(artist_credit)
 
@@ -1260,6 +1260,18 @@ class MusicBrainzManagerV2Optimized:
 
         # OPTIMIZATION: Use pre-computed artist popularity cache
         weight += self._get_artist_popularity_score(artist_credit)
+
+        # CRITICAL FIX: Add MASSIVE bonus for album matches (fixes "808s & Heartbreak" issue)
+        # This ensures that when we have album info, we strongly prefer tracks from that album
+        if album_hint and release_name:
+            album_clean = self.clean_text_conservative(album_hint)
+            if album_clean:
+                # Exact album match = HIGHEST priority
+                if album_clean == release_clean:
+                    weight += 5_000_000  # Massive bonus for exact album match
+                # Partial album match = HIGH priority
+                elif album_clean in release_clean or release_clean in album_clean:
+                    weight += 3_000_000  # Large bonus for partial album match
 
         # Bonus for exact title match
         if track_clean and release_clean == track_clean:

@@ -2,7 +2,7 @@
 
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 2.0.0 built with Toga/Briefcase](images/screenshot-v3.png)
+![Version 2.0.0 built with Toga/Briefcase](images/screenshot-v4.png)
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
