@@ -56,8 +56,12 @@ jobs:
 
       - name: Upload to GitHub Release (if tag)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*.msi
+          fail_on_unmatched_files: false
+          # If release doesn't exist, don't create it (manual release creation preferred)
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
