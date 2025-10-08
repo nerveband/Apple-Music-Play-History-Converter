@@ -6,7 +6,7 @@
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
-> **🚀 New in v2.0.2**: macOS exit crash resolved! Fixed Toga/Rubicon GIL crash that occurred when quitting the app. Plus automated Windows builds via GitHub Actions. [See what's new →](#whats-new-in-v202)
+> **New in v2.0.2**: macOS exit crash resolved. Fixed Toga/Rubicon GIL crash that occurred when quitting the app. Plus automated Windows builds via GitHub Actions. [See what's new](#whats-new-in-v202)
 
 ## Features
 
@@ -29,38 +29,38 @@ A modern desktop application that converts Apple Music play history CSV files in
 
 ### Download & Install
 
-**No Python required!** Download the ready-to-run app for your platform:
+**No Python required.** Download the ready-to-run app for your platform:
 
-#### 🍎 macOS (Universal Binary)
-**[⬇️ Download Apple Music History Converter-2.0.2.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+#### macOS (Universal Binary)
+**[Download Apple Music History Converter-2.0.2.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
-✅ **Fully signed and notarized** by Apple Developer ID
-✅ **No security warnings** - opens immediately
-✅ **Works on Apple Silicon (M1/M2/M3) and Intel Macs**
+**Fully signed and notarized** by Apple Developer ID
+**No security warnings**, opens immediately
+**Works on Apple Silicon (M1/M2/M3) and Intel Macs**
 
 **Installation:**
 1. Download the DMG file
 2. Open the DMG and drag the app to your Applications folder
-3. Double-click to run - no configuration needed!
+3. Double-click to run, no configuration needed
 
 ---
 
-#### 🪟 Windows (MSI Installer)
-**[⬇️ Download Apple-Music-History-Converter-2.0.2.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+#### Windows (MSI Installer)
+**[Download Apple-Music-History-Converter-2.0.2.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
-✅ **Professional MSI installer**
-✅ **No Python installation required**
-✅ **Works on Windows 10 and Windows 11**
+**Professional MSI installer**
+**No Python installation required**
+**Works on Windows 10 and Windows 11**
 
 **Installation:**
 1. Download the MSI file
 2. Double-click to install
-3. App appears in Start Menu → "Apple Music History Converter"
+3. App appears in Start Menu: "Apple Music History Converter"
 
 ---
 
-#### 🐧 Linux (Compile from Source)
-**⚠️ No pre-built binaries available** - Linux users must compile from source
+#### Linux (Compile from Source)
+**No pre-built binaries available**, Linux users must compile from source
 
 **Installation:**
 ```bash
@@ -95,7 +95,7 @@ python run_toga_app.py
 
 ## What's New in v2.0.2
 
-### 🐛 Critical macOS Exit Crash Fixed
+### Critical macOS Exit Crash Fixed
 
 - **Toga/Rubicon GIL Crash Resolved**: Eliminated fatal Python GIL crash that occurred when quitting the app on macOS
   - Crash occurred in Toga's event loop shutdown during `NSApplication.terminate()`
@@ -106,7 +106,7 @@ python run_toga_app.py
   - App now quits cleanly every time without "Abort trap 6" errors
   - See `TOGA_EXIT_CRASH_WORKAROUND.md` for complete technical documentation
 
-### 🚀 Windows Build Automation
+### Windows Build Automation
 
 - **GitHub Actions Integration**: Windows builds now fully automated via GitHub Actions
   - No local Windows machine required for releases
@@ -115,7 +115,7 @@ python run_toga_app.py
   - Automatic upload to GitHub releases
   - 3-4 minute build time per release
 
-### 📚 Comprehensive Documentation
+### Comprehensive Documentation
 
 - **Build & Release Guide**: Complete documentation in CLAUDE.md (983 lines added)
   - Step-by-step macOS build process with expected durations
@@ -133,12 +133,12 @@ python run_toga_app.py
   - Performance optimization guidelines
   - Debugging techniques for development and production
 
-### 🔧 v2.0.1 Previous Fixes
+### v2.0.1 Previous Fixes
 
 - **Search Resume Fixed**: Resolved "search already in progress" error that prevented resuming searches
 - **Rate Limit Sleep Improved**: Replaced blocking 60-second sleeps with interruptible system
 
-### 🚀 v2.0 Major Features
+### v2.0 Major Features
 
 - **100x Faster**: Batch processing with DuckDB replaces old row-by-row searches
 - **Parallel iTunes Search**: 10 concurrent workers with smart rate limiting
@@ -147,14 +147,14 @@ python run_toga_app.py
 - **Auto-Save**: Progress automatically saved every 50 tracks
 - **Better Architecture**: Clean separation of UI and processing threads
 
-### 🔧 Technical Changes
+### Technical Changes
 
 - **Toga Framework**: Modern cross-platform native UI (replaces tkinter)
 - **Thread-Safe**: Enhanced async/await patterns with comprehensive cleanup
 - **DuckDB Backend**: Optimized MusicBrainz queries with vectorized pandas operations
 - **Code Quality**: Removed 1,051 lines of dead code and legacy methods
 
-[See full changelog →](CHANGELOG.md)
+[See full changelog](CHANGELOG.md)
 
 ## Documentation
 
