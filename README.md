@@ -2,11 +2,11 @@
 
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 2.0.1 built with Toga/Briefcase](images/screenshot-v4.png)
+![Version 2.0.2 built with Toga/Briefcase](images/screenshot-v4.png)
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
-> **🚀 New in v2.0.1**: Critical stability fixes! Fixed GIL crash on exit and search resume bug. [See what's new →](#whats-new-in-v201)
+> **🚀 New in v2.0.2**: macOS exit crash resolved! Fixed Toga/Rubicon GIL crash that occurred when quitting the app. Plus automated Windows builds via GitHub Actions. [See what's new →](#whats-new-in-v202)
 
 ## Features
 
@@ -32,7 +32,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 **No Python required!** Download the ready-to-run app for your platform:
 
 #### 🍎 macOS (Universal Binary)
-**[⬇️ Download Apple Music History Converter-2.0.1.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[⬇️ Download Apple Music History Converter-2.0.2.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 ✅ **Fully signed and notarized** by Apple Developer ID
 ✅ **No security warnings** - opens immediately
@@ -46,7 +46,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 ---
 
 #### 🪟 Windows (MSI Installer)
-**[⬇️ Download Apple-Music-History-Converter-2.0.1.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[⬇️ Download Apple-Music-History-Converter-2.0.2.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 ✅ **Professional MSI installer**
 ✅ **No Python installation required**
@@ -93,16 +93,50 @@ python run_toga_app.py
 3. **Click "Search for Missing Artists"** to find missing artist information
 4. **Save** the converted CSV file for Last.fm or Universal Scrobbler
 
-## What's New in v2.0.1
+## What's New in v2.0.2
 
-### 🐛 Critical Stability Fixes
+### 🐛 Critical macOS Exit Crash Fixed
 
-- **GIL Crash Fixed**: Eliminated fatal Python GIL crash that occurred when exiting during iTunes API rate limit cooldown
-  - Replaced blocking 60-second sleeps with interruptible callback system
-  - App now exits cleanly within 5 seconds even during active API operations
+- **Toga/Rubicon GIL Crash Resolved**: Eliminated fatal Python GIL crash that occurred when quitting the app on macOS
+  - Crash occurred in Toga's event loop shutdown during `NSApplication.terminate()`
+  - Implemented proper cleanup sequence with `os._exit()` workaround for framework limitation
+  - Replaced asyncio's default executor with tracked custom executor for proper shutdown
+  - Added threading.Event for interruptible sleeps in rate limiting code
+  - All ThreadPoolExecutors now properly tracked and shut down before exit
+  - App now quits cleanly every time without "Abort trap 6" errors
+  - See `TOGA_EXIT_CRASH_WORKAROUND.md` for complete technical documentation
+
+### 🚀 Windows Build Automation
+
+- **GitHub Actions Integration**: Windows builds now fully automated via GitHub Actions
+  - No local Windows machine required for releases
+  - Automatic MSI generation on version tag push
+  - 90-day artifact retention for builds
+  - Automatic upload to GitHub releases
+  - 3-4 minute build time per release
+
+### 📚 Comprehensive Documentation
+
+- **Build & Release Guide**: Complete documentation in CLAUDE.md (983 lines added)
+  - Step-by-step macOS build process with expected durations
+  - Windows automated build workflow and monitoring commands
+  - Complete release checklist (pre-release, release day, post-release)
+  - Rollback procedures for handling bad releases
+  - Common build issues and solutions table
+
+- **Development Workflow**: Standard practices for future development
+  - Branch strategy and naming conventions
+  - Commit message standards (conventional commits)
+  - Testing requirements with coverage goals
+  - Code quality standards and review checklist
+  - Feature development 6-phase workflow
+  - Performance optimization guidelines
+  - Debugging techniques for development and production
+
+### 🔧 v2.0.1 Previous Fixes
+
 - **Search Resume Fixed**: Resolved "search already in progress" error that prevented resuming searches
-  - Thread references now properly cleaned up after completion
-  - No need to restart app between searches
+- **Rate Limit Sleep Improved**: Replaced blocking 60-second sleeps with interruptible system
 
 ### 🚀 v2.0 Major Features
 
@@ -159,4 +193,4 @@ Built with [BeeWare Toga](https://beeware.org/) • [Pandas](https://pandas.pyda
 
 ---
 
-**Version 2.0.1** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
+**Version 2.0.2** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)

@@ -1966,7 +1966,7 @@ python debug_csv.py            # Test CSV processing
 python debug_full_flow.py      # Test complete conversion flow
 ```
 
-## Current Status (v2.0.0)
+## Current Status (v2.0.2)
 
 ### ✅ Toga Migration Complete
 The project has successfully completed its migration from tkinter to Toga. Current state:
@@ -1982,9 +1982,27 @@ The project has successfully completed its migration from tkinter to Toga. Curre
 4. **Cross-Platform Builds**: Native apps for Windows, macOS, and Linux via Briefcase
 5. **Code Signing**: Full Apple Developer ID signing and notarization for macOS
 6. **Performance**: 100x faster with ultra-fast batch processing and parallel searches
+7. **Clean Exit**: Resolved Toga/Rubicon GIL crash on macOS app quit
+8. **Automated Builds**: Windows MSI builds fully automated via GitHub Actions
 
 ### Latest Release
-- **Version**: 2.0.0 (October 4, 2025)
+- **Version**: 2.0.2 (October 8, 2025)
 - **Status**: Production ready, fully signed and notarized
 - **Test Coverage**: 44/44 tests passing
 - **Performance**: Handles 253,525 rows efficiently with 10,000+ tracks/sec search speed
+- **Stability**: Clean exit on all platforms, no GIL crashes
+- **Downloads**: [macOS DMG](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/tag/v2.0.2) • [Windows MSI](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/tag/v2.0.2)
+
+### What's New in v2.0.2
+- **macOS Exit Crash Fixed**: Eliminated fatal Python GIL crash during app quit
+  - Implemented `os._exit()` workaround for Toga/Rubicon framework limitation
+  - Proper ThreadPoolExecutor cleanup with tracked custom executor
+  - Interruptible sleep system using threading.Event
+  - Complete technical documentation in `TOGA_EXIT_CRASH_WORKAROUND.md`
+- **Windows Build Automation**: GitHub Actions workflow for automated MSI builds
+  - 3-4 minute build time, 90-day artifact retention
+  - Automatic release uploads on version tags
+- **Comprehensive Documentation**: 983 lines added to CLAUDE.md
+  - Build practices and release process
+  - Development workflow and best practices
+  - Testing, code quality, and performance guidelines
