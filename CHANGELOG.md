@@ -2,6 +2,23 @@
 
 All notable changes to Apple Music Play History Converter will be documented in this file.
 
+## [2.0.1] - 2025-10-08
+
+### Fixed
+- **Critical GIL Crash**: Fixed fatal Python GIL crash on app exit during iTunes API rate limit cooldown
+  - Replaced blocking 60-second `time.sleep()` with interruptible callback system
+  - Added `app_exiting` flag to abort all sleep operations immediately during shutdown
+  - Made MusicBrainz API rate limit waits interruptible (checks exit flag every 100ms)
+  - All background threads now exit cleanly without GIL errors
+- **Search Resume Bug**: Fixed "search already in progress" error preventing resume after completion
+  - Thread references now properly cleared in `finally` blocks
+  - Users can now resume searches without restarting the app
+
+### Improved
+- **Shutdown Reliability**: Enhanced cleanup with comprehensive thread tracking and timeout handling
+- **Exit Performance**: App exits within 5 seconds even during active API operations
+- **Error Handling**: Better logging and user feedback during exit process
+
 ## [2.0.0] - 2025-10-05
 
 ### 🚀 Major Rewrite: Toga GUI Framework

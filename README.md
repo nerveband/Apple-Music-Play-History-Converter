@@ -2,11 +2,11 @@
 
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 2.0.0 built with Toga/Briefcase](images/screenshot-v4.png)
+![Version 2.0.1 built with Toga/Briefcase](images/screenshot-v4.png)
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
-> **🚀 New in v2.0.0-beta**: Complete rewrite with Toga framework! Ultra-fast batch processing, parallel iTunes search, and fully responsive async UI. **This is a beta release** - please report any issues on GitHub. [See what's new →](#whats-new-in-v20)
+> **🚀 New in v2.0.1**: Critical stability fixes! Fixed GIL crash on exit and search resume bug. [See what's new →](#whats-new-in-v201)
 
 ## Features
 
@@ -31,7 +31,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 **No Python required!** Download the ready-to-run app for your platform:
 
 #### 🍎 macOS (Universal Binary)
-**[⬇️ Download Apple Music History Converter-2.0.0-beta.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[⬇️ Download Apple Music History Converter-2.0.1.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 ✅ **Fully signed and notarized** by Apple Developer ID
 ✅ **No security warnings** - opens immediately
@@ -45,7 +45,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 ---
 
 #### 🪟 Windows (MSI Installer)
-**[⬇️ Download Apple-Music-History-Converter-2.0.0-beta.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[⬇️ Download Apple-Music-History-Converter-2.0.1.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 ✅ **Professional MSI installer**
 ✅ **No Python installation required**
@@ -92,12 +92,18 @@ python run_toga_app.py
 3. **Click "Search for Missing Artists"** to find missing artist information
 4. **Save** the converted CSV file for Last.fm or Universal Scrobbler
 
-## What's New in v2.0-beta
+## What's New in v2.0.1
 
-### ⚠️ Beta Release Notice
-This is a beta release of the complete UI rewrite. While extensively tested (44/44 tests passing), please report any issues you encounter on GitHub.
+### 🐛 Critical Stability Fixes
 
-### 🚀 Major Improvements
+- **GIL Crash Fixed**: Eliminated fatal Python GIL crash that occurred when exiting during iTunes API rate limit cooldown
+  - Replaced blocking 60-second sleeps with interruptible callback system
+  - App now exits cleanly within 5 seconds even during active API operations
+- **Search Resume Fixed**: Resolved "search already in progress" error that prevented resuming searches
+  - Thread references now properly cleaned up after completion
+  - No need to restart app between searches
+
+### 🚀 v2.0 Major Features
 
 - **100x Faster**: Batch processing with DuckDB replaces old row-by-row searches
 - **Parallel iTunes Search**: 10 concurrent workers with smart rate limiting
@@ -109,7 +115,7 @@ This is a beta release of the complete UI rewrite. While extensively tested (44/
 ### 🔧 Technical Changes
 
 - **Toga Framework**: Modern cross-platform native UI (replaces tkinter)
-- **Thread-Safe**: Proper async/await patterns with background task management
+- **Thread-Safe**: Enhanced async/await patterns with comprehensive cleanup
 - **DuckDB Backend**: Optimized MusicBrainz queries with vectorized pandas operations
 - **Code Quality**: Removed 1,051 lines of dead code and legacy methods
 
@@ -152,4 +158,4 @@ Built with [BeeWare Toga](https://beeware.org/) • [Pandas](https://pandas.pyda
 
 ---
 
-**Version 2.0.0-beta** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
+**Version 2.0.1** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
