@@ -3,6 +3,8 @@ name: Build Windows App
 on:
   push:
     branches: [ main, feature/ui-rewrite ]
+    tags:
+      - 'v*.*.*'  # Trigger on version tags
   pull_request:
     branches: [ main ]
   workflow_dispatch:  # Allow manual trigger
@@ -51,3 +53,11 @@ jobs:
           path: dist/*.msi
           if-no-files-found: error
           retention-days: 90
+
+      - name: Upload to GitHub Release (if tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

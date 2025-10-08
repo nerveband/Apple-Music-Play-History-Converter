@@ -453,6 +453,127 @@ briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
 
 **Why Toga is better**: Toga is a native Briefcase framework with full support, eliminating the need for manual dependency copying that tkinter required.
 
+### GitHub Actions Automated Builds
+
+**Windows builds are automated via GitHub Actions** - no local Windows machine required.
+
+#### Workflow Configuration
+
+The Windows build workflow is located at `.github/workflows/build-windows.yml` and supports:
+- **Push triggers**: Builds on push to `main` or `feature/ui-rewrite` branches
+- **Tag triggers**: Builds and releases on version tags (`v*.*.*`)
+- **Pull request triggers**: Builds on PRs to `main`
+- **Manual triggers**: Can be triggered manually via GitHub UI
+
+#### Triggering a Windows Build
+
+**Option 1: Automatic build on version tag (recommended)**
+```bash
+# Update version in pyproject.toml first, then:
+git add pyproject.toml
+git commit -m "chore: bump version to 2.0.2"
+git push origin main
+
+# Create and push version tag
+git tag v2.0.2
+git push origin v2.0.2
+
+# GitHub Actions will:
+# 1. Build Windows x86_64 MSI installer
+# 2. Upload as build artifact (90 day retention)
+# 3. Automatically attach to GitHub release (if tag exists)
+```
+
+**Option 2: Manual workflow trigger**
+1. Go to GitHub repository → Actions tab
+2. Select "Build Windows App" workflow
+3. Click "Run workflow" button
+4. Select branch (usually `main`)
+5. Click "Run workflow"
+
+**Option 3: Automatic build on push**
+```bash
+# Any push to main branch triggers a build
+git push origin main
+```
+
+#### Build Artifacts
+
+After the workflow completes:
+1. **Build Artifacts**: Available under Actions → Workflow run → Artifacts
+   - Artifact name: `apple-music-history-converter-windows-x86_64-msi`
+   - Contains: `Apple Music History Converter-2.0.2.msi`
+   - Retention: 90 days
+
+2. **GitHub Release** (if triggered by tag):
+   - MSI file automatically attached to the release
+   - Available at: `https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/tag/v2.0.2`
+
+#### Monitoring Build Status
+
+**View build progress:**
+```bash
+# Using GitHub CLI
+gh run list --workflow=build-windows.yml
+gh run watch
+
+# Or visit:
+# https://github.com/nerveband/Apple-Music-Play-History-Converter/actions
+```
+
+**Check build logs:**
+- Click on the workflow run in GitHub Actions
+- Expand each step to view detailed logs
+- Download build artifact if successful
+
+#### Complete Release Process
+
+To release a new version with both macOS and Windows builds:
+
+```bash
+# 1. Update version in pyproject.toml
+#    Update both [project] version and [tool.briefcase.app.*.windows] version_triple
+
+# 2. Build and sign macOS version locally
+python build.py clean
+python build.py create
+python build.py build
+briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
+
+# 3. Commit and tag
+git add pyproject.toml
+git commit -m "chore: release v2.0.2"
+git push origin main
+git tag v2.0.2
+git push origin v2.0.2
+
+# 4. Create GitHub release manually or with gh CLI
+gh release create v2.0.2 \
+  --title "v2.0.2 - Bug Fixes and Improvements" \
+  --notes "Release notes here" \
+  "dist/Apple Music History Converter-2.0.2.dmg#macOS DMG Installer"
+
+# 5. GitHub Actions will automatically build Windows MSI and attach it to the release
+#    Monitor at: https://github.com/nerveband/Apple-Music-Play-History-Converter/actions
+```
+
+#### Troubleshooting GitHub Actions
+
+**Build fails with Briefcase error:**
+- Check Python version in workflow (currently 3.12)
+- Verify all dependencies are in pyproject.toml
+- Check workflow logs for specific error
+
+**MSI not attached to release:**
+- Verify tag format matches `v*.*.*` (e.g., `v2.0.2`)
+- Check workflow permissions (GITHUB_TOKEN needs write access)
+- Ensure workflow completed successfully before creating release
+
+**Artifact download issues:**
+- Artifacts expire after 90 days
+- Only available for successful builds
+- Use `actions/upload-artifact@v4` (current version)
+
 ### macOS Code Signing and Notarization
 
 **Important**: The macOS build process includes full Apple Developer ID signing and notarization for distribution without security warnings.
