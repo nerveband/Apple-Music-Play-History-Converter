@@ -147,6 +147,19 @@ class AppleMusicConverterApp(toga.App):
         self.pause_itunes_search_flag = False
         self.stop_itunes_search_flag = False
         # Removed: self.processing_thread = None (using async/await instead of threads)
+
+        # Initialize thread tracking variables to prevent GIL crash on exit
+        self.search_thread = None
+        self.reprocessing_thread = None
+        self.retry_thread = None
+        self.rate_limit_timer = None
+
+        # Track async tasks for proper cleanup
+        self.async_tasks = []  # List of asyncio tasks that need cancellation on exit
+
+        # Track active executors for cleanup
+        self.active_executors = []  # List of ThreadPoolExecutor instances
+
         self.file_size = 0
         self.row_count = 0
         self.current_file_path = None
@@ -169,6 +182,15 @@ class AppleMusicConverterApp(toga.App):
         self.failed_requests = []  # Track failed iTunes requests for retry reporting
         self.rate_limited_tracks = []  # Track tracks that hit 403 rate limit (can retry later)
 
+        # Track permanently failed tracks by provider (in-memory only, not saved to CSV)
+        # Format: {'musicbrainz': set(track_names), 'musicbrainz_api': set(track_names), 'itunes': set(track_names)}
+        # This allows smart reordering: process new/found tracks first, failed tracks last
+        self.permanently_failed_tracks = {
+            'musicbrainz': set(),
+            'musicbrainz_api': set(),
+            'itunes': set()
+        }
+
         # Processing counters
         self.musicbrainz_count = 0
         self.itunes_count = 0
@@ -189,6 +211,15 @@ class AppleMusicConverterApp(toga.App):
             size=(1200, 900)  # Increased size to accommodate larger content areas
         )
 
+        # Add About command to app menu
+        about_command = toga.Command(
+            self.show_about_dialog,
+            text="About",
+            tooltip="About this application",
+            group=toga.Group.HELP
+        )
+        self.commands.add(about_command)
+
         # Ensure event loop is captured (critical for Windows)
         if self._toga_event_loop is None:
             try:
@@ -197,36 +228,92 @@ class AppleMusicConverterApp(toga.App):
             except RuntimeError:
                 logger.warning("Still no running event loop - will retry later")
 
-        # STEP 5: Initialize music search service
-        self.music_search_service = MusicSearchService()
-        self.music_search_service.set_parent_window(self.main_window)
-        # Set rate limit callbacks to update UI
-        self.music_search_service.rate_limit_callback = self.on_rate_limit_hit
-        self.music_search_service.rate_limit_wait_callback = self.on_rate_limit_wait
-        self.music_search_service.rate_limit_hit_callback = self.on_actual_rate_limit_detected
-        self.music_search_service.rate_limit_discovered_callback = self.on_rate_limit_discovered
-        logger.debug(f"DEBUG: V2 MusicSearchService initialized with provider: {self.music_search_service.get_search_provider()}")
+        # STEP 5: Initialize music search service placeholder (fast - no database loading yet)
+        # Database will be loaded lazily in background after UI is shown
+        self._music_search_service_instance = None  # Will be initialized in background
+        self._music_search_service_ready = False
+        self._allow_lazy_init = False  # Don't allow lazy init during UI build
 
-        # STEP 6: Build UI
+        # STEP 6: Build UI (fast - no database operations)
         self.build_ui()
 
-        # STEP 7: Show main window FIRST, then do database checks in background
+        # STEP 7: Show main window IMMEDIATELY (before any heavy operations)
         self.main_window.show()
 
         # STEP 8: Close splash screen
         self.splash.close()
 
-        # STEP 9: Database checks run in background (non-blocking)
-        # Schedule as background task so window remains responsive
+        # STEP 9: Enable lazy initialization now that UI is built
+        self._allow_lazy_init = True
+
+        # STEP 10: Initialize music search service in background (AFTER UI is visible)
+        # This prevents blocking the UI with database loading
         if self._toga_event_loop is not None:
             asyncio.run_coroutine_threadsafe(
-                self._background_startup_checks(),
+                self._background_startup_initialization(),
                 self._toga_event_loop
             )
         else:
             # Fallback: run synchronously if event loop not available
+            self._init_music_search_service()
             self.check_first_time_setup()
             self.update_database_status()
+
+    def _init_music_search_service(self):
+        """Initialize music search service (blocking operation - run in background)."""
+        logger.info("🎵 Initializing music search service...")
+        self._music_search_service_instance = MusicSearchService()
+        self._music_search_service_instance.set_parent_window(self.main_window)
+        # Set rate limit callbacks to update UI
+        self._music_search_service_instance.rate_limit_callback = self.on_rate_limit_hit
+        self._music_search_service_instance.rate_limit_wait_callback = self.on_rate_limit_wait
+        self._music_search_service_instance.rate_limit_hit_callback = self.on_actual_rate_limit_detected
+        self._music_search_service_instance.rate_limit_discovered_callback = self.on_rate_limit_discovered
+        self._music_search_service_ready = True
+        logger.info(f"✅ Music search service ready with provider: {self._music_search_service_instance.get_search_provider()}")
+
+    @property
+    def music_search_service(self):
+        """Lazy getter for music search service - ensures it's initialized before use."""
+        if not hasattr(self, '_music_search_service_instance') or self._music_search_service_instance is None:
+            # Only lazy-init if allowed (after UI is built and shown)
+            if getattr(self, '_allow_lazy_init', False):
+                logger.warning("⚠️  Music search service accessed before background init - initializing synchronously")
+                self._init_music_search_service()
+            else:
+                # During UI build - return None and let caller handle it
+                return None
+        return self._music_search_service_instance
+
+    @music_search_service.setter
+    def music_search_service(self, value):
+        """Setter for music search service."""
+        self._music_search_service_instance = value
+
+    async def _background_startup_initialization(self):
+        """
+        Initialize music search service and run database checks in background.
+
+        This prevents blocking the UI. Window appears instantly, then heavy
+        operations run asynchronously.
+        """
+        try:
+            # Small delay to let window render first
+            await asyncio.sleep(0.1)
+
+            logger.info("🔍 Running background initialization...")
+
+            # Initialize music search service (heavy operation)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                self._init_music_search_service
+            )
+
+            # Run database checks
+            await self._background_startup_checks()
+
+        except Exception as e:
+            logger.error(f"Background initialization error: {e}")
 
     async def _background_startup_checks(self):
         """
@@ -236,9 +323,6 @@ class AppleMusicConverterApp(toga.App):
         then database status updates asynchronously when ready.
         """
         try:
-            # Small delay to let window render first
-            await asyncio.sleep(0.1)
-
             logger.info("🔍 Running background startup checks...")
 
             # Check for first-time setup (non-blocking)
@@ -246,6 +330,31 @@ class AppleMusicConverterApp(toga.App):
 
             # Update database status (non-blocking)
             self.update_database_status()
+
+            # Auto-check API status for both MusicBrainz API and iTunes API
+            logger.info("🌐 Auto-checking API status...")
+            await self.check_musicbrainz_api_status(None)
+            await self.check_itunes_api_status(None)
+
+            # Sync UI controls with loaded provider settings
+            if self.music_search_service is not None:
+                loaded_provider = self.music_search_service.get_search_provider()
+                logger.info(f"🔄 Syncing UI with loaded provider: {loaded_provider}")
+
+                # Update radio buttons to match loaded provider
+                self.musicbrainz_radio.value = (loaded_provider == "musicbrainz")
+                self.musicbrainz_api_radio.value = (loaded_provider == "musicbrainz_api")
+                self.itunes_radio.value = (loaded_provider == "itunes")
+                self.current_provider = loaded_provider
+
+                # Update search button text to match loaded provider
+                if hasattr(self, 'reprocess_button'):
+                    if loaded_provider == "musicbrainz":
+                        self.reprocess_button.text = "Search with MusicBrainz"
+                    elif loaded_provider == "musicbrainz_api":
+                        self.reprocess_button.text = "Search with MusicBrainz API"
+                    else:  # itunes
+                        self.reprocess_button.text = "Search with iTunes"
 
             logger.info("✅ Background startup checks complete")
 
@@ -261,15 +370,88 @@ class AppleMusicConverterApp(toga.App):
         """
         logger.print_always("🛑 Application exit requested - cleaning up resources...")
 
-        # Stop any active searches
-        if hasattr(self, 'is_search_interrupted'):
-            self.is_search_interrupted = True
-            logger.print_always("   ✅ Stopped active searches")
+        # Set ALL interrupt flags to force threads to stop immediately
+        self.is_search_interrupted = True
+        self.stop_itunes_search_flag = True
+        self.pause_itunes_search_flag = False
+        self.skip_wait_requested = True
+        self.process_stopped = True
+        logger.print_always("   ✅ Set all interrupt flags to stop background operations")
 
-        # Stop rate limit waits
-        if hasattr(self, 'stop_itunes_search_flag'):
-            self.stop_itunes_search_flag = True
-            logger.print_always("   ✅ Stopped rate limit waits")
+        # Signal music search service to abort any sleeps immediately
+        if hasattr(self, '_music_search_service_instance') and self._music_search_service_instance:
+            self._music_search_service_instance.app_exiting = True
+            logger.print_always("   ✅ Signaled music search service to abort")
+
+        # Cancel the rate limit timer to prevent GIL crash
+        if hasattr(self, 'rate_limit_timer') and self.rate_limit_timer:
+            try:
+                self.rate_limit_timer.cancel()
+                logger.print_always("   ✅ Cancelled rate limit timer")
+            except Exception as e:
+                logger.warning(f"   ⚠️  Failed to cancel rate limit timer: {e}")
+
+        # Cancel all tracked async tasks to prevent hanging tasks
+        if hasattr(self, 'async_tasks') and self.async_tasks:
+            logger.print_always(f"   🔄 Cancelling {len(self.async_tasks)} async task(s)...")
+            for task in self.async_tasks:
+                if not task.done():
+                    task.cancel()
+            logger.print_always("   ✅ All async tasks cancelled")
+            self.async_tasks.clear()
+
+        # Shutdown any active ThreadPoolExecutors
+        if hasattr(self, 'active_executors') and self.active_executors:
+            logger.print_always(f"   🔄 Shutting down {len(self.active_executors)} ThreadPoolExecutor(s)...")
+            for executor in self.active_executors:
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except Exception as e:
+                    logger.warning(f"   ⚠️  Error shutting down executor: {e}")
+            logger.print_always("   ✅ All executors shut down")
+            self.active_executors.clear()
+
+        # Wait for any background threads to complete (with timeout)
+        # This prevents the GIL crash that occurs when threads are forcibly terminated
+        threads_to_wait = []
+
+        # Collect all active threads
+        if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.is_alive():
+            threads_to_wait.append(('search_thread', self.search_thread))
+        if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+            threads_to_wait.append(('reprocessing_thread', self.reprocessing_thread))
+        if hasattr(self, 'retry_thread') and self.retry_thread and self.retry_thread.is_alive():
+            threads_to_wait.append(('retry_thread', self.retry_thread))
+
+        # Wait for all threads with longer timeout
+        if threads_to_wait:
+            logger.print_always(f"   ⏳ Waiting for {len(threads_to_wait)} background thread(s) to finish...")
+            for thread_name, thread in threads_to_wait:
+                thread.join(timeout=5.0)  # Wait max 5 seconds per thread for API calls to abort
+                if thread.is_alive():
+                    logger.print_always(f"   ⚠️  {thread_name} still running after 5s (forcing exit)")
+                else:
+                    logger.print_always(f"   ✅ {thread_name} completed")
+
+        # Give worker threads time to clean up, then force shutdown if needed
+        import time
+        import threading
+        active_count = threading.active_count()
+        if active_count > 1:  # More than just the main thread
+            logger.print_always(f"   ⏳ Waiting for {active_count - 1} remaining worker thread(s)...")
+            time.sleep(1.0)  # Give worker threads time to complete
+
+            # Check again and list any remaining threads
+            active_count = threading.active_count()
+            if active_count > 1:
+                logger.print_always(f"   ⚠️  {active_count - 1} worker thread(s) still active:")
+                for thread in threading.enumerate():
+                    if thread != threading.current_thread():
+                        logger.print_always(f"       - {thread.name} (daemon={thread.daemon})")
+
+                # Give daemon threads one more second to finish
+                logger.print_always(f"   ⏳ Giving threads 1 more second to finish...")
+                time.sleep(1.0)
 
         # CRITICAL: Close DuckDB connections BEFORE Python shutdown to prevent GIL crash
         # The crash (abort trap: 6) occurs when DuckDB's destructor tries to call
@@ -280,11 +462,9 @@ class AppleMusicConverterApp(toga.App):
                 logger.print_always("   🔒 Closing database connections...")
                 if hasattr(self.music_search_service, 'close'):
                     self.music_search_service.close()
+                logger.print_always("   ✅ Database connections closed")
             except Exception as e:
                 logger.print_always(f"   ⚠️  Error closing connections: {e}")
-
-        # Don't sleep during exit - it can cause GIL issues with Toga's event loop
-        # Background threads will be terminated by Python when the process exits
 
         logger.print_always("✅ Cleanup complete - exiting gracefully")
         return True  # Allow exit to proceed
@@ -323,11 +503,15 @@ class AppleMusicConverterApp(toga.App):
             "background": "#FFFFFF" if not getattr(self, "is_dark_mode", False) else "#1C1C1E",
             "sidebar": "#F2F2F7" if not getattr(self, "is_dark_mode", False) else "#2C2C2E",
             "card": "#FFFFFF" if not getattr(self, "is_dark_mode", False) else "#1C1C1E",
+            "inset_background": "#F2F2F7" if not getattr(self, "is_dark_mode", False) else "#2C2C2E",
             "border": "#E5E5EA" if not getattr(self, "is_dark_mode", False) else "#38383A",
             "text_primary": "#000000" if not getattr(self, "is_dark_mode", False) else "#FFFFFF",
             "text_secondary": "#666666" if not getattr(self, "is_dark_mode", False) else "#98989D",
             "text_muted": "#999999" if not getattr(self, "is_dark_mode", False) else "#636366",
-            "accent": "#007AFF" if not getattr(self, "is_dark_mode", False) else "#0A84FF"
+            "accent": "#007AFF" if not getattr(self, "is_dark_mode", False) else "#0A84FF",
+            "success": "#34C759" if not getattr(self, "is_dark_mode", False) else "#30D158",
+            "warning": "#FF9500" if not getattr(self, "is_dark_mode", False) else "#FF9F0A",
+            "error": "#FF3B30" if not getattr(self, "is_dark_mode", False) else "#FF453A"
         }
 
         # Typography scale for consistent hierarchy across platforms
@@ -347,8 +531,15 @@ class AppleMusicConverterApp(toga.App):
             "body": {
                 "font_size": 10  # Minimum 10 points
             },
+            "body_bold": {
+                "font_size": 10,  # Minimum 10 points
+                "font_weight": "bold"
+            },
             "caption": {
                 "font_size": 10  # Minimum 10 points
+            },
+            "caption_small": {
+                "font_size": 9  # Smaller for descriptive text in settings
             }
         }
 
@@ -508,10 +699,11 @@ class AppleMusicConverterApp(toga.App):
         )
 
         # Left side - scrollable main workflow area with inset content
+        # Give it flex=2 to prioritize over settings panel (flex=1)
         main_content_shell = toga.Box(
             style=Pack(
                 direction=COLUMN,
-                flex=1,
+                flex=2,  # Higher priority than settings panel
                 margin_right=self.spacing["md"]
                 # Remove background_color to prevent white artifacts
             )
@@ -626,15 +818,16 @@ class AppleMusicConverterApp(toga.App):
     @trace_call("App.create_settings_panel")
     def create_comprehensive_settings_panel(self):
         """Create HIG-compliant settings sidebar with proper typography and spacing."""
-        # Responsive settings panel - no fixed width or scroll container
+        # Responsive settings panel with max width to prevent squishing main content
         settings_shell = toga.Box(
             style=Pack(
                 direction=COLUMN,
+                flex=1,  # Take less space than main content (flex=2)
+                width=400,  # Max width to prevent settings from dominating
                 margin_left=self.spacing["md"],
                 margin_right=self.spacing["md"],
                 margin_bottom=self.spacing["md"]
                 # No margin_top to align Settings title with main title
-                # No fixed width - allows content to size naturally
                 # No background_color - transparent sidebar
             )
         )
@@ -663,14 +856,21 @@ class AppleMusicConverterApp(toga.App):
         self.database_section = self.create_database_section()
         content.add(self.database_section)
 
-        # Set initial visibility based on current provider
-        current_provider = self.music_search_service.get_search_provider()
-        if current_provider == "itunes":
-            self.database_section.style.visibility = HIDDEN
+        # Create MusicBrainz API section (online API settings)
+        content.add(self.section_divider())
+        self.musicbrainz_api_section = self.create_musicbrainz_api_section()
+        content.add(self.musicbrainz_api_section)
 
+        # Create iTunes API section
         content.add(self.section_divider())
         self.itunes_section = self.create_itunes_api_section()
         content.add(self.itunes_section)
+
+        # Set initial visibility based on current provider (default to musicbrainz_api if not initialized)
+        current_provider = "musicbrainz_api"  # Default during UI build
+        if self.music_search_service is not None:
+            current_provider = self.music_search_service.get_search_provider()
+        self.update_settings_visibility(current_provider)
 
         settings_shell.add(content)
         # settings_scroll.content = settings_shell  # Removed
@@ -698,22 +898,25 @@ class AppleMusicConverterApp(toga.App):
         )
 
         # Radio buttons for provider selection (using Switch widgets)
+        # Each provider on its own line for better readability
         provider_buttons_box = toga.Box(
             style=Pack(
-                direction=ROW,
+                direction=COLUMN,
                 margin_bottom=self.spacing["xs"]
             )
         )
 
-        # Set initial provider
-        current_provider = self.music_search_service.get_search_provider()
+        # Set initial provider (handle None during UI build)
+        current_provider = "musicbrainz_api"  # Default
+        if self.music_search_service is not None:
+            current_provider = self.music_search_service.get_search_provider()
         self.current_provider = current_provider
 
         self.musicbrainz_radio = toga.Switch(
             "MusicBrainz (Local DB)",
             value=(current_provider == "musicbrainz"),
             on_change=self.on_musicbrainz_selected,
-            style=Pack(margin_right=self.spacing["md"])
+            style=Pack(margin_bottom=self.spacing["xs"])
         )
         provider_buttons_box.add(self.musicbrainz_radio)
 
@@ -721,7 +924,7 @@ class AppleMusicConverterApp(toga.App):
             "MusicBrainz API (Online)",
             value=(current_provider == "musicbrainz_api"),
             on_change=self.on_musicbrainz_api_selected,
-            style=Pack(margin_right=self.spacing["md"])
+            style=Pack(margin_bottom=self.spacing["xs"])
         )
         provider_buttons_box.add(self.musicbrainz_api_radio)
 
@@ -729,7 +932,7 @@ class AppleMusicConverterApp(toga.App):
             "iTunes API",
             value=(current_provider == "itunes"),
             on_change=self.on_itunes_selected,
-            style=Pack()
+            style=Pack(margin_bottom=self.spacing["xs"])
         )
         provider_buttons_box.add(self.itunes_radio)
 
@@ -935,20 +1138,22 @@ class AppleMusicConverterApp(toga.App):
         self.db_size_label = toga.Label(
             "Size: 0 bytes",
             style=self.get_pack_style(
-                **self.typography["caption"],
+                **self.typography["caption_small"],
                 color=self.colors["text_secondary"],
                 margin_bottom=self.spacing["xxs"]
             )
         )
         info_inset.add(self.db_size_label)
 
-        # Add database location path - ensure full path is not truncated
-        self.db_location_label = toga.Label(
-            "Location: Not set",
-            style=self.get_pack_style(
-                **self.typography["caption"],
-                color=self.colors["text_secondary"]
-                # Allow text to wrap if needed to show full path
+        # Add database location path - use MultilineTextInput for wrapping
+        self.db_location_label = toga.MultilineTextInput(
+            value="Location: Not set",
+            readonly=True,
+            style=Pack(
+                font_size=9,
+                height=60,  # Increased height for better readability
+                width=350,  # Fixed width to prevent layout issues
+                flex=1
             )
         )
         info_inset.add(self.db_location_label)
@@ -956,7 +1161,7 @@ class AppleMusicConverterApp(toga.App):
         self.db_tracks_label = toga.Label(
             "",
             style=self.get_pack_style(
-                **self.typography["caption"],
+                **self.typography["caption_small"],
                 color=self.colors["text_secondary"],
                 margin_bottom=self.spacing["xxs"]
             )
@@ -966,7 +1171,7 @@ class AppleMusicConverterApp(toga.App):
         self.db_updated_label = toga.Label(
             "Never updated",
             style=self.get_pack_style(
-                **self.typography["caption"],
+                **self.typography["caption_small"],
                 color=self.colors["text_secondary"]
             )
         )
@@ -976,9 +1181,257 @@ class AppleMusicConverterApp(toga.App):
         db_box.add(info_container)
 
         return db_box
-    
+
+    def create_musicbrainz_api_section(self):
+        """Create Music Brainz API configuration section with status check."""
+        mb_api_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                margin_bottom=self.spacing["md"]
+            )
+        )
+
+        mb_api_box.add(
+            toga.Label(
+                "MusicBrainz API settings",
+                style=self.get_pack_style(
+                    **self.typography["headline"],
+                    color=self.colors["text_primary"],
+                    margin_bottom=self.spacing["xs"]
+                )
+            )
+        )
+
+        # API URL display
+        api_url_box = toga.Box(
+            style=Pack(
+                direction=ROW,
+                align_items=CENTER,
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+        api_url_box.add(
+            toga.Label(
+                "API URL:",
+                style=self.get_pack_style(
+                    **self.typography["body"],
+                    color=self.colors["text_secondary"],
+                    margin_right=self.spacing["xxs"]
+                )
+            )
+        )
+        api_url_box.add(
+            toga.Label(
+                "https://musicbrainz.org/ws/2/",
+                style=self.get_pack_style(
+                    **self.typography["caption"],
+                    color=self.colors["accent"]
+                )
+            )
+        )
+        mb_api_box.add(api_url_box)
+
+        # Status check button with status display
+        status_row = toga.Box(
+            style=Pack(
+                direction=ROW,
+                align_items=CENTER,
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+
+        self.mb_api_status_button = toga.Button(
+            "Check Status",
+            on_press=self.check_musicbrainz_api_status,
+            style=Pack(margin_right=self.spacing["xs"])
+        )
+        status_row.add(self.mb_api_status_button)
+
+        self.mb_api_status_label = toga.Label(
+            "Status: Unknown",
+            style=self.get_pack_style(
+                **self.typography["caption"],
+                color=self.colors["text_secondary"]
+            )
+        )
+        status_row.add(self.mb_api_status_label)
+
+        mb_api_box.add(status_row)
+
+        # Rate limiting information (read-only, from MusicBrainz rules)
+        # No background or margin per user request
+        info_box = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+
+        info_box.add(
+            toga.Label(
+                "⚠️ Rate Limiting Rules (per MusicBrainz API policy):",
+                style=self.get_pack_style(
+                    **self.typography["body_bold"],
+                    color=self.colors["warning"],
+                    margin_bottom=self.spacing["xxs"]
+                )
+            )
+        )
+
+        info_box.add(
+            toga.Label(
+                "• Maximum: 1 request per second",
+                style=self.get_pack_style(
+                    **self.typography["caption_small"],
+                    color=self.colors["text_primary"],
+                    margin_bottom=2
+                )
+            )
+        )
+
+        info_box.add(
+            toga.Label(
+                "• Parallel requests: NOT allowed",
+                style=self.get_pack_style(
+                    **self.typography["caption_small"],
+                    color=self.colors["text_primary"],
+                    margin_bottom=2
+                )
+            )
+        )
+
+        info_box.add(
+            toga.Label(
+                "• Global limit: 300 req/sec shared by all users",
+                style=self.get_pack_style(
+                    **self.typography["caption_small"],
+                    color=self.colors["text_primary"],
+                    margin_bottom=self.spacing["xxs"]
+                )
+            )
+        )
+
+        info_box.add(
+            toga.Label(
+                "Exceeding limits will result in HTTP 503 errors and may block your IP.",
+                style=self.get_pack_style(
+                    **self.typography["caption_small"],
+                    color=self.colors["text_secondary"]
+                )
+            )
+        )
+
+        mb_api_box.add(info_box)
+
+        return mb_api_box
+
+    def update_settings_visibility(self, provider: str):
+        """Update visibility of settings sections based on selected provider.
+
+        Per user request: All settings are now always visible.
+        This method is kept for compatibility but does nothing.
+        """
+        # All sections always visible - no dynamic hiding
+        pass
+
+    async def check_musicbrainz_api_status(self, widget):
+        """Check MusicBrainz API status and display result."""
+        self.mb_api_status_label.text = "Status: Checking..."
+        self.mb_api_status_button.enabled = False
+
+        try:
+            import httpx
+            import asyncio
+
+            # Test endpoint with proper User-Agent (MusicBrainz requires contact info)
+            # Format: Application/Version ( contact-url-or-email )
+            url = "https://musicbrainz.org/ws/2/recording/?query=test&limit=1&fmt=json"
+            headers = {
+                'User-Agent': 'AppleMusicHistoryConverter/2.0 ( hello@ashrafali.net )'
+            }
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=headers)
+
+            if response.status_code == 200:
+                self.mb_api_status_label.text = f"Status: ✅ Online (HTTP {response.status_code})"
+                self.mb_api_status_label.style.color = self.colors["success"]
+            elif response.status_code == 503:
+                self.mb_api_status_label.text = "Status: ⚠️ Rate Limited (HTTP 503)"
+                self.mb_api_status_label.style.color = self.colors["warning"]
+            else:
+                self.mb_api_status_label.text = f"Status: ⚠️ HTTP {response.status_code}"
+                self.mb_api_status_label.style.color = self.colors["warning"]
+
+        except httpx.TimeoutException:
+            self.mb_api_status_label.text = "Status: ❌ Timeout"
+            self.mb_api_status_label.style.color = self.colors["error"]
+        except Exception as e:
+            self.mb_api_status_label.text = f"Status: ❌ Error"
+            self.mb_api_status_label.style.color = self.colors["error"]
+            logger.error(f"MusicBrainz API status check failed: {e}")
+        finally:
+            self.mb_api_status_button.enabled = True
+
+    async def check_itunes_api_status(self, widget):
+        """Check iTunes API status and display result."""
+        self.itunes_status_label.text = "Status: Checking..."
+        self.itunes_status_button.enabled = False
+
+        try:
+            import httpx
+            import asyncio
+
+            # Test iTunes Search API with a simple query
+            url = "https://itunes.apple.com/search?term=test&limit=1"
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+
+            if response.status_code == 200:
+                self.itunes_status_label.text = f"Status: ✅ Online (HTTP {response.status_code})"
+                self.itunes_status_label.style.color = self.colors["success"]
+            elif response.status_code == 403:
+                self.itunes_status_label.text = "Status: ⚠️ Rate Limited (HTTP 403)"
+                self.itunes_status_label.style.color = self.colors["warning"]
+            else:
+                self.itunes_status_label.text = f"Status: ⚠️ HTTP {response.status_code}"
+                self.itunes_status_label.style.color = self.colors["warning"]
+
+        except httpx.TimeoutException:
+            self.itunes_status_label.text = "Status: ❌ Timeout"
+            self.itunes_status_label.style.color = self.colors["error"]
+        except Exception as e:
+            self.itunes_status_label.text = f"Status: ❌ Error"
+            self.itunes_status_label.style.color = self.colors["error"]
+            logger.error(f"iTunes API status check failed: {e}")
+        finally:
+            self.itunes_status_button.enabled = True
+
+    def get_provider_display_name(self, provider: str) -> str:
+        """Get human-readable display name for a search provider."""
+        names = {
+            "musicbrainz": "MusicBrainz",
+            "musicbrainz_api": "MusicBrainz API",
+            "itunes": "iTunes API"
+        }
+        return names.get(provider, provider)
+
+    async def show_about_dialog(self, widget):
+        """Show About dialog with app info and credits."""
+        await self.main_window.dialog(toga.InfoDialog(
+            title="About Apple Music History Converter",
+            message="Apple Music History Converter v2.0\n\n"
+                    "Convert Apple Music CSV exports to Last.fm format\n"
+                    "with automatic artist/track matching via MusicBrainz\n"
+                    "and iTunes APIs.\n\n"
+                    "Made with <3 by Ashraf Ali\n"
+                    "https://ashrafali.net\n\n"
+                    "Building tools for music lovers and data enthusiasts."
+        ))
+
     # Removed create_advanced_options_section - no placeholder sections
-    
+
     def create_itunes_api_section(self):
         """Create HIG-compliant iTunes API configuration section."""
         itunes_box = toga.Box(
@@ -999,6 +1452,33 @@ class AppleMusicConverterApp(toga.App):
             )
         )
 
+        # iTunes API status check
+        itunes_status_row = toga.Box(
+            style=Pack(
+                direction=ROW,
+                align_items=CENTER,
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+
+        self.itunes_status_button = toga.Button(
+            "Check Status",
+            on_press=self.check_itunes_api_status,
+            style=Pack(margin_right=self.spacing["xs"])
+        )
+        itunes_status_row.add(self.itunes_status_button)
+
+        self.itunes_status_label = toga.Label(
+            "Status: Unknown",
+            style=self.get_pack_style(
+                **self.typography["caption"],
+                color=self.colors["text_secondary"]
+            )
+        )
+        itunes_status_row.add(self.itunes_status_label)
+
+        itunes_box.add(itunes_status_row)
+
         # Description removed per user request
         # itunes_box.add(
         #     toga.Label(
@@ -1011,20 +1491,10 @@ class AppleMusicConverterApp(toga.App):
         #     )
         # )
 
-        # "Use iTunes for missing artists" switch removed per user request
-        # self.itunes_api_switch = toga.Switch(
-        #     "Use iTunes for missing artists",
-        #     value=False,
-        #     on_change=self.on_itunes_api_changed,
-        #     style=Pack(
-        #         margin_bottom=self.spacing["sm"]
-        #     )
-        # )
-        # instrument_widget(self.itunes_api_switch, "itunes_api_switch")
-        # itunes_box.add(self.itunes_api_switch)
-
-        # Adaptive rate limit toggle
-        use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
+        # Adaptive rate limit toggle (handle None during UI build)
+        use_adaptive = True  # Default
+        if self.music_search_service is not None:
+            use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
         self.adaptive_rate_limit_switch = toga.Switch(
             "Use adaptive rate limit (learns from rate limit errors)",
             value=use_adaptive,
@@ -1034,18 +1504,6 @@ class AppleMusicConverterApp(toga.App):
             )
         )
         itunes_box.add(self.adaptive_rate_limit_switch)
-
-        # Parallel processing toggle
-        use_parallel = self.music_search_service.settings.get("use_parallel_requests", False)
-        self.parallel_mode_switch = toga.Switch(
-            "Use parallel requests (faster but more aggressive)",
-            value=use_parallel,
-            on_change=self.on_parallel_mode_changed,
-            style=Pack(
-                margin_bottom=self.spacing["xs"]
-            )
-        )
-        itunes_box.add(self.parallel_mode_switch)
 
         # Rate limit control with HIG form layout
         rate_row = toga.Box(
@@ -1065,8 +1523,10 @@ class AppleMusicConverterApp(toga.App):
         )
         rate_row.add(rate_label)
 
-        # Get current rate limit from settings
-        current_rate_limit = self.music_search_service.settings.get("itunes_rate_limit", 20)
+        # Get current rate limit from settings (handle None during UI build)
+        current_rate_limit = 20  # Default
+        if self.music_search_service is not None:
+            current_rate_limit = self.music_search_service.settings.get("itunes_rate_limit", 20)
 
         self.rate_limit_input = toga.TextInput(
             value=str(current_rate_limit),
@@ -1097,6 +1557,31 @@ class AppleMusicConverterApp(toga.App):
         )
         rate_row.add(self.save_rate_limit_button)
 
+        itunes_box.add(rate_row)
+
+        # Second row: Pause/Resume button and Current rate display
+        rate_row2 = toga.Box(
+            style=Pack(
+                direction=ROW,
+                align_items=CENTER,
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+
+        # Pause/Resume rate limiting button
+        rate_limit_paused = False
+        if self.music_search_service is not None:
+            rate_limit_paused = self.music_search_service.settings.get("rate_limit_paused", False)
+
+        self.pause_rate_limit_button = toga.Button(
+            "Resume Rate Limit" if rate_limit_paused else "Pause Rate Limit",
+            on_press=self.toggle_rate_limit_pause,
+            style=Pack(
+                margin_right=self.spacing["xs"]
+            )
+        )
+        rate_row2.add(self.pause_rate_limit_button)
+
         # Current rate limit display
         self.current_rate_label = toga.Label(
             f"Current: {current_rate_limit} req/min",
@@ -1105,16 +1590,21 @@ class AppleMusicConverterApp(toga.App):
                 color=self.colors["text_secondary"]
             )
         )
-        rate_row.add(self.current_rate_label)
+        rate_row2.add(self.current_rate_label)
 
-        itunes_box.add(rate_row)
+        itunes_box.add(rate_row2)
 
-        # Discovered rate limit display
-        discovered_limit = self.music_search_service.settings.get("discovered_rate_limit", None)
-        use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
+        # Discovered rate limit display (handle None during UI build)
+        discovered_limit = None
+        use_adaptive = True  # Default
+        if self.music_search_service is not None:
+            discovered_limit = self.music_search_service.settings.get("discovered_rate_limit", None)
+            use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
 
         if discovered_limit:
-            safety_margin = self.music_search_service.settings.get("rate_limit_safety_margin", 0.8)
+            safety_margin = 0.8  # Default
+            if self.music_search_service is not None:
+                safety_margin = self.music_search_service.settings.get("rate_limit_safety_margin", 0.8)
             effective_limit = int(discovered_limit * safety_margin)
             discovered_text = f"Discovered: {discovered_limit} req/min (using {effective_limit})"
         else:
@@ -1133,35 +1623,13 @@ class AppleMusicConverterApp(toga.App):
         )
         itunes_box.add(self.discovered_limit_label)
 
-        # Rate limit warning with HIG caption style
-        itunes_box.add(
-            toga.Label(
-                "Official: ~20 req/min | Observed: 10-350 req/min (varies by IP)",
-                style=self.get_pack_style(
-                    **self.typography["caption"],
-                    color=self.colors["text_secondary"],
-                    margin_bottom=self.spacing["xs"]
-                )
-            )
-        )
-
-        # API Status with HIG typography
+        # API Status with HIG typography (no "Status: Ready" text, just timer)
         status_container = toga.Box(
             style=Pack(
                 direction=COLUMN,
                 margin_bottom=self.spacing["xs"]
             )
         )
-
-        self.api_status_label = toga.Label(
-            "Status: Ready",
-            style=self.get_pack_style(
-                **self.typography["body"],
-                color=self.colors["text_primary"],
-                margin_bottom=self.spacing["xxs"]
-            )
-        )
-        status_container.add(self.api_status_label)
 
         self.api_timer_label = toga.Label(
             "",
@@ -1173,10 +1641,24 @@ class AppleMusicConverterApp(toga.App):
         status_container.add(self.api_timer_label)
         itunes_box.add(status_container)
 
+        # Cache duplicate track lookups (below rate limit section)
+        cache_results = True  # Default (enabled to save API calls)
+        if self.music_search_service is not None:
+            cache_results = self.music_search_service.settings.get("cache_search_results", True)
+        self.cache_results_switch = toga.Switch(
+            "Cache duplicate track lookups",
+            value=cache_results,
+            on_change=self.on_cache_results_changed,
+            style=Pack(
+                margin_bottom=self.spacing["xs"]
+            )
+        )
+        itunes_box.add(self.cache_results_switch)
+
         # Note: Control buttons are in the main processing section to avoid duplication
-        
+
         # Remove control help text - keep interface clean
-        
+
         return itunes_box
     
     def create_file_selection_section(self):
@@ -1222,12 +1704,15 @@ class AppleMusicConverterApp(toga.App):
                 "Other/Generic CSV"
             ],
             style=Pack(
-                width=220,
-                flex=1
+                width=220
             )
         )
         instrument_widget(self.file_type_selection, "file_type_selection")
         file_row.add(self.file_type_selection)
+
+        # Spacer to push Convert button to the right (aligns with Export button)
+        convert_spacer = toga.Box(style=Pack(flex=1))
+        file_row.add(convert_spacer)
 
         self.convert_button = toga.Button(
             "Convert to Last.fm Format",
@@ -1348,9 +1833,18 @@ class AppleMusicConverterApp(toga.App):
             )
         )
 
-        # Initialize with current provider in button text
-        initial_provider = self.music_search_service.get_search_provider()
-        button_text = "Search with MusicBrainz" if initial_provider == "musicbrainz" else "Search with iTunes"
+        # Initialize with current provider in button text (handle None during UI build)
+        initial_provider = "musicbrainz_api"  # Default
+        if self.music_search_service is not None:
+            initial_provider = self.music_search_service.get_search_provider()
+
+        # Set button text based on provider
+        if initial_provider == "musicbrainz":
+            button_text = "Search with MusicBrainz"
+        elif initial_provider == "musicbrainz_api":
+            button_text = "Search with MusicBrainz API"
+        else:  # itunes
+            button_text = "Search with iTunes"
 
         self.reprocess_button = toga.Button(
             button_text,
@@ -1707,6 +2201,21 @@ class AppleMusicConverterApp(toga.App):
     async def browse_file(self, widget):
         """Handle file browsing with comprehensive analysis and error handling."""
         try:
+            # Check if search is currently running
+            if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.is_alive():
+                await self.main_window.dialog(toga.InfoDialog(
+                    title="Search In Progress",
+                    message="Please stop the current search before loading a new file."
+                ))
+                return
+
+            if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+                await self.main_window.dialog(toga.InfoDialog(
+                    title="Search In Progress",
+                    message="Please stop the current search before loading a new file."
+                ))
+                return
+
             # Try to open the file dialog
             try:
                 file_path = await self.main_window.dialog(toga.OpenFileDialog(
@@ -1753,6 +2262,13 @@ class AppleMusicConverterApp(toga.App):
                     self.musicbrainz_found = 0
                     self.itunes_found = 0
                     self.musicbrainz_count = 0
+
+                    # Clear permanently failed tracks (new file, fresh start)
+                    self.permanently_failed_tracks = {
+                        'musicbrainz': set(),
+                        'musicbrainz_api': set(),
+                        'itunes': set()
+                    }
 
                     # Clear processed data so searches can run again
                     self.processed_df = None
@@ -1965,6 +2481,17 @@ class AppleMusicConverterApp(toga.App):
         # Update UI for processing
         self.convert_button.enabled = False
         self.process_stop_button.enabled = True
+
+        # Set stop button text based on current provider
+        if self.current_provider == "itunes":
+            self.process_stop_button.text = "Stop iTunes API"
+        elif self.current_provider == "musicbrainz_api":
+            self.process_stop_button.text = "Stop MusicBrainz API"
+        elif self.current_provider == "musicbrainz":
+            self.process_stop_button.text = "Stop MusicBrainz"
+        else:
+            self.process_stop_button.text = "Stop"
+
         # Disable copy and save buttons during processing
         self.copy_button.enabled = False
         self.save_button.enabled = False
@@ -2206,13 +2733,37 @@ class AppleMusicConverterApp(toga.App):
             if not os.access(file_path, os.R_OK):
                 raise PermissionError(f"Cannot read file: {file_path}")
             
-            # Check file size
+            # Check file size and available memory
             file_size = os.path.getsize(file_path)
             if file_size == 0:
                 raise ValueError("File is empty")
-            
+
+            # Hard limit: 500MB file size
             if file_size > 500 * 1024 * 1024:  # 500MB limit
                 raise ValueError(f"File too large ({file_size / (1024**2):.1f}MB). Maximum size: 500MB")
+
+            # Memory usage info for large files (pandas typically uses 2-3x file size)
+            file_size_mb = file_size / (1024**2)
+            if file_size_mb > 50:  # Log info for files larger than 50MB
+                try:
+                    import psutil
+                    available_memory = psutil.virtual_memory().available
+                    available_mb = available_memory / (1024**2)
+                    estimated_usage_mb = file_size_mb * 3
+
+                    info_msg = (
+                        f"Large file detected: {file_size_mb:.0f}MB\n"
+                        f"Estimated memory usage: ~{estimated_usage_mb:.0f}MB\n"
+                        f"Available memory: {available_mb:.0f}MB"
+                    )
+
+                    if available_memory < file_size * 3:
+                        logger.warning(f"{info_msg}\n⚠️ Available memory may be insufficient - app could become slow or crash")
+                    else:
+                        logger.info(info_msg)
+                except ImportError:
+                    # psutil not available - just log file size
+                    logger.info(f"Large file: {file_size_mb:.0f}MB (estimated memory usage: ~{file_size_mb * 3:.0f}MB)")
             
             encodings_to_try = ['utf-8', 'utf-8-sig', 'latin1', 'cp1252']
             encoding_used = None
@@ -4162,6 +4713,18 @@ class AppleMusicConverterApp(toga.App):
                 )))
             return None
     
+    def safe_set_widget_property(self, widget_name: str, property_name: str, value):
+        """Safely set widget property with existence check to prevent crashes."""
+        try:
+            if hasattr(self, widget_name):
+                widget = getattr(self, widget_name)
+                if widget is not None and hasattr(widget, property_name):
+                    setattr(widget, property_name, value)
+                    return True
+        except Exception as e:
+            logger.warning(f"Failed to set {widget_name}.{property_name}: {e}")
+        return False
+
     def update_results(self, text):
         """Update the results text area."""
         # Store values for UI update
@@ -4171,7 +4734,8 @@ class AppleMusicConverterApp(toga.App):
 
     async def _update_results_ui(self, widget=None):
         """Update results UI on main thread."""
-        self.results_text.value = self._pending_results_text
+        if hasattr(self, 'results_text') and self.results_text:
+            self.results_text.value = self._pending_results_text
 
     def append_log(self, text):
         """Append text to the log area (for live updates during search)."""
@@ -4407,16 +4971,19 @@ class AppleMusicConverterApp(toga.App):
         self._schedule_ui_update(self._update_progress_ui())
 
     async def _update_progress_ui(self, widget=None):
-        """Update progress UI on main thread."""
-        self.progress_label.text = self._pending_progress_message
-        self.progress_bar.value = self._pending_progress_value
+        """Update progress UI on main thread with crash protection."""
+        if hasattr(self, 'progress_label') and self.progress_label:
+            self.progress_label.text = self._pending_progress_message
+        if hasattr(self, 'progress_bar') and self.progress_bar:
+            self.progress_bar.value = self._pending_progress_value
 
         # Update detailed stats if provided
-        if hasattr(self, '_pending_detailed_stats') and self._pending_detailed_stats:
-            self.detailed_stats_label.text = self._pending_detailed_stats
-        elif hasattr(self, '_pending_detailed_stats'):
-            # Clear detailed stats if explicitly set to None
-            self.detailed_stats_label.text = ""
+        if hasattr(self, 'detailed_stats_label') and self.detailed_stats_label:
+            if hasattr(self, '_pending_detailed_stats') and self._pending_detailed_stats:
+                self.detailed_stats_label.text = self._pending_detailed_stats
+            elif hasattr(self, '_pending_detailed_stats'):
+                # Clear detailed stats if explicitly set to None
+                self.detailed_stats_label.text = ""
     
     def update_api_status(self, status):
         """Update the iTunes API status label."""
@@ -4455,10 +5022,12 @@ class AppleMusicConverterApp(toga.App):
             status_text = f" Wait: {remaining:.1f}s"
             self._schedule_ui_update(self._update_timer_ui(status_text))
             if remaining > 0 and not getattr(self, 'process_stopped', False) and not self.skip_wait_requested:
-                # Schedule next update
-                threading.Timer(0.1, self.update_rate_limit_timer).start()
+                # Schedule next update and track timer for cleanup
+                self.rate_limit_timer = threading.Timer(0.1, self.update_rate_limit_timer)
+                self.rate_limit_timer.start()
             else:
                 self.api_wait_start = None
+                self.rate_limit_timer = None
                 self._schedule_ui_update(self._update_timer_ui(""))
                 self.hide_skip_button()
     
@@ -4657,25 +5226,67 @@ class AppleMusicConverterApp(toga.App):
         if hasattr(self, 'skip_wait_button'):
             self.skip_wait_button.enabled = True
 
-    async def _switch_to_itunes_ui(self, missing_count):
-        """Switch UI to iTunes after MusicBrainz completes (radio buttons and search button)."""
+    async def _switch_to_next_provider_ui(self, provider: str, missing_count: int):
+        """Switch UI to next provider after current search completes (radio buttons, search button, stop button).
+
+        CRITICAL: This is the ONLY place auto-suggestions should update provider state.
+        It updates both UI (radio buttons) and backend state (self.current_provider, music_search_service)
+        atomically to prevent state inconsistencies.
+
+        Args:
+            provider: The provider to switch to ("musicbrainz_api", "itunes", etc.)
+            missing_count: Number of tracks still missing
+        """
         try:
-            # Switch radio buttons
-            if hasattr(self, 'itunes_radio') and hasattr(self, 'musicbrainz_radio'):
-                self.itunes_radio.value = True
-                self.musicbrainz_radio.value = False
-                logger.print_always(f"✅ Switched radio to iTunes")
+            # Get display name for provider
+            provider_names = {
+                "musicbrainz": "MusicBrainz",
+                "musicbrainz_api": "MusicBrainz API",
+                "itunes": "iTunes"
+            }
+            provider_display = provider_names.get(provider, provider)
+
+            # Update backend state atomically with UI (prevents race conditions)
+            self.current_provider = provider
+            self.music_search_service.set_search_provider(provider)
+            logger.print_always(f"✅ Switched provider to {provider_display} (auto-suggestion)")
+
+            # Switch radio buttons to reflect backend state
+            if hasattr(self, 'musicbrainz_radio') and hasattr(self, 'musicbrainz_api_radio') and hasattr(self, 'itunes_radio'):
+                self.musicbrainz_radio.value = (provider == "musicbrainz")
+                self.musicbrainz_api_radio.value = (provider == "musicbrainz_api")
+                self.itunes_radio.value = (provider == "itunes")
+                logger.print_always(f"✅ Switched radio buttons to {provider_display}")
 
             # Update search button text
             if hasattr(self, 'reprocess_button'):
-                self.reprocess_button.text = "Search with iTunes"
-                logger.print_always(f"✅ Updated button text to 'Search with iTunes' ({missing_count:,} tracks remaining)")
+                self.reprocess_button.text = f"Search with {provider_display}"
+                logger.print_always(f"✅ Updated button text to 'Search with {provider_display}' ({missing_count:,} tracks remaining)")
 
-            # Show rate limit controls
+            # Update stop button text (for when search resumes)
+            if hasattr(self, 'process_stop_button'):
+                if provider == "itunes":
+                    self.process_stop_button.text = "Stop iTunes API"
+                elif provider == "musicbrainz_api":
+                    self.process_stop_button.text = "Stop MusicBrainz API"
+                elif provider == "musicbrainz":
+                    self.process_stop_button.text = "Stop MusicBrainz"
+                else:
+                    self.process_stop_button.text = "Stop"
+                logger.print_always(f"✅ Updated stop button text for {provider_display}")
+
+            # Show/hide rate limit controls based on provider
             if hasattr(self, 'rate_limit_row'):
-                self.rate_limit_row.style.visibility = VISIBLE
+                if provider in ["itunes", "musicbrainz_api"]:
+                    self.rate_limit_row.style.visibility = VISIBLE
+                else:
+                    self.rate_limit_row.style.visibility = HIDDEN
         except Exception as e:
-            logger.warning(f"⚠️  Error switching to iTunes UI: {e}")
+            logger.warning(f"⚠️  Error switching to {provider} UI: {e}")
+
+    async def _switch_to_itunes_ui(self, missing_count):
+        """Legacy wrapper - switch UI to iTunes after MusicBrainz completes."""
+        await self._switch_to_next_provider_ui("itunes", missing_count)
 
     async def _reset_search_button_text(self):
         """Reset search button text to default."""
@@ -4809,10 +5420,8 @@ Supported formats:
                 else:
                     # Normal state - regular search text
                     self.reprocess_button.text = "Search with MusicBrainz"
-            # Show database section (MusicBrainz needs database)
-            if hasattr(self, 'database_section'):
-                self.database_section.style.visibility = VISIBLE
-                self.database_section.style.update(visibility=VISIBLE)
+            # Update settings visibility
+            self.update_settings_visibility("musicbrainz")
             # Hide rate limit controls (MusicBrainz doesn't have rate limits)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = HIDDEN
@@ -4839,10 +5448,8 @@ Supported formats:
                 else:
                     # Normal state - regular search text
                     self.reprocess_button.text = "Search with iTunes"
-            # Hide database section (iTunes doesn't need database)
-            if hasattr(self, 'database_section'):
-                self.database_section.style.visibility = HIDDEN
-                self.database_section.style.update(visibility=HIDDEN)
+            # Update settings visibility
+            self.update_settings_visibility("itunes")
             # Show rate limit controls (iTunes has rate limits)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = VISIBLE
@@ -4866,10 +5473,8 @@ Supported formats:
                     self.active_search_provider = "musicbrainz_api"
                 else:
                     self.reprocess_button.text = "Search with MusicBrainz API"
-            # Hide database section (online API doesn't need local database)
-            if hasattr(self, 'database_section'):
-                self.database_section.style.visibility = HIDDEN
-                self.database_section.style.update(visibility=HIDDEN)
+            # Update settings visibility (centralized method)
+            self.update_settings_visibility("musicbrainz_api")
             # Show rate limit controls (MusicBrainz API has rate limits: 1 req/sec)
             if hasattr(self, 'rate_limit_row'):
                 self.rate_limit_row.style.visibility = VISIBLE
@@ -6108,7 +6713,13 @@ The import will validate the file format and show progress."""
                 ))
                 return
             
-            # Determine provider: check resume first, then force flags, then dropdown
+            # Determine provider: Priority order:
+            # 1. Resume interrupted search (highest priority - restore exact state)
+            # 2. Force provider (explicit override from code)
+            # 3. User's current selection (respect UI radio button state)
+            # 4. force_itunes_next flag (lowest priority - only if user hasn't changed selection)
+            #
+            # CRITICAL FIX: User's explicit selection should ALWAYS clear auto-suggestion flags
             if is_resume:
                 # Resuming interrupted search - use the provider that was running
                 current_provider = self.active_search_provider
@@ -6120,14 +6731,8 @@ The import will validate the file format and show progress."""
                 }
                 provider_name = provider_names.get(current_provider, "Unknown")
                 logger.info(f"🔄 Resuming {provider_name} search...")
-            elif self.force_itunes_next:
-                # MusicBrainz completed with remaining artists - force iTunes
-                current_provider = "itunes"
-                self.music_search_service.set_search_provider("itunes")
-                provider_name = "iTunes API"
-                self.force_itunes_next = False  # Reset flag after use
-                logger.debug(f"🔍 Using iTunes for remaining artists after MusicBrainz")
             elif force_provider:
+                # Explicit override from code (used internally)
                 current_provider = force_provider
                 self.music_search_service.set_search_provider(force_provider)
                 provider_names = {
@@ -6137,8 +6742,10 @@ The import will validate the file format and show progress."""
                 }
                 provider_name = provider_names.get(force_provider, "Unknown")
                 logger.debug(f"🔍 Using FORCED search provider: {provider_name}")
+                # Clear auto-suggestion flag when explicit override is used
+                self.force_itunes_next = False
             else:
-                # Get current provider from the radio button state
+                # Get current provider from the radio button state (USER'S CHOICE)
                 current_provider = self.current_provider
                 self.music_search_service.set_search_provider(current_provider)
                 provider_names = {
@@ -6147,6 +6754,13 @@ The import will validate the file format and show progress."""
                     "musicbrainz_api": "MusicBrainz API"
                 }
                 provider_name = provider_names.get(current_provider, "Unknown")
+
+                # CRITICAL: If user explicitly changed selection, clear auto-suggestion flag
+                # This ensures user's choice ALWAYS takes precedence over automated suggestions
+                if self.force_itunes_next:
+                    logger.print_always(f"🔄 User selected '{provider_name}' - clearing force_itunes_next flag")
+                    self.force_itunes_next = False
+
                 logger.debug(f"🔍 Using search provider: {provider_name}")
 
             # Check provider-specific prerequisites
@@ -6259,6 +6873,8 @@ The import will validate the file format and show progress."""
                     # Update stop button text based on provider
                     if current_provider == "itunes":
                         self.process_stop_button.text = "Stop iTunes API"
+                    elif current_provider == "musicbrainz_api":
+                        self.process_stop_button.text = "Stop MusicBrainz API"
                     elif current_provider == "musicbrainz":
                         self.process_stop_button.text = "Stop MusicBrainz"
                     else:
@@ -6317,23 +6933,46 @@ The import will validate the file format and show progress."""
         # Initialize timing
         search_start_time = time.time()
 
+        # Use provider passed from main thread (ensures correct provider)
+        current_provider = provider if provider else self.music_search_service.get_search_provider()
+
+        # SMART REORDERING: Process unfailed tracks first, failed tracks last
+        # This way if user resumes, they don't get stuck on tracks that already failed
+        failed_set = self.permanently_failed_tracks.get(current_provider, set())
+
+        # Separate tracks into: new/found tracks (process first) and previously failed (process last)
+        priority_tracks = []  # Tracks not yet failed with this provider
+        deferred_tracks = []  # Tracks that previously failed with this provider
+
+        for track in missing_artists_tracks:
+            track_name = track.get('Track Name', '').strip().lower()
+            if track_name and track_name in failed_set:
+                deferred_tracks.append(track)
+            else:
+                priority_tracks.append(track)
+
+        # Reorder: priority first, deferred last
+        reordered_tracks = priority_tracks + deferred_tracks
+
         logger.info(f"\n{'='*70}")
         logger.print_always(f"🚀 ULTRA-FAST MISSING ARTISTS SEARCH")
         logger.info(f"{'='*70}")
         logger.print_always(f"📊 Total tracks to search: {len(missing_artists_tracks):,}")
+        if deferred_tracks:
+            logger.print_always(f"⏭️  Deferring {len(deferred_tracks):,} previously failed tracks to end of queue")
+            logger.print_always(f"✨ Processing {len(priority_tracks):,} new/unfailed tracks first")
         logger.info(f"🕐 Search started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(search_start_time))}")
 
         try:
             # Validate input
-            if not missing_artists_tracks:
+            if not reordered_tracks:
                 logger.error(f"❌ ERROR: No missing artists to process")
                 self.update_results("Error: No missing artists to process.")
                 return
 
-            total_tracks = len(missing_artists_tracks)
+            total_tracks = len(reordered_tracks)
+            missing_artists_tracks = reordered_tracks  # Use reordered list
 
-            # Use provider passed from main thread (ensures correct provider)
-            current_provider = provider if provider else self.music_search_service.get_search_provider()
             logger.debug(f"🔍 Search provider: {current_provider}")
 
             if current_provider == "musicbrainz":
@@ -6449,24 +7088,24 @@ The import will validate the file format and show progress."""
                     if missing_after_mb > 0:
                         logger.warning(f"\n⚠️  {missing_after_mb:,} artists still missing after MusicBrainz")
 
-                        # Set flags SYNCHRONOUSLY before async UI updates
-                        # This ensures they're set before the finally block runs
-                        self.force_itunes_next = True
-                        self.current_provider = "itunes"
-                        self.music_search_service.set_search_provider("itunes")
-                        logger.print_always(f"✅ Set force_itunes_next=True and switched provider to iTunes")
+                        # Set auto-suggestion flag to hint next provider
+                        # CRITICAL: Don't modify self.current_provider directly - that's user state!
+                        # Only set the flag and let UI update handle the provider change
+                        self.force_itunes_next = True  # Flag suggests MusicBrainz API next
+                        logger.print_always(f"✅ Auto-suggesting MusicBrainz API for remaining artists")
 
                         # Update progress message with results and suggestion
                         self.update_progress(
-                            f"✅ MusicBrainz: Found {found_count:,} | Still missing {missing_after_mb:,} | Click 'Search with iTunes' to search remaining",
+                            f"✅ MusicBrainz: Found {found_count:,} | Still missing {missing_after_mb:,} | Click 'Search with MusicBrainz API' to search remaining",
                             100
                         )
 
                         # Update missing artist count on Export button
                         self.update_missing_artist_count()
 
-                        # Update UI asynchronously (radio buttons and button text)
-                        self._schedule_ui_update(self._switch_to_itunes_ui(missing_after_mb))
+                        # Update UI asynchronously (radio buttons, button text, service provider, and stop button)
+                        # This will update self.current_provider and music_search_service provider atomically
+                        self._schedule_ui_update(self._switch_to_next_provider_ui("musicbrainz_api", missing_after_mb))
                     else:
                         # All artists found
                         self.update_progress(
@@ -6517,23 +7156,22 @@ The import will validate the file format and show progress."""
                     logger.error(f"❌ MusicBrainz database not available")
                     self.update_progress("❌ MusicBrainz not available", 0)
                     return
+
             else:
-                # iTunes API - use batch/parallel processor
-                use_parallel = self.music_search_service.settings.get("use_parallel_requests", False)
-                mode_str = "PARALLEL" if use_parallel else "sequential"
-                logger.info(f"🌐 Using iTunes API batch search ({mode_str} mode)")
-                self.update_progress(f"🌐 Searching {total_tracks:,} tracks with iTunes API ({mode_str})...", 10)
+                # iTunes API or MusicBrainz API - use API search
+                # Both MusicBrainz API and iTunes use sequential mode only
+                provider_display = self.get_provider_display_name(current_provider)
+
+                if current_provider == "musicbrainz_api":
+                    logger.info(f"🌐 Using {provider_display} search (1 req/sec limit)")
+                else:
+                    logger.info(f"🌐 Using {provider_display} batch search")
+
+                self.update_progress(f"🌐 Searching {total_tracks:,} tracks with {provider_display}...", 10)
 
                 # Clear log for fresh start
                 self.update_results("")
-                self.append_log(f"Starting iTunes batch search for {total_tracks:,} tracks...")
-                # Use Path for cross-platform path handling (prevents mixed / and \ on Windows)
-                try:
-                    from .app_directories import get_user_log_dir
-                except ImportError:
-                    from app_directories import get_user_log_dir
-                debug_log_path = get_user_log_dir() / "itunes_api_debug.log"
-                self.append_log(f"📝 Detailed debug log: {debug_log_path}")
+                self.append_log(f"Starting {provider_display} batch search for {total_tracks:,} tracks...")
 
                 # Extract track names for batch search
                 track_names = [track_data.get('Track', track_data.get('track', '')) for track_data in missing_artists_tracks]
@@ -6541,8 +7179,8 @@ The import will validate the file format and show progress."""
                 # Track found artists count
                 found_artists = 0
 
-                # Define progress callback for live updates during parallel search
-                def itunes_progress_callback(track_idx, track_name, result, completed_count, total_count):
+                # Define progress callback for live updates during API search
+                def api_progress_callback(track_idx, track_name, result, completed_count, total_count):
                     nonlocal found_artists
 
                     # Get the original DataFrame index
@@ -6563,26 +7201,38 @@ The import will validate the file format and show progress."""
                                 self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
                             found_artists += 1
                             artist_was_found = True
+
+                            # Remove from failed set if it was there (may have been added to database later)
+                            track_key = track_name.strip().lower()
+                            if track_key and current_provider in self.permanently_failed_tracks:
+                                self.permanently_failed_tracks[current_provider].discard(track_key)
                         else:
                             self.append_log(f"❌ [{completed_count}/{total_count}] {track_name} -> No artist found")
                     else:
                         error_msg = result.get('error', 'Unknown error') if result else 'No result'
 
-                        # Check if this is a rate limit (403) error
+                        # Check if this is a rate limit error (403 for iTunes, 503 for MusicBrainz API)
                         if result and result.get('rate_limited'):
                             # Track separately for retry after rate limit expires
                             track_info = missing_artists_tracks[track_idx].copy()
                             track_info['original_index'] = original_idx
                             self.rate_limited_tracks.append(track_info)
+                            # Determine HTTP status based on source
+                            http_status = result.get('http_status', '503' if result.get('source') == 'musicbrainz_api' else '403')
                             logger.warning(f"⏸️  Rate limited: '{track_name}' (can retry later)")
-                            self.append_log(f"⏸️  [{completed_count}/{total_count}] {track_name} -> Rate limited (403)")
+                            self.append_log(f"⏸️  [{completed_count}/{total_count}] {track_name} -> Rate limited ({http_status})")
 
                             # Update retry button count in real-time (MUST use main thread for UI updates)
                             self._schedule_ui_update(self._update_rate_limited_button_ui())
                         else:
-                            # Permanent failure
+                            # Permanent failure - track it so we can defer it on next search
                             logger.error(f"   ❌ Search failed for track: '{track_name}' ({error_msg})")
                             self.append_log(f"❌ [{completed_count}/{total_count}] {track_name} -> {error_msg}")
+
+                            # Add to permanently failed set for this provider (for smart reordering)
+                            track_key = track_name.strip().lower()
+                            if track_key and current_provider in self.permanently_failed_tracks:
+                                self.permanently_failed_tracks[current_provider].add(track_key)
 
                     # Update progress with live stats including rate-limited count
                     elapsed = time.time() - search_start_time
@@ -6595,9 +7245,9 @@ The import will validate the file format and show progress."""
                     # Include rate-limited count in progress message
                     rate_limited_count = len(self.rate_limited_tracks)
                     if rate_limited_count > 0:
-                        progress_msg = f"🌐 iTunes: {completed_count:,}/{total_count:,} | Found: {found_artists} | Rate-limited: {rate_limited_count} | {time_str}"
+                        progress_msg = f"🌐 {provider_display}: {completed_count:,}/{total_count:,} | Found: {found_artists} | Rate-limited: {rate_limited_count} | {time_str}"
                     else:
-                        progress_msg = f"🌐 iTunes: {completed_count:,}/{total_count:,} | Found: {found_artists} | {time_str} elapsed"
+                        progress_msg = f"🌐 {provider_display}: {completed_count:,}/{total_count:,} | Found: {found_artists} | {time_str} elapsed"
 
                     self.update_progress(progress_msg, progress)
 
@@ -6619,17 +7269,16 @@ The import will validate the file format and show progress."""
                             logger.warning(f"⚠️  Auto-save failed: {e}")
 
                 # Perform batch search with live progress callback and interrupt check
-                logger.print_always(f"🚀 Calling search_itunes_batch_parallel with {len(track_names)} tracks...")
-                batch_results = self.music_search_service.search_itunes_batch_parallel(
+                batch_results = self.music_search_service.search_batch_api(
                     track_names,
-                    progress_callback=itunes_progress_callback,
+                    progress_callback=api_progress_callback,
                     interrupt_check=lambda: self.is_search_interrupted
                 )
 
                 elapsed_time = time.time() - search_start_time
                 rate_limited_count = len(self.rate_limited_tracks)
 
-                logger.print_always(f"\n✅ iTunes API search complete:")
+                logger.print_always(f"\n✅ {provider_display} search complete:")
                 logger.info(f"   Found: {found_artists}/{total_tracks}")
                 logger.info(f"   Time: {elapsed_time:.1f}s")
                 if rate_limited_count > 0:
@@ -6639,7 +7288,7 @@ The import will validate the file format and show progress."""
                 self.itunes_found = found_artists
 
                 # Build progress message with rate limit info if applicable
-                progress_msg = f"✅ iTunes: Found {found_artists}/{total_tracks} in {elapsed_time:.1f}s"
+                progress_msg = f"✅ {provider_display}: Found {found_artists}/{total_tracks} in {elapsed_time:.1f}s"
                 if rate_limited_count > 0:
                     progress_msg += f" | {rate_limited_count} rate limited"
 
@@ -6648,7 +7297,7 @@ The import will validate the file format and show progress."""
                 # Update missing artist count on Export button
                 self.update_missing_artist_count()
 
-                # Final auto-save after iTunes search completes
+                # Final auto-save after search completes
                 if hasattr(self, 'current_save_path') and self.current_save_path:
                     try:
                         self.processed_df.to_csv(
@@ -6656,12 +7305,34 @@ The import will validate the file format and show progress."""
                             index=False,
                             encoding='utf-8-sig'
                         )
-                        logger.print_always(f"💾 Final auto-save after iTunes search to: {self.current_save_path}")
+                        logger.print_always(f"💾 Final auto-save after {provider_display} search to: {self.current_save_path}")
                     except Exception as e:
                         logger.warning(f"⚠️  Final auto-save failed: {e}")
 
                 # Update missing artist count on Export button
                 self.update_missing_artist_count()
+
+                # Auto-switch to iTunes if MusicBrainz API completed with missing artists
+                if current_provider == "musicbrainz_api":
+                    missing_after_mb_api = total_tracks - found_artists
+                    if missing_after_mb_api > 0:
+                        logger.warning(f"\n⚠️  {missing_after_mb_api:,} artists still missing after MusicBrainz API")
+
+                        # Set auto-suggestion flag to hint iTunes as final fallback
+                        # CRITICAL: Don't modify self.current_provider directly - that's user state!
+                        # Only set the flag and let UI update handle the provider change
+                        self.force_itunes_next = True
+                        logger.print_always(f"✅ Auto-suggesting iTunes API for final fallback search")
+
+                        # Update progress message with results and suggestion
+                        self.update_progress(
+                            f"✅ MusicBrainz API: Found {found_artists:,} | Still missing {missing_after_mb_api:,} | Click 'Search with iTunes' for final fallback",
+                            100
+                        )
+
+                        # Update UI asynchronously (radio buttons, button text, service provider, and stop button)
+                        # This will update self.current_provider and music_search_service provider atomically
+                        self._schedule_ui_update(self._switch_to_next_provider_ui("itunes", missing_after_mb_api))
 
                 # Refresh the UI table to show updated artists
                 if hasattr(self, 'processed_df') and self.processed_df is not None:
@@ -6700,6 +7371,11 @@ The import will validate the file format and show progress."""
             self.update_progress("Error occurred", 0)
         
         finally:
+            # Clear thread references to allow future searches
+            # (this function can be called from either reprocessing_thread or retry_thread)
+            self.reprocessing_thread = None
+            self.retry_thread = None
+
             # Re-enable buttons on main thread
             self._schedule_ui_update(self._reset_reprocess_buttons_ui())
     
@@ -6714,7 +7390,12 @@ The import will validate the file format and show progress."""
         # Only reset text if search completed successfully AND not forcing iTunes continuation
         if not self.is_search_interrupted and not self.force_itunes_next:
             # Normal completion - reset to provider-specific text
-            provider_text = "MusicBrainz" if self.current_provider == "musicbrainz" else "iTunes"
+            if self.current_provider == "musicbrainz":
+                provider_text = "MusicBrainz"
+            elif self.current_provider == "musicbrainz_api":
+                provider_text = "MusicBrainz API"
+            else:  # itunes
+                provider_text = "iTunes"
             self.reprocess_button.text = f"Search with {provider_text}"
             self.active_search_provider = None
         # If force_itunes_next is True, button text was already set by _update_search_button_for_itunes
@@ -6747,11 +7428,11 @@ The import will validate the file format and show progress."""
                 if db_path:
                     from pathlib import Path
                     path_obj = Path(db_path)
-                    self.db_location_label.text = f"Location: {path_obj.parent}"
+                    self.db_location_label.value = f"Location: {path_obj.parent}"
                 else:
-                    self.db_location_label.text = "Location: Not set"
+                    self.db_location_label.value = "Location: Not set"
             except Exception:
-                self.db_location_label.text = "Location: Not set"
+                self.db_location_label.value = "Location: Not set"
 
             # Format the timestamp for user-friendly display
             formatted_date = self._format_timestamp(last_updated)
@@ -6798,7 +7479,7 @@ The import will validate the file format and show progress."""
             self.download_button.text = "Download DB"
             self.db_status_label.text = "Not downloaded"
             self.db_size_label.text = "Size: 0 bytes"
-            self.db_location_label.text = "Location: Not set"
+            self.db_location_label.value = "Location: Not set"
             self.db_tracks_label.text = ""
             self.db_updated_label.text = "Never updated"
 
@@ -7084,18 +7765,19 @@ The import will validate the file format and show progress."""
                 if hasattr(self, 'discovered_limit_label'):
                     self.discovered_limit_label.text = "Discovered: None yet (adaptive mode off)"
 
-    def on_parallel_mode_changed(self, widget):
-        """Handle parallel mode toggle."""
+    def on_cache_results_changed(self, widget):
+        """Handle cache results toggle."""
         enabled = widget.value
         if hasattr(self, 'music_search_service'):
-            self.music_search_service.settings["use_parallel_requests"] = enabled
-            self.music_search_service.save_settings()
+            self.music_search_service.settings["cache_search_results"] = enabled
+            self.music_search_service._save_settings()
 
-            workers = self.music_search_service.settings.get("parallel_workers", 10)
             if enabled:
-                self.append_log(f"✅ Parallel mode enabled ({workers} workers) - faster but more aggressive on API")
+                self.append_log(f"✅ Search result caching enabled - duplicate tracks will use cached results (saves API calls)")
             else:
-                self.append_log(f"❌ Parallel mode disabled - using sequential requests (safer)")
+                # Clear cache when disabling to ensure fresh lookups
+                self.music_search_service.clear_search_cache()
+                self.append_log(f"❌ Search result caching disabled - every track will make a fresh API call")
 
     def save_rate_limit(self, widget):
         """Save the rate limit setting."""
@@ -7135,7 +7817,30 @@ The import will validate the file format and show progress."""
 
         # Update time estimates when rate limit changes
         self.update_time_estimate()
-    
+
+    def toggle_rate_limit_pause(self, widget):
+        """Pause or resume rate limiting for iTunes API."""
+        if not hasattr(self, 'music_search_service'):
+            return
+
+        # Toggle the paused state
+        current_paused = self.music_search_service.settings.get("rate_limit_paused", False)
+        new_paused = not current_paused
+        self.music_search_service.settings["rate_limit_paused"] = new_paused
+        self.music_search_service.save_settings()
+
+        # Update button text
+        if hasattr(self, 'pause_rate_limit_button'):
+            self.pause_rate_limit_button.text = "Resume Rate Limit" if new_paused else "Pause Rate Limit"
+
+        # Show feedback
+        if new_paused:
+            self.append_log("⏸️  Rate limiting PAUSED - iTunes API will make requests as fast as possible")
+            self.append_log("⚠️  Warning: This may trigger 403 rate limit errors from iTunes")
+        else:
+            rate_limit = self.music_search_service.settings.get("itunes_rate_limit", 20)
+            self.append_log(f"▶️  Rate limiting RESUMED - Using {rate_limit} req/min")
+
     def stop_process(self, widget):
         """Stop the entire processing."""
         self.stop_itunes_search_flag = True
@@ -7179,9 +7884,19 @@ The import will validate the file format and show progress."""
             elif self.active_search_provider == "musicbrainz":
                 # MusicBrainz search was interrupted
                 self.reprocess_button.text = "Resume MusicBrainz Search"
+            elif self.active_search_provider == "musicbrainz_api":
+                # MusicBrainz API search was interrupted
+                self.reprocess_button.text = "Resume MusicBrainz API Search"
             else:
-                # Fallback for unknown state
-                self.reprocess_button.text = f"Resume Search with {self.current_provider.title()}"
+                # Fallback for unknown state - use current_provider
+                if self.current_provider == "musicbrainz":
+                    self.reprocess_button.text = "Resume MusicBrainz Search"
+                elif self.current_provider == "musicbrainz_api":
+                    self.reprocess_button.text = "Resume MusicBrainz API Search"
+                elif self.current_provider == "itunes":
+                    self.reprocess_button.text = "Resume iTunes Search"
+                else:
+                    self.reprocess_button.text = "Resume Search"
 
         # Update progress with save info
         if saved_path:
@@ -7201,7 +7916,7 @@ The import will validate the file format and show progress."""
         self.append_log(f"🚀 Skipping current wait - next request will wait full 60s...")
 
     async def retry_rate_limited_tracks(self, widget):
-        """Retry tracks that were rate-limited (403) by iTunes API."""
+        """Retry tracks that were rate-limited (403/503) by the API."""
         if not hasattr(self, 'rate_limited_tracks') or len(self.rate_limited_tracks) == 0:
             await self.main_window.dialog(toga.InfoDialog(
                 title="No Rate-Limited Tracks",
@@ -7220,25 +7935,28 @@ The import will validate the file format and show progress."""
 
         # Confirm retry with user
         count = len(self.rate_limited_tracks)
+        # Use current provider for retry
+        provider = self.current_provider
+        provider_display = self.get_provider_display_name(provider)
         result = await self.main_window.dialog(toga.ConfirmDialog(
             title="Retry Rate-Limited Tracks",
-            message=f"Retry {count} tracks that were rate-limited by iTunes API?\n\n"
+            message=f"Retry {count} tracks that were rate-limited?\n\n"
                     f"⚠️  IMPORTANT:\n"
                     f"• Wait 60+ seconds after the last rate limit\n"
-                    f"• This will use iTunes API (even if MusicBrainz is selected)\n"
-                    f"• Rate-limited tracks cannot be searched with MusicBrainz"
+                    f"• This will use {provider_display}\n"
+                    f"• Make sure the rate limit has reset before retrying"
         ))
 
         if not result:
             return
 
-        logger.print_always(f"🔄 Retrying {count} rate-limited tracks with iTunes API...")
+        logger.print_always(f"🔄 Retrying {count} rate-limited tracks with {provider_display}...")
         self.append_log(f"\n{'='*70}")
         self.append_log(f"🔄 RETRYING RATE-LIMITED TRACKS")
         self.append_log(f"{'='*70}")
         self.append_log(f"Count: {count} tracks")
-        self.append_log(f"Provider: iTunes API (required for retry)")
-        self.append_log(f"Note: These tracks previously hit 403 Forbidden errors\n")
+        self.append_log(f"Provider: {provider_display}")
+        self.append_log(f"Note: These tracks previously hit rate limit errors\n")
 
         # Disable retry button during retry
         self.retry_rate_limited_button.enabled = False
@@ -7256,13 +7974,13 @@ The import will validate the file format and show progress."""
         # Reset interrupt flag
         self.is_search_interrupted = False
 
-        # Start retry in background thread
-        retry_thread = threading.Thread(
+        # Start retry in background thread (use current provider)
+        self.retry_thread = threading.Thread(
             target=self.reprocess_missing_artists_thread,
-            args=(tracks_to_retry, "itunes"),
+            args=(tracks_to_retry, provider),
             daemon=True
         )
-        retry_thread.start()
+        self.retry_thread.start()
 
     async def export_rate_limited_csv(self, widget):
         """Export rate-limited tracks to a CSV file."""
@@ -7335,8 +8053,9 @@ The import will validate the file format and show progress."""
 
             # Show informational message when rate-limiting first occurs
             if count == 1:
+                provider_display = self.get_provider_display_name(self.current_provider)
                 self.append_log("\n⚠️  RATE LIMITING DETECTED")
-                self.append_log("iTunes API is blocking requests with 403 Forbidden errors.")
+                self.append_log(f"{provider_display} is blocking requests due to rate limits.")
                 self.append_log("These tracks will be available for retry after the rate limit resets.")
                 self.append_log("Use 'Retry Rate-Limited' button after waiting 60+ seconds.\n")
 
@@ -7387,41 +8106,24 @@ The import will validate the file format and show progress."""
                 
                 estimate_text = f"Estimated time: {time_str} for {estimated_missing} missing artists"
                 
-                # Show warning if rate limit > 20 like tkinter version
+                # Show warning if rate limit > 20
                 if hasattr(self, 'rate_limit_warning'):
                     if rate_limit > 20:
-                        # self.rate_limit_warning.style.color = "e74c3c"  # Red
                         self.rate_limit_warning.text = "Warning: Rate limits above 20/minute may cause API errors"
                     else:
-                        # self.rate_limit_warning.style.color = "27ae60"  # Green
                         self.rate_limit_warning.text = " Rate limit within safe range"
                     
-                if hasattr(self, 'api_status_label'):
-                    self.api_status_label.text = estimate_text
             else:
-                if hasattr(self, 'api_status_label'):
-                    self.api_status_label.text = "Status: Ready"
                 if hasattr(self, 'rate_limit_warning'):
                     self.rate_limit_warning.text = ""
-                
+
         except ValueError:
-            if hasattr(self, 'api_status_label'):
-                self.api_status_label.text = "Please enter a valid rate limit"
+            pass  # Invalid rate limit input, ignore
         except Exception as e:
             logger.error(f"Error updating time estimate: {e}")
-            if hasattr(self, 'api_status_label'):
-                self.api_status_label.text = "Could not calculate time estimate"
     
     def update_stats_display(self):
         """Update the statistics display with current counts and proper icons."""
-        # Update track count
-        #     processed = getattr(self, 'musicbrainz_found', 0) + getattr(self, 'itunes_found', 0)
-        #     total = getattr(self, 'row_count', 0)
-
-        # Update search provider counters
-        pass
-
-
         # Update rate limiting warning (only show when rate limit hits occur)
         rate_limit_count = getattr(self, 'rate_limit_hits', 0)
         if hasattr(self, 'rate_limit_warning_label'):
