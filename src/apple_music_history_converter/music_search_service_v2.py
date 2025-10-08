@@ -81,6 +81,10 @@ class MusicSearchServiceV2:
         # Exit flag for graceful shutdown
         self.app_exiting = False
 
+        # Exit event for interruptible sleep (prevents GIL crash on exit)
+        # When app_exiting is set to True, this event is set to wake up sleeping threads
+        self._exit_event = threading.Event()
+
         logger.info("MusicSearchServiceV2 initialized")
 
     def set_parent_window(self, window):
@@ -610,9 +614,12 @@ class MusicSearchServiceV2:
                             self._debug_log(f"      ⏸️  Using interruptible wait for 60 seconds...")
                             self.rate_limit_wait_callback(60)
                         else:
-                            # Fallback to regular sleep (blocks exit)
-                            self._debug_log(f"      💤 No callback, using blocking time.sleep(60)...")
-                            time.sleep(60)
+                            # Fallback to Event.wait() for interruptible sleep (prevents GIL crash)
+                            self._debug_log(f"      💤 No callback, using Event.wait(60) for interruptible sleep...")
+                            # Returns False if timeout, True if event set (app exiting)
+                            if self._exit_event.wait(timeout=60):
+                                self._debug_log(f"      🛑 Exit event triggered during sleep - aborting")
+                                return None
 
                         # Clear the request queue after the wait
                         self.itunes_requests.clear()
@@ -849,10 +856,13 @@ class MusicSearchServiceV2:
                     self.rate_limit_wait_callback(sleep_time)
                     logger.debug(f"      ✅ rate_limit_wait_callback completed")
                 else:
-                    # Fallback to blocking sleep
-                    logger.debug(f"      💤 No callback, using time.sleep({sleep_time})...")
-                    time.sleep(sleep_time)
-                    logger.debug(f"      ✅ time.sleep completed")
+                    # Fallback to Event.wait() for interruptible sleep (prevents GIL crash)
+                    logger.debug(f"      💤 No callback, using Event.wait({sleep_time}) for interruptible sleep...")
+                    # Returns False if timeout, True if event set (app exiting)
+                    if self._exit_event.wait(timeout=sleep_time):
+                        logger.debug(f"      🛑 Exit event triggered during sleep - aborting rate limit wait")
+                        return  # Exit the rate limit enforcement early
+                    logger.debug(f"      ✅ Event.wait completed")
                 logger.debug(f"      ✅ Sleep complete")
         else:
             logger.debug(f"      ✅ No rate limit wait needed ({len(self.itunes_requests)}/{rate_limit})")
@@ -1027,6 +1037,12 @@ class MusicSearchServiceV2:
         """
         try:
             logger.print_always("🔒 Closing MusicSearchService connections...")
+
+            # Set exit event to wake up any sleeping threads
+            if hasattr(self, '_exit_event'):
+                self._exit_event.set()
+                logger.print_always("   ✅ Exit event set to wake sleeping threads")
+
             if hasattr(self, 'musicbrainz_manager') and self.musicbrainz_manager:
                 if hasattr(self.musicbrainz_manager, 'close'):
                     self.musicbrainz_manager.close()
@@ -1110,16 +1126,11 @@ class MusicSearchServiceV2:
                         wait_time = 1.0 - time_since_last
                         logger.debug(f"⏸️  MusicBrainz API rate limit: waiting {wait_time:.2f}s")
 
-                        # Use interruptible sleep for cleaner exit (check every 100ms)
-                        while wait_time > 0:
-                            sleep_chunk = min(0.1, wait_time)
-                            time.sleep(sleep_chunk)
-                            wait_time -= sleep_chunk
-
-                            # Early exit if app is shutting down
-                            if hasattr(self, 'app_exiting') and self.app_exiting:
-                                logger.debug("⚠️  App exiting - aborting MusicBrainz rate limit wait")
-                                return None
+                        # Use Event.wait() for interruptible sleep (prevents GIL crash)
+                        # Returns False if timeout, True if event set (app exiting)
+                        if self._exit_event.wait(timeout=wait_time):
+                            logger.debug("⚠️  App exiting - aborting MusicBrainz rate limit wait")
+                            return None
                 
                 # Make request with proper User-Agent (MusicBrainz requires contact info)
                 # Format: Application/Version ( contact-url-or-email )

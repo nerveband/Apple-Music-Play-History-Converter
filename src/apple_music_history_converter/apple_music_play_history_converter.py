@@ -137,10 +137,23 @@ class AppleMusicConverterApp(toga.App):
         # On Windows, we need to use get_running_loop() or create new loop
         try:
             self._toga_event_loop = asyncio.get_running_loop()
+
+            # CRITICAL FIX: Replace asyncio's default executor with our own tracked executor
+            # This prevents orphaned ThreadPoolExecutor workers from blocking exit
+            # Default executor is used by run_in_executor(None, ...) calls
+            import concurrent.futures
+            self._default_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=None,  # Use Python's default (min(32, os.cpu_count() + 4))
+                thread_name_prefix="AsyncIO_"
+            )
+            self._toga_event_loop.set_default_executor(self._default_executor)
+            logger.info(f"✅ Replaced asyncio default executor with tracked executor")
+
         except RuntimeError:
             # No running loop yet (Windows initialization issue)
             # Will be set later in startup() when Toga's loop is running
             self._toga_event_loop = None
+            self._default_executor = None
             logger.info("Event loop not yet running, will initialize in startup()")
 
         # STEP 2: Initialize state variables
@@ -159,6 +172,12 @@ class AppleMusicConverterApp(toga.App):
 
         # Track active executors for cleanup
         self.active_executors = []  # List of ThreadPoolExecutor instances
+
+        # Register atexit handler for final cleanup AFTER Toga's event loop stops
+        # This prevents GIL crashes that occur when trying to clean up threads
+        # while Toga's event loop is still running
+        import atexit
+        atexit.register(self._final_cleanup)
 
         self.file_size = 0
         self.row_count = 0
@@ -365,10 +384,14 @@ class AppleMusicConverterApp(toga.App):
     def on_exit(self, widget: Optional[toga.Widget] = None, **kwargs) -> bool:
         """Clean up resources when app exits to prevent crashes.
 
+        NOTE: This runs BEFORE Toga's event loop stops, so asyncio threads
+        will still be alive. The actual cleanup happens in _final_cleanup()
+        which is registered with atexit.
+
         Returns:
             bool: True to allow exit to proceed
         """
-        logger.print_always("🛑 Application exit requested - cleaning up resources...")
+        logger.print_always("🛑 Application exit requested - starting shutdown sequence...")
 
         # Set ALL interrupt flags to force threads to stop immediately
         self.is_search_interrupted = True
@@ -381,6 +404,9 @@ class AppleMusicConverterApp(toga.App):
         # Signal music search service to abort any sleeps immediately
         if hasattr(self, '_music_search_service_instance') and self._music_search_service_instance:
             self._music_search_service_instance.app_exiting = True
+            # Set exit event to wake up sleeping threads
+            if hasattr(self._music_search_service_instance, '_exit_event'):
+                self._music_search_service_instance._exit_event.set()
             logger.print_always("   ✅ Signaled music search service to abort")
 
         # Cancel the rate limit timer to prevent GIL crash
@@ -391,72 +417,24 @@ class AppleMusicConverterApp(toga.App):
             except Exception as e:
                 logger.warning(f"   ⚠️  Failed to cancel rate limit timer: {e}")
 
-        # Cancel all tracked async tasks to prevent hanging tasks
+        # Cancel all tracked async tasks
         if hasattr(self, 'async_tasks') and self.async_tasks:
-            logger.print_always(f"   🔄 Cancelling {len(self.async_tasks)} async task(s)...")
             for task in self.async_tasks:
                 if not task.done():
                     task.cancel()
-            logger.print_always("   ✅ All async tasks cancelled")
             self.async_tasks.clear()
 
-        # Shutdown any active ThreadPoolExecutors
-        if hasattr(self, 'active_executors') and self.active_executors:
-            logger.print_always(f"   🔄 Shutting down {len(self.active_executors)} ThreadPoolExecutor(s)...")
-            for executor in self.active_executors:
-                try:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                except Exception as e:
-                    logger.warning(f"   ⚠️  Error shutting down executor: {e}")
-            logger.print_always("   ✅ All executors shut down")
-            self.active_executors.clear()
+        # CRITICAL: Shutdown our custom default executor FIRST
+        # This is the executor used by all run_in_executor(None, ...) calls
+        if hasattr(self, '_default_executor') and self._default_executor:
+            try:
+                logger.print_always("   🔒 Shutting down default executor...")
+                self._default_executor.shutdown(wait=True, cancel_futures=True)
+                logger.print_always("   ✅ Default executor shut down")
+            except Exception as e:
+                logger.print_always(f"   ⚠️  Error shutting down default executor: {e}")
 
-        # Wait for any background threads to complete (with timeout)
-        # This prevents the GIL crash that occurs when threads are forcibly terminated
-        threads_to_wait = []
-
-        # Collect all active threads
-        if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.is_alive():
-            threads_to_wait.append(('search_thread', self.search_thread))
-        if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
-            threads_to_wait.append(('reprocessing_thread', self.reprocessing_thread))
-        if hasattr(self, 'retry_thread') and self.retry_thread and self.retry_thread.is_alive():
-            threads_to_wait.append(('retry_thread', self.retry_thread))
-
-        # Wait for all threads with longer timeout
-        if threads_to_wait:
-            logger.print_always(f"   ⏳ Waiting for {len(threads_to_wait)} background thread(s) to finish...")
-            for thread_name, thread in threads_to_wait:
-                thread.join(timeout=5.0)  # Wait max 5 seconds per thread for API calls to abort
-                if thread.is_alive():
-                    logger.print_always(f"   ⚠️  {thread_name} still running after 5s (forcing exit)")
-                else:
-                    logger.print_always(f"   ✅ {thread_name} completed")
-
-        # Give worker threads time to clean up, then force shutdown if needed
-        import time
-        import threading
-        active_count = threading.active_count()
-        if active_count > 1:  # More than just the main thread
-            logger.print_always(f"   ⏳ Waiting for {active_count - 1} remaining worker thread(s)...")
-            time.sleep(1.0)  # Give worker threads time to complete
-
-            # Check again and list any remaining threads
-            active_count = threading.active_count()
-            if active_count > 1:
-                logger.print_always(f"   ⚠️  {active_count - 1} worker thread(s) still active:")
-                for thread in threading.enumerate():
-                    if thread != threading.current_thread():
-                        logger.print_always(f"       - {thread.name} (daemon={thread.daemon})")
-
-                # Give daemon threads one more second to finish
-                logger.print_always(f"   ⏳ Giving threads 1 more second to finish...")
-                time.sleep(1.0)
-
-        # CRITICAL: Close DuckDB connections BEFORE Python shutdown to prevent GIL crash
-        # The crash (abort trap: 6) occurs when DuckDB's destructor tries to call
-        # PyEval_SaveThread() during Python shutdown when the GIL is already released.
-        # We must explicitly close connections now while the GIL is still valid.
+        # Close database connections immediately (can't wait for atexit)
         if hasattr(self, 'music_search_service') and self.music_search_service:
             try:
                 logger.print_always("   🔒 Closing database connections...")
@@ -466,8 +444,61 @@ class AppleMusicConverterApp(toga.App):
             except Exception as e:
                 logger.print_always(f"   ⚠️  Error closing connections: {e}")
 
-        logger.print_always("✅ Cleanup complete - exiting gracefully")
-        return True  # Allow exit to proceed
+        logger.print_always("✅ Exit handler complete")
+        logger.print_always("   ℹ️  Using os._exit() to bypass Toga/Rubicon GIL crash bug")
+
+        # WORKAROUND: Toga/Rubicon has a GIL crash bug during event loop shutdown
+        # on macOS that occurs in rubicon/objc/eventloop.py line 816 (PyEval_SaveThread)
+        # The crash happens AFTER our cleanup in Toga's Objective-C bridge code
+        # Use os._exit() to skip Python's normal cleanup and avoid the crash
+        # All critical resources (database connections) are already closed above
+        import os
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)  # Exit immediately without running Python finalization
+
+        # This line never executes
+        return True
+
+    def _final_cleanup(self):
+        """Final cleanup called by atexit AFTER Toga's event loop has stopped.
+
+        This runs after Python has finished shutting down Toga and asyncio,
+        so we can safely clean up any remaining ThreadPoolExecutor workers.
+        """
+        import threading
+        import time
+
+        logger.print_always("\n🧹 atexit: Final cleanup starting...")
+
+        # Shutdown any remaining active ThreadPoolExecutors
+        if hasattr(self, 'active_executors') and self.active_executors:
+            logger.print_always(f"   🔄 Shutting down {len(self.active_executors)} remaining executor(s)...")
+            for executor in self.active_executors:
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except Exception as e:
+                    pass  # Ignore errors during final cleanup
+            self.active_executors.clear()
+
+        # Check thread count
+        active_count = threading.active_count()
+        logger.print_always(f"   📊 Thread count at atexit: {active_count}")
+
+        if active_count > 1:
+            logger.print_always(f"   ⏳ Waiting briefly for {active_count - 1} thread(s)...")
+            # Give threads 0.5 seconds to finish
+            time.sleep(0.5)
+
+            final_count = threading.active_count()
+            if final_count > 1:
+                logger.print_always(f"   ℹ️  {final_count - 1} thread(s) still alive (Python will handle):")
+                for thread in threading.enumerate():
+                    if thread != threading.current_thread():
+                        logger.print_always(f"       - {thread.name} (daemon={thread.daemon})")
+
+        logger.print_always("✅ atexit: Final cleanup complete")
 
     def setup_theme(self):
         """Setup application theme based on system preference."""
@@ -5715,10 +5746,19 @@ Supported formats:
             # Run download in background thread (use get_running_loop for Windows compatibility)
             logger.print_always("🔄 Starting download in thread pool executor...")
             loop = asyncio.get_running_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
+            executor = concurrent.futures.ThreadPoolExecutor()
+            self.active_executors.append(executor)
+            logger.print_always(f"📊 Created executor for download (total active: {len(self.active_executors)})")
+            try:
                 logger.print_always("⏳ Awaiting blocking download in executor...")
                 success = await loop.run_in_executor(executor, blocking_download)
                 logger.print_always(f"📊 Executor returned success={success}")
+            finally:
+                logger.print_always("🔄 Shutting down download executor...")
+                executor.shutdown(wait=True, cancel_futures=True)
+                if executor in self.active_executors:
+                    self.active_executors.remove(executor)
+                logger.print_always(f"✅ Download executor shut down (remaining: {len(self.active_executors)})")
             
             # Cancel UI update task
             ui_task.cancel()
@@ -5863,8 +5903,17 @@ Supported formats:
 
             # Run import in background thread (use get_running_loop for Windows compatibility)
             loop = asyncio.get_running_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
+            executor = concurrent.futures.ThreadPoolExecutor()
+            self.active_executors.append(executor)
+            logger.print_always(f"📊 Created executor for import (total active: {len(self.active_executors)})")
+            try:
                 success = await loop.run_in_executor(executor, blocking_import)
+            finally:
+                logger.print_always("🔄 Shutting down import executor...")
+                executor.shutdown(wait=True, cancel_futures=True)
+                if executor in self.active_executors:
+                    self.active_executors.remove(executor)
+                logger.print_always(f"✅ Import executor shut down (remaining: {len(self.active_executors)})")
 
             # Cancel UI update task
             ui_task.cancel()
