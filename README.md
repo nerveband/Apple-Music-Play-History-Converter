@@ -11,8 +11,9 @@ A modern desktop application that converts Apple Music play history CSV files in
 ## Features
 
 - **Multi-Format Support**: Works with "Play Activity", "Recently Played Tracks", and "Play History Daily Tracks" CSV files
-- **Dual Search Providers**:
-  - **MusicBrainz**: Offline database (~2GB) with 10,000+ tracks/sec search speed
+- **Three Search Providers**:
+  - **MusicBrainz (Local DB)**: Offline database (~2GB) with 10,000+ tracks/sec search speed
+  - **MusicBrainz API (Online)**: Direct API access with 1 req/sec rate limit (no database download needed)
   - **iTunes API**: Online fallback with 10 parallel workers and adaptive rate limiting
 - **Ultra-Fast Processing**: Batch processing handles large files 100x faster than previous versions
 - **Live Progress Tracking**: Real-time updates showing exactly what's happening during searches
