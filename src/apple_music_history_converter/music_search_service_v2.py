@@ -17,7 +17,6 @@ from pathlib import Path
 import logging
 import asyncio
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     # Use optimized manager by default
@@ -62,9 +61,25 @@ class MusicSearchServiceV2:
         self.itunes_lock = RLock()
         self.itunes_requests = deque()
 
+        # MusicBrainz API rate limiting (separate lock to avoid blocking by iTunes)
+        self.musicbrainz_api_lock = RLock()
+
+        # Search result cache to avoid duplicate API calls for same track
+        # Format: {(song_name, artist_name, album_name): result_dict}
+        self._search_cache = {}
+        # Cache lock to protect dictionary from concurrent access (CRITICAL for parallel mode)
+        self._cache_lock = RLock()
+
+        # Settings lock to protect dictionary from concurrent access
+        # (background threads read settings, main thread writes settings)
+        self._settings_lock = RLock()
+
         # UI integration
         self._parent_window = None
         self._optimization_modal_shown = False
+
+        # Exit flag for graceful shutdown
+        self.app_exiting = False
 
         logger.info("MusicSearchServiceV2 initialized")
 
@@ -83,14 +98,13 @@ class MusicSearchServiceV2:
 
         # Default settings
         return {
-            "search_provider": "musicbrainz",
+            "search_provider": "musicbrainz_api",  # Default to online API first, then fallback to iTunes
             "auto_fallback": True,
             "itunes_rate_limit": 20,  # requests per minute (user-configurable)
             "discovered_rate_limit": None,  # Actual limit discovered from rate limit errors
             "use_adaptive_rate_limit": True,  # Use discovered limit if available
             "rate_limit_safety_margin": 0.8,  # Use 80% of discovered limit for safety
-            "use_parallel_requests": False,  # Use parallel requests (default: sequential for safety)
-            "parallel_workers": 10  # Number of parallel workers when parallel mode enabled
+            "cache_search_results": True  # Cache duplicate track lookups (saves API calls)
         }
 
     def _save_settings(self):
@@ -100,9 +114,6 @@ class MusicSearchServiceV2:
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=2)
             logger.debug(f"Settings saved to: {self.settings_file}")
-            # Extra logging for Windows debugging of rate limiting settings
-            if sys.platform == "win32":
-                logger.info(f"Windows settings update: parallel={self.settings.get('use_parallel_requests')}, adaptive={self.settings.get('use_adaptive_rate_limit')}")
         except Exception as e:
             logger.error(f"Error saving settings to {self.settings_file}: {e}")
             import traceback
@@ -115,8 +126,9 @@ class MusicSearchServiceV2:
     def set_search_provider(self, provider: str):
         """Set search provider (musicbrainz, musicbrainz_api, or itunes)."""
         if provider in ["musicbrainz", "musicbrainz_api", "itunes"]:
-            self.settings["search_provider"] = provider
-            self._save_settings()
+            with self._settings_lock:
+                self.settings["search_provider"] = provider
+                self._save_settings()
             logger.info(f"Search provider set to: {provider}")
 
     def get_auto_fallback(self) -> bool:
@@ -125,9 +137,23 @@ class MusicSearchServiceV2:
 
     def set_auto_fallback(self, enabled: bool):
         """Set auto-fallback to iTunes when MusicBrainz fails."""
-        self.settings["auto_fallback"] = enabled
-        self._save_settings()
+        with self._settings_lock:
+            self.settings["auto_fallback"] = enabled
+            self._save_settings()
         logger.info(f"Auto-fallback set to: {enabled}")
+
+    def clear_search_cache(self):
+        """Clear the search result cache.
+
+        This cache prevents duplicate API calls for the same track within a session.
+        Normally you don't need to clear it - caching duplicate tracks is beneficial.
+        Only clear if you want to force fresh lookups (e.g., after database update).
+        """
+        # CRITICAL: Protect cache clear with lock (could be called while search is running)
+        with self._cache_lock:
+            cache_size = len(self._search_cache)
+            self._search_cache.clear()
+            logger.info(f"Cleared search cache ({cache_size} cached results removed)")
 
     @trace_call("MusicSearch.ensure_musicbrainz_ready")
     async def ensure_musicbrainz_ready(self) -> bool:
@@ -458,6 +484,17 @@ class MusicSearchServiceV2:
         """Search iTunes API with rate limiting."""
         import threading
         thread_id = threading.current_thread().ident
+
+        # Check cache first to avoid duplicate API calls (if caching is enabled)
+        if self.settings.get("cache_search_results", True):
+            cache_key = (song_name, artist_name, album_name)
+            # CRITICAL: Protect cache read with lock (for parallel request safety)
+            with self._cache_lock:
+                if cache_key in self._search_cache:
+                    cached_result = self._search_cache[cache_key]
+                    logger.debug(f"   💾 Cache hit for '{song_name}' - returning cached result")
+                    return cached_result
+
         self._debug_log(f"\n🎵 DEBUG: _search_itunes START (Thread {thread_id})")
         self._debug_log(f"   Song: '{song_name}'")
         self._debug_log(f"   Artist: '{artist_name}'")
@@ -503,9 +540,14 @@ class MusicSearchServiceV2:
                     import certifi
                     ssl_context = ssl.create_default_context(cafile=certifi.where())
 
+                    # Add proper User-Agent header (best practice for API requests)
+                    headers = {
+                        "User-Agent": "AppleMusicHistoryConverter/2.0 ( hello@ashrafali.net )"
+                    }
+
                     self._debug_log(f"   🔐 SSL context created with certifi bundle: {certifi.where()}")
                     self._debug_log(f"   🌐 Executing httpx.get()...")
-                    response = httpx.get(url, params=params, timeout=10, verify=ssl_context)
+                    response = httpx.get(url, params=params, headers=headers, timeout=10, verify=ssl_context)
                     request_time = time.time() - request_start
                     self._debug_log(f"   ✅ iTunes API responded in {request_time:.2f}s")
                     self._debug_log(f"   📊 Status code: {response.status_code}")
@@ -550,9 +592,10 @@ class MusicSearchServiceV2:
                                 except Exception as cb_error:
                                     self._debug_log(f"⚠️  Rate limit discovered callback failed: {cb_error}")
 
-                        # Reset rate limit queue to force full 60-second wait
-                        self._debug_log(f"   🔄 Resetting rate limit queue - forcing 60s cooldown")
-                        self.itunes_requests.clear()
+                        # Wait 60 seconds before returning (allow cooldown)
+                        # This is simpler and clearer than filling the queue with fake timestamps
+                        self._debug_log(f"   ⏸️  Sleeping 60 seconds to allow rate limit to reset...")
+                        logger.print_always(f"⏸️  iTunes rate limit hit (403) - waiting 60 seconds before continuing...")
 
                         # Notify the UI if callback is available
                         if hasattr(self, 'rate_limit_hit_callback') and self.rate_limit_hit_callback:
@@ -560,6 +603,20 @@ class MusicSearchServiceV2:
                                 self.rate_limit_hit_callback()
                             except Exception as cb_error:
                                 self._debug_log(f"⚠️  Rate limit hit callback failed: {cb_error}")
+
+                        # Use interruptible sleep to prevent GIL crash on exit
+                        if hasattr(self, 'rate_limit_wait_callback') and self.rate_limit_wait_callback:
+                            # Use callback-based interruptible wait (can be interrupted by app exit)
+                            self._debug_log(f"      ⏸️  Using interruptible wait for 60 seconds...")
+                            self.rate_limit_wait_callback(60)
+                        else:
+                            # Fallback to regular sleep (blocks exit)
+                            self._debug_log(f"      💤 No callback, using blocking time.sleep(60)...")
+                            time.sleep(60)
+
+                        # Clear the request queue after the wait
+                        self.itunes_requests.clear()
+                        self._debug_log(f"   ✅ 60 second cooldown complete, queue cleared")
 
                         return {
                             "success": False,
@@ -593,11 +650,20 @@ class MusicSearchServiceV2:
                     logger.info(f"iTunes found: '{artist}' for '{song_name}'")
                     if TRACE_ENABLED:
                         trace_log.debug("iTunes success for %s -> %s", song_name, artist)
-                    return {
+
+                    result = {
                         "success": True,
                         "artist": artist,
                         "source": "itunes"
                     }
+
+                    # Cache the result to avoid duplicate API calls (if caching is enabled)
+                    if self.settings.get("cache_search_results", True):
+                        # CRITICAL: Protect cache write with lock (for parallel request safety)
+                        with self._cache_lock:
+                            self._search_cache[cache_key] = result
+
+                    return result
                 else:
                     self._debug_log(f"   ❌ No iTunes match found")
                     logger.debug(f"iTunes no match for: '{song_name}'")
@@ -712,6 +778,15 @@ class MusicSearchServiceV2:
         thread_id = threading.current_thread().ident
         logger.debug(f"      🕐 _enforce_rate_limit START (Thread {thread_id}, lock already held by caller)")
 
+        # Check if rate limiting is paused
+        rate_limit_paused = self.settings.get("rate_limit_paused", False)
+        if rate_limit_paused:
+            logger.debug(f"      ⏸️  Rate limiting is PAUSED - skipping rate limit enforcement")
+            # Still add request to queue for tracking, but don't enforce limits
+            current_time = time.time()
+            self.itunes_requests.append(current_time)
+            return
+
         # Use discovered limit if available and adaptive mode is enabled
         use_adaptive = self.settings.get("use_adaptive_rate_limit", True)
         discovered_limit = self.settings.get("discovered_rate_limit", None)
@@ -787,19 +862,22 @@ class MusicSearchServiceV2:
         logger.debug(f"      ✅ Added request to queue, total: {len(self.itunes_requests)}")
         logger.debug(f"      🕐 _enforce_rate_limit END")
 
-    def search_itunes_batch_parallel(self, song_names: List[str], progress_callback=None, interrupt_check=None) -> List[Dict]:
+    def search_batch_api(self, song_names: List[str], progress_callback=None, interrupt_check=None) -> List[Dict]:
         """
-        Search iTunes API for multiple songs in parallel using thread pool.
-        Returns results in same order as input song_names.
+        Search API (iTunes or MusicBrainz) for multiple songs sequentially.
+        Both APIs require sequential requests to avoid rate limiting.
 
         Args:
             song_names: List of track names to search
             progress_callback: Optional callback(track_idx, track_name, result, completed_count, total_count)
             interrupt_check: Optional callable that returns True if search should be interrupted
         """
-        # Run network diagnostics BEFORE starting parallel search
+        # Log batch search entry
+        logger.debug(f"search_batch_api: {len(song_names)} songs, provider={self.get_search_provider()}")
+
+        # Run network diagnostics BEFORE starting search
         self._debug_log("\n" + "="*80)
-        self._debug_log("STARTING ITUNES PARALLEL SEARCH - RUNNING DIAGNOSTICS FIRST")
+        self._debug_log("STARTING API BATCH SEARCH - RUNNING DIAGNOSTICS FIRST")
         self._debug_log("="*80)
         diagnostics = self._test_network_connectivity()
         self._debug_log(f"Network diagnostics results: {diagnostics}")
@@ -811,84 +889,31 @@ class MusicSearchServiceV2:
             self._debug_log(f"   httpx version: {diagnostics.get('httpx_version', 'unknown')}")
             self._debug_log(f"   certifi available: {diagnostics.get('certifi_available', False)}")
             self._debug_log(f"   certifi path: {diagnostics.get('certifi_path', 'N/A')}")
-            # Continue anyway to see what happens with actual iTunes API
-        else:
-            self._debug_log(f"✅ Network diagnostics passed - proceeding with iTunes search")
+            # Continue anyway to see what happens with actual API
 
-        use_parallel = self.settings.get("use_parallel_requests", False)
-        max_workers = self.settings.get("parallel_workers", 10)
+        # ALWAYS use sequential mode - parallel requests don't work with iTunes/MusicBrainz APIs
+        self._debug_log(f"Using sequential mode (iTunes and MusicBrainz APIs don't support parallel)")
+        results = []
+        for idx, song in enumerate(song_names):
+            # Check for interrupt
+            if interrupt_check and interrupt_check():
+                self._debug_log(f"⏹️ Search interrupted by user at track {idx}/{len(song_names)}")
+                provider_name = self.get_search_provider()
+                logger.print_always(f"⏹️ {provider_name} search stopped by user at {idx}/{len(song_names)} tracks")
+                break
 
-        if not use_parallel:
-            # Fall back to sequential processing with progress updates
-            self._debug_log(f"Using sequential mode (parallel disabled)")
-            results = []
-            for idx, song in enumerate(song_names):
-                # Check for interrupt
-                if interrupt_check and interrupt_check():
-                    self._debug_log(f"⏹️ Search interrupted by user at track {idx}/{len(song_names)}")
-                    logger.print_always(f"⏹️ iTunes search stopped by user at {idx}/{len(song_names)} tracks")
-                    break
+            # Route to correct API based on provider
+            current_search_provider = self.get_search_provider()
 
+            if current_search_provider == "musicbrainz_api":
+                logger.debug(f"🔍 Request {idx+1}: Routing to MusicBrainz API for '{song}'")
+                result = self._search_musicbrainz_api(song)
+            else:  # itunes
+                logger.debug(f"🔍 Request {idx+1}: Routing to iTunes for '{song}' (provider={current_search_provider})")
                 result = self._search_itunes(song)
-                results.append(result)
-                if progress_callback:
-                    progress_callback(idx, song, result, idx + 1, len(song_names))
-            return results
-
-        self._debug_log(f"🚀 Starting parallel iTunes search for {len(song_names)} tracks with {max_workers} workers")
-
-        results = [None] * len(song_names)  # Pre-allocate results array
-        completed_count = 0
-        interrupted = False
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_index = {
-                executor.submit(self._search_itunes, song_name): (idx, song_name)
-                for idx, song_name in enumerate(song_names)
-            }
-
-            # Collect results as they complete
-            for future in as_completed(future_to_index):
-                # Check for interrupt before processing next result
-                if interrupt_check and interrupt_check():
-                    self._debug_log(f"⏹️ Search interrupted by user at {completed_count}/{len(song_names)} tracks")
-                    logger.print_always(f"⏹️ iTunes search stopped by user at {completed_count}/{len(song_names)} tracks")
-                    interrupted = True
-                    # Cancel remaining futures
-                    for f in future_to_index:
-                        if not f.done():
-                            f.cancel()
-                    break
-
-                idx, song_name = future_to_index[future]
-                try:
-                    result = future.result()
-                    results[idx] = result
-                    completed_count += 1
-
-                    # Call progress callback with live update
-                    if progress_callback:
-                        progress_callback(idx, song_name, result, completed_count, len(song_names))
-
-                except Exception as e:
-                    logger.error(f"   ❌ Parallel search failed for track {idx}: {e}")
-                    result = {
-                        "success": False,
-                        "source": "itunes",
-                        "error": str(e)
-                    }
-                    results[idx] = result
-                    completed_count += 1
-
-                    # Call progress callback even on error
-                    if progress_callback:
-                        progress_callback(idx, song_name, result, completed_count, len(song_names))
-
-        if interrupted:
-            logger.print_always(f"⏹️ Parallel search interrupted: {completed_count}/{len(song_names)} tracks completed")
-        else:
-            logger.print_always(f"✅ Parallel search complete: {len(results)} results")
+            results.append(result)
+            if progress_callback:
+                progress_callback(idx, song, result, idx + 1, len(song_names))
         return results
 
     @trace_call("MusicSearch.get_status")
@@ -1019,12 +1044,24 @@ class MusicSearchServiceV2:
     def _search_musicbrainz_api(self, song_name: str, artist_name: Optional[str] = None, album_name: Optional[str] = None) -> Dict:
         """
         Search MusicBrainz Web Service API.
-        
+
         Rate limit: 1 request per second (MusicBrainz policy)
         API Docs: https://musicbrainz.org/doc/MusicBrainz_API
         """
         import time
+        import threading
         search_start = time.time()
+        thread_id = threading.current_thread().ident
+
+        # Check cache first to avoid duplicate API calls (if caching is enabled)
+        if self.settings.get("cache_search_results", True):
+            cache_key = (song_name, artist_name, album_name)
+            # CRITICAL: Protect cache read with lock (for parallel request safety)
+            with self._cache_lock:
+                if cache_key in self._search_cache:
+                    cached_result = self._search_cache[cache_key]
+                    logger.debug(f"   💾 Cache hit for '{song_name}' - returning cached result")
+                    return cached_result
 
         logger.debug(f"🎵 === MUSICBRAINZ API SEARCH START ===")
         logger.debug(f"   📊 Inputs: song='{song_name}', artist='{artist_name}', album='{album_name}'")
@@ -1063,20 +1100,31 @@ class MusicSearchServiceV2:
             }
 
             # Rate limiting: 1 request per second
-            with self.itunes_lock:  # Reuse iTunes lock for MB API rate limiting
+            with self.musicbrainz_api_lock:  # Dedicated lock for MusicBrainz API (independent from iTunes)
                 current_time = time.time()
-                
+
                 # Check if we need to wait (1 second between requests)
                 if hasattr(self, '_mb_api_last_request'):
                     time_since_last = current_time - self._mb_api_last_request
                     if time_since_last < 1.0:
                         wait_time = 1.0 - time_since_last
                         logger.debug(f"⏸️  MusicBrainz API rate limit: waiting {wait_time:.2f}s")
-                        time.sleep(wait_time)
+
+                        # Use interruptible sleep for cleaner exit (check every 100ms)
+                        while wait_time > 0:
+                            sleep_chunk = min(0.1, wait_time)
+                            time.sleep(sleep_chunk)
+                            wait_time -= sleep_chunk
+
+                            # Early exit if app is shutting down
+                            if hasattr(self, 'app_exiting') and self.app_exiting:
+                                logger.debug("⚠️  App exiting - aborting MusicBrainz rate limit wait")
+                                return None
                 
-                # Make request
+                # Make request with proper User-Agent (MusicBrainz requires contact info)
+                # Format: Application/Version ( contact-url-or-email )
                 headers = {
-                    "User-Agent": "AppleMusicHistoryConverter/2.0 (https://github.com/nerveband/Apple-Music-Play-History-Converter)"
+                    "User-Agent": "AppleMusicHistoryConverter/2.0 ( hello@ashrafali.net )"
                 }
                 
                 try:
@@ -1124,11 +1172,20 @@ class MusicSearchServiceV2:
                             artist_name = artist_credits[0].get("name", "Unknown Artist")
                             elapsed = (time.time() - search_start) * 1000
                             logger.debug(f"   ✅ MusicBrainz API SUCCESS: Found '{artist_name}' for '{song_name}' in {elapsed:.1f}ms")
-                            return {
+
+                            result = {
                                 "success": True,
                                 "artist": artist_name,
                                 "source": "musicbrainz_api"
                             }
+
+                            # Cache the result to avoid duplicate API calls (if caching is enabled)
+                            if self.settings.get("cache_search_results", True):
+                                # CRITICAL: Protect cache write with lock (for parallel request safety)
+                                with self._cache_lock:
+                                    self._search_cache[cache_key] = result
+
+                            return result
                         else:
                             elapsed = (time.time() - search_start) * 1000
                             logger.debug(f"   ❌ MusicBrainz API NO ARTIST for '{song_name}' after {elapsed:.1f}ms")
