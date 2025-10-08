@@ -47,6 +47,8 @@ release_builds/
 releases_archive/
 build/
 dist/
+dist-windows/
+release-windows/
 
 # App data
 app_data/
