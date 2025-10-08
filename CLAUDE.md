@@ -945,6 +945,989 @@ When reporting issues, collect:
 4. **Console output** if running from terminal
 5. **System info**: macOS version, Python version
 
+## Build Practices & Release Process
+
+This section provides comprehensive guidance for building, releasing, and maintaining the application across platforms.
+
+### Version Management
+
+**Version Number Format**: `MAJOR.MINOR.PATCH` (e.g., `2.0.2`)
+
+**Version Locations** (all must be updated together):
+1. `pyproject.toml` line 7: `[project]` → `version = "2.0.2"`
+2. `pyproject.toml` line 56: `[tool.briefcase]` → `version = "2.0.2"`
+3. `pyproject.toml` line 132: `[tool.briefcase.app.*.windows]` → `version_triple = "2.0.2"`
+
+**Version Bumping Guidelines**:
+- **MAJOR**: Breaking changes, major architecture changes, incompatible API changes
+- **MINOR**: New features, significant improvements, non-breaking API changes
+- **PATCH**: Bug fixes, minor improvements, documentation updates
+
+### macOS Build Process
+
+**Prerequisites**:
+- Xcode installed (not just command line tools)
+- Apple Developer Program membership (for distribution)
+- Developer ID Application certificate installed in Keychain
+- Apple app-specific password stored in `.env` file
+
+**Step-by-Step Build Process**:
+
+```bash
+# 1. Clean previous builds
+python build.py clean
+
+# 2. Create application scaffold
+python build.py create
+# - Downloads Python support package (~50MB, cached)
+# - Installs all dependencies from pyproject.toml
+# - Creates universal binary structure (arm64 + x86_64)
+# - Expected duration: 1-3 minutes (first time), 30s (subsequent)
+
+# 3. Build the application
+python build.py build
+# - Compiles Python bytecode
+# - Links frameworks and libraries
+# - Creates app bundle structure
+# - Expected duration: 10-30 seconds
+
+# 4. Sign and package with Developer ID
+briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
+# - Signs all binaries with hardened runtime
+# - Creates DMG installer
+# - Submits for notarization (requires internet)
+# - Waits for Apple approval (can take 1-30 minutes)
+# - Staples notarization ticket to DMG
+# - Expected duration: 5-45 minutes (depends on Apple's queue)
+
+# 5. Verify the signed DMG
+spctl -a -t exec -vv "dist/Apple Music History Converter-2.0.2.dmg"
+# Should output: "accepted, source=Notarized Developer ID"
+```
+
+**Build Output Locations**:
+- App bundle: `build/apple-music-history-converter/macos/app/Apple Music History Converter.app`
+- Signed DMG: `dist/Apple Music History Converter-2.0.2.dmg`
+- Build logs: `build/apple-music-history-converter/macos/logs/`
+
+**Common Build Issues**:
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| "Developer ID certificate not found" | Certificate not installed | Add Apple ID to Xcode → Accounts → Manage Certificates |
+| "Notarization rejected" | Missing entitlements | Check `pyproject.toml` entitlements section |
+| "Package damaged" after distribution | ZIP corruption | Always use `tar -czf`, never `zip` |
+| Universal build fails | Architecture mismatch | Clean build directory and rebuild |
+| DMG not notarized | Network timeout | Re-run with `--resume <UUID>` from error message |
+
+**Testing Signed Builds**:
+
+```bash
+# 1. Verify code signature
+codesign -dvvv "dist/Apple Music History Converter-2.0.2.dmg"
+
+# 2. Verify notarization
+spctl -a -t exec -vv "dist/Apple Music History Converter-2.0.2.dmg"
+
+# 3. Test installation
+# - Mount DMG and drag to Applications
+# - Launch app and verify all features work
+# - Test CSV conversion, MusicBrainz download, iTunes API
+# - Check "About" dialog shows correct version
+
+# 4. Test Gatekeeper
+# - Download DMG from GitHub release URL
+# - Open in fresh user account or different Mac
+# - Should open without "damaged app" warning
+```
+
+### Windows Build Process
+
+**Strategy**: All Windows builds are automated via GitHub Actions. No local Windows machine required.
+
+**Automatic Build via Tag Push**:
+
+```bash
+# 1. Ensure all version numbers are updated (see Version Management above)
+
+# 2. Commit version changes
+git add pyproject.toml
+git commit -m "chore: bump version to 2.0.3"
+git push origin main
+
+# 3. Create and push version tag
+git tag v2.0.3
+git push origin v2.0.3
+
+# 4. GitHub Actions automatically:
+# - Builds Windows x86_64 MSI installer
+# - Uploads as artifact (90 day retention)
+# - Attempts to upload to GitHub release (if it exists)
+```
+
+**Manual Workflow Trigger**:
+
+```bash
+# Via GitHub CLI
+gh workflow run build-windows.yml
+
+# Via GitHub Web UI
+# 1. Go to Actions tab
+# 2. Select "Build Windows App"
+# 3. Click "Run workflow"
+# 4. Select branch and click "Run workflow"
+```
+
+**Monitoring Build Progress**:
+
+```bash
+# List recent workflow runs
+gh run list --workflow=build-windows.yml --limit 5
+
+# Watch specific run
+gh run watch <RUN_ID>
+
+# View logs
+gh run view <RUN_ID> --log
+
+# Download MSI artifact
+gh run download <RUN_ID> --name apple-music-history-converter-windows-x86_64-msi
+```
+
+**Build Output**:
+- MSI installer: `Apple Music History Converter-2.0.3.msi`
+- Build duration: ~3-4 minutes
+- Artifact retention: 90 days
+- Artifact size: ~48-50MB
+
+**Testing Windows Builds**:
+
+```bash
+# 1. Download MSI from GitHub Actions artifacts
+gh run download <RUN_ID> --name apple-music-history-converter-windows-x86_64-msi
+
+# 2. Test in Windows VM or physical machine
+# - Run MSI installer
+# - Verify installation to Program Files
+# - Launch app from Start Menu
+# - Test all features (CSV conversion, database download, etc.)
+# - Check version in About dialog
+
+# 3. Test uninstallation
+# - Use Windows Settings → Apps
+# - Verify clean removal (no leftover files)
+```
+
+### Complete Release Checklist
+
+Use this checklist for every release to ensure consistency and quality.
+
+#### Pre-Release (1-2 days before)
+
+- [ ] **Run full test suite**: `python -m pytest tests_toga/ -v`
+  - All 44+ tests must pass
+  - Check for deprecation warnings
+  - Review any skipped tests
+
+- [ ] **Test on target platforms**:
+  - [ ] macOS: Test on both Intel and Apple Silicon if possible
+  - [ ] Windows: Test on Windows 10 and Windows 11
+  - [ ] Linux: Optional but recommended for Briefcase compatibility
+
+- [ ] **Test real-world scenarios**:
+  - [ ] Large CSV files (100k+ rows)
+  - [ ] MusicBrainz database download from scratch
+  - [ ] iTunes API rate limiting behavior
+  - [ ] Exit/quit functionality (especially on macOS)
+  - [ ] Database optimization workflow
+
+- [ ] **Performance benchmarks**:
+  - [ ] CSV processing: Should handle 10k rows in <5 seconds
+  - [ ] MusicBrainz search: Should average <5ms per query
+  - [ ] iTunes API: Should respect 20 req/min limit
+
+- [ ] **Review code changes since last release**:
+  ```bash
+  git log v2.0.2..HEAD --oneline
+  git diff v2.0.2..HEAD --stat
+  ```
+
+- [ ] **Update version numbers** (see Version Management above):
+  - [ ] `pyproject.toml` (3 locations)
+  - [ ] Verify no hardcoded version strings in code
+
+- [ ] **Update documentation**:
+  - [ ] README.md (if features changed)
+  - [ ] CHANGELOG.md (if exists)
+  - [ ] CLAUDE.md (if build process changed)
+  - [ ] Latest Release section in CLAUDE.md
+
+- [ ] **Review open issues/PRs**:
+  - [ ] Address any critical bugs
+  - [ ] Close resolved issues
+  - [ ] Merge approved pull requests
+
+#### Release Day
+
+**Step 1: Build macOS Version**
+
+```bash
+# Clean and build
+python build.py clean
+python build.py create
+python build.py build
+
+# Sign and notarize (allow 5-45 minutes)
+briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
+
+# Verify signing
+spctl -a -t exec -vv "dist/Apple Music History Converter-2.0.3.dmg"
+# Must show: "accepted, source=Notarized Developer ID"
+```
+
+**Step 2: Commit and Tag**
+
+```bash
+# Commit version bump
+git add pyproject.toml
+git commit -m "chore: release v2.0.3
+
+- Update version to 2.0.3 in all locations
+- Update Latest Release section in CLAUDE.md
+
+Generated with [Claude Code](https://claude.ai/code)
+via [Happy](https://happy.engineering)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: Happy <yesreply@happy.engineering>"
+
+# Push to main
+git push origin main
+
+# Create and push tag
+git tag v2.0.3
+git push origin v2.0.3
+```
+
+**Step 3: Monitor Windows Build**
+
+```bash
+# Wait ~30 seconds for GitHub Actions to trigger
+sleep 30
+
+# Watch the build
+gh run list --workflow=build-windows.yml --limit 1
+gh run watch <LATEST_RUN_ID>
+
+# Expected duration: 3-4 minutes
+# Wait for "completed successfully" status
+```
+
+**Step 4: Create GitHub Release**
+
+```bash
+# Download Windows MSI from GitHub Actions
+gh run download <RUN_ID> --name apple-music-history-converter-windows-x86_64-msi --dir ./release-windows
+
+# Verify both files exist
+ls -lh "dist/Apple Music History Converter-2.0.3.dmg"
+ls -lh "release-windows/Apple Music History Converter-2.0.3.msi"
+
+# Create release with both installers
+gh release create v2.0.3 \
+  --title "v2.0.3 - [Brief Title]" \
+  --notes "## What's Changed
+
+### New Features
+- Feature 1
+- Feature 2
+
+### Bug Fixes
+- Fix 1
+- Fix 2
+
+### Improvements
+- Improvement 1
+- Improvement 2
+
+## Downloads
+- **macOS**: Universal DMG installer (Apple Silicon + Intel)
+- **Windows**: MSI installer (x86_64)
+
+## Compatibility
+- macOS 11+ (Big Sur or later)
+- Windows 10/11 x86_64
+- Python 3.8+ (bundled)
+
+---
+
+Generated with [Claude Code](https://claude.ai/code)
+via [Happy](https://happy.engineering)" \
+  "dist/Apple Music History Converter-2.0.3.dmg#macOS DMG Installer (Universal)" \
+  "release-windows/Apple Music History Converter-2.0.3.msi#Windows MSI Installer (x86_64)"
+```
+
+**Step 5: Post-Release Verification**
+
+```bash
+# 1. Verify release is published
+gh release view v2.0.3
+
+# 2. Check both installers are attached
+# Should see: .dmg and .msi files
+
+# 3. Download and test installers from GitHub
+# - Test on clean machine or VM
+# - Verify no "damaged app" warnings
+# - Smoke test: open app, convert a CSV, verify output
+
+# 4. Update project documentation
+# - Update "Latest Release" section in CLAUDE.md
+# - Update README.md badges if version displayed
+# - Close milestone (if using GitHub milestones)
+
+# 5. Announce release (optional)
+# - Tweet/social media
+# - Update documentation site
+# - Notify users via email/newsletter
+```
+
+#### Post-Release (within 24 hours)
+
+- [ ] **Monitor for issues**:
+  - Check GitHub Issues for new bug reports
+  - Monitor download counts
+  - Review any user feedback
+
+- [ ] **Create hotfix branch if needed**:
+  ```bash
+  git checkout -b hotfix/v2.0.4 v2.0.3
+  # Fix critical bug
+  # Follow release process for patch version
+  ```
+
+- [ ] **Start next version planning**:
+  - Create GitHub milestone for next version
+  - Triage open issues
+  - Plan feature roadmap
+
+### Rollback Procedure
+
+If a release has critical issues:
+
+**Option 1: Deprecate Release (Recommended)**
+
+```bash
+# Mark release as pre-release to warn users
+gh release edit v2.0.3 --prerelease
+
+# Update release notes with warning
+gh release edit v2.0.3 --notes "⚠️ **DEPRECATED**: Critical bug found. Please use v2.0.2 instead.
+
+Original release notes:
+[keep original notes]
+
+---
+
+Known Issues:
+- Issue 1 description
+- Issue 2 description
+
+Fix ETA: [date or \"in progress\"]"
+```
+
+**Option 2: Delete and Replace**
+
+```bash
+# Delete the problematic release
+gh release delete v2.0.3 --yes
+
+# Delete the tag
+git tag -d v2.0.3
+git push origin :refs/tags/v2.0.3
+
+# Fix issues, bump to v2.0.4, and re-release
+```
+
+**Option 3: Quick Hotfix**
+
+```bash
+# Branch from problematic release
+git checkout -b hotfix/v2.0.4 v2.0.3
+
+# Fix the critical bug
+git add <fixed_files>
+git commit -m "fix: critical bug in [component]"
+
+# Follow full release process for v2.0.4
+# Publish as hotfix with clear release notes
+```
+
+## Development Workflow & Best Practices
+
+This section establishes standard practices for efficient, high-quality development.
+
+### Development Environment Setup
+
+**Initial Setup**:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/nerveband/Apple-Music-Play-History-Converter.git
+cd Apple-Music-Play-History-Converter
+
+# 2. Create virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+pip install briefcase  # For building
+pip install pytest pytest-cov  # For testing
+
+# 4. Verify installation
+python run_toga_app.py  # Should launch app
+python -m pytest tests_toga/ -v  # Should pass all tests
+
+# 5. Configure development settings
+# Edit ~/.apple_music_converter/settings.json for debug logging
+```
+
+**Development Tools Recommended**:
+- **IDE**: VS Code with Python extension, or PyCharm
+- **Python**: 3.8+ (3.12 recommended for latest features)
+- **Git**: Version control
+- **gh CLI**: For GitHub Actions and releases
+- **pytest**: For running tests
+- **black**: For code formatting (optional)
+
+### Branch Strategy
+
+**Main Branches**:
+- `main`: Production-ready code, always stable, all releases tagged from here
+- `develop`: Integration branch for features (optional, can work directly on main for small team)
+
+**Feature Branches**:
+
+```bash
+# Create feature branch
+git checkout -b feature/descriptive-name main
+
+# Work on feature with incremental commits
+git add <files>
+git commit -m "feat: add [feature description]"
+
+# Keep branch up to date
+git fetch origin
+git rebase origin/main
+
+# Push feature branch
+git push origin feature/descriptive-name
+
+# Create pull request via GitHub
+gh pr create --title "Add [feature]" --body "Description..."
+
+# After merge, delete feature branch
+git checkout main
+git pull
+git branch -d feature/descriptive-name
+```
+
+**Branch Naming Conventions**:
+- `feature/description`: New features
+- `fix/description`: Bug fixes
+- `refactor/description`: Code refactoring
+- `docs/description`: Documentation updates
+- `test/description`: Test additions/fixes
+- `hotfix/vX.Y.Z`: Critical production fixes
+
+### Commit Message Standards
+
+Follow conventional commits format for better changelog generation and clarity.
+
+**Format**: `<type>(<scope>): <subject>`
+
+**Types**:
+- `feat`: New feature
+- `fix`: Bug fix
+- `refactor`: Code change that neither fixes a bug nor adds a feature
+- `perf`: Performance improvement
+- `test`: Adding or updating tests
+- `docs`: Documentation changes
+- `chore`: Maintenance tasks (dependencies, build, release)
+- `style`: Code style changes (formatting, no logic change)
+
+**Examples**:
+
+```bash
+# Good commits
+git commit -m "feat(csv): add support for Daily Tracks format"
+git commit -m "fix(itunes): handle 403 rate limit errors gracefully"
+git commit -m "perf(search): optimize MusicBrainz query with index"
+git commit -m "docs(build): update macOS signing instructions"
+git commit -m "chore: bump version to 2.0.3"
+
+# Bad commits (avoid these)
+git commit -m "fixed stuff"  # Too vague
+git commit -m "WIP"  # Work in progress (squash before PR)
+git commit -m "Updated files"  # Not descriptive
+```
+
+**Multi-line Commit Messages**:
+
+```bash
+git commit -m "feat(search): add batch search optimization
+
+- Implement parallel search for multiple tracks
+- Add caching layer for repeated queries
+- Reduce search time by 80% for large CSVs
+
+Closes #123"
+```
+
+### Testing Requirements
+
+**Test Before Committing**:
+
+```bash
+# Run all tests
+python -m pytest tests_toga/ -v
+
+# Run specific test file
+python -m pytest tests_toga/test_csv_processing.py -v
+
+# Run with coverage report
+python -m pytest tests_toga/ --cov=src/apple_music_history_converter --cov-report=html
+
+# Run tests and watch for changes (during development)
+python -m pytest tests_toga/ --watch
+```
+
+**Test Categories**:
+
+1. **Unit Tests**: Test individual functions/methods
+   - Location: `tests_toga/test_*.py`
+   - Fast execution (<1 second per test)
+   - No external dependencies (mock APIs, databases)
+
+2. **Integration Tests**: Test component interactions
+   - Test CSV parsing → music search → export
+   - Test database download → optimization → search
+   - May use real files/APIs with rate limiting
+
+3. **UI Tests**: Test Toga UI components
+   - Test button clicks, input validation
+   - Test dialog flows
+   - Use Toga's testing utilities
+
+**Writing New Tests**:
+
+```python
+# tests_toga/test_new_feature.py
+import pytest
+from apple_music_history_converter.module import function
+
+class TestNewFeature:
+    """Test the new feature implementation"""
+
+    def test_basic_functionality(self):
+        """Test basic use case"""
+        result = function(input_data)
+        assert result == expected_output
+
+    def test_edge_case(self):
+        """Test edge case handling"""
+        with pytest.raises(ValueError):
+            function(invalid_input)
+
+    def test_performance(self):
+        """Test performance requirements"""
+        import time
+        start = time.time()
+        function(large_dataset)
+        duration = time.time() - start
+        assert duration < 1.0  # Should complete in <1 second
+
+# Run with: python -m pytest tests_toga/test_new_feature.py -v
+```
+
+**Test Coverage Goals**:
+- **Minimum**: 70% overall coverage
+- **Target**: 80%+ coverage for business logic
+- **Critical paths**: 100% coverage (CSV parsing, music search, export)
+
+### Code Quality Standards
+
+**Code Formatting**:
+
+```bash
+# Use consistent style (PEP 8)
+# Optional: Use black for automatic formatting
+black src/apple_music_history_converter/
+
+# Check style without modifying
+black --check src/
+
+# Format specific file
+black src/apple_music_history_converter/csv_processor.py
+```
+
+**Code Review Checklist**:
+
+Before submitting PR or committing to main:
+
+- [ ] All tests pass (`pytest tests_toga/ -v`)
+- [ ] No debug print statements (use `logger` instead)
+- [ ] No hardcoded paths or credentials
+- [ ] Error handling for all external calls (API, file I/O, database)
+- [ ] Type hints for function signatures (when practical)
+- [ ] Docstrings for public functions/classes
+- [ ] No commented-out code blocks (delete or document why)
+- [ ] No `TODO` comments without GitHub issue reference
+- [ ] Dependencies added to `pyproject.toml` if new libraries used
+- [ ] Performance tested for operations on large datasets
+
+**Code Documentation Standards**:
+
+```python
+def search_track(artist: str, track: str, provider: str = "musicbrainz") -> dict:
+    """Search for a track using the specified music provider.
+
+    Args:
+        artist: Artist name to search for
+        track: Track title to search for
+        provider: Music provider to use ("musicbrainz" or "itunes")
+
+    Returns:
+        Dictionary containing track metadata:
+        {
+            "artist": str,
+            "track": str,
+            "album": str,
+            "year": int,
+            "mbid": str or None
+        }
+
+    Raises:
+        ValueError: If provider is invalid
+        RateLimitError: If API rate limit exceeded
+        NetworkError: If network request fails
+
+    Example:
+        >>> result = search_track("The Beatles", "Hey Jude")
+        >>> print(result["album"])
+        "Hey Jude"
+    """
+    # Implementation...
+```
+
+### Feature Development Workflow
+
+**Standard Process for Adding New Features**:
+
+1. **Planning Phase**:
+   ```bash
+   # Create GitHub issue
+   gh issue create --title "Add [feature name]" --body "Description..."
+
+   # Discuss design in issue comments
+   # Get feedback on approach before coding
+   ```
+
+2. **Development Phase**:
+   ```bash
+   # Create feature branch
+   git checkout -b feature/feature-name main
+
+   # Implement incrementally with tests
+   # Commit frequently with clear messages
+   git add <files>
+   git commit -m "feat: implement [component]"
+
+   # Run tests continuously
+   python -m pytest tests_toga/ -v
+   ```
+
+3. **Testing Phase**:
+   ```bash
+   # Write unit tests for new code
+   # Add integration tests for workflows
+   # Test on both macOS and Windows if UI changes
+
+   # Verify performance
+   python -m pytest tests_toga/test_performance.py -v
+
+   # Check test coverage
+   python -m pytest tests_toga/ --cov=src --cov-report=term-missing
+   ```
+
+4. **Documentation Phase**:
+   ```bash
+   # Update CLAUDE.md if architecture changed
+   # Update README.md if user-facing features added
+   # Add inline documentation for complex logic
+
+   # Document new dependencies
+   # Add usage examples
+   ```
+
+5. **Review Phase**:
+   ```bash
+   # Push branch
+   git push origin feature/feature-name
+
+   # Create pull request
+   gh pr create --title "Add [feature]" \
+     --body "## Changes
+   - Change 1
+   - Change 2
+
+   ## Testing
+   - Tested on macOS 14
+   - All 44+ tests passing
+   - Performance benchmarks met
+
+   Closes #123"
+
+   # Address review feedback
+   # Make requested changes
+   git add <files>
+   git commit -m "refactor: address review feedback"
+   git push
+   ```
+
+6. **Merge Phase**:
+   ```bash
+   # After approval, merge via GitHub
+   gh pr merge --squash  # Squash commits for clean history
+
+   # Or merge without squashing to preserve history
+   gh pr merge --merge
+
+   # Delete feature branch
+   git branch -d feature/feature-name
+   git push origin --delete feature/feature-name
+   ```
+
+### Database Migration Best Practices
+
+When modifying MusicBrainz database schema or DuckDB queries:
+
+**Schema Changes**:
+
+```python
+# 1. Create migration function
+def migrate_database_v2_to_v3(db_path: str):
+    """Migrate database from v2 to v3 schema.
+
+    Changes:
+    - Add album_id column to tracks table
+    - Create album_tracks index for performance
+    """
+    conn = duckdb.connect(db_path)
+
+    # Check current version
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 3:
+        logger.info("Database already at v3 or higher")
+        return
+
+    # Apply migration
+    conn.execute("ALTER TABLE tracks ADD COLUMN album_id VARCHAR")
+    conn.execute("CREATE INDEX idx_album_tracks ON tracks(album_id)")
+    conn.execute("PRAGMA user_version = 3")
+
+    conn.close()
+    logger.info("Database migrated to v3")
+
+# 2. Call migration on app startup
+# In MusicBrainzManagerV2.__init__():
+if self.db_exists():
+    self._run_migrations()
+```
+
+**Testing Migrations**:
+
+```bash
+# 1. Test with old database format
+cp ~/.apple_music_converter/musicbrainz_v2.db test_db.db
+
+# 2. Run migration
+python -c "from src.*.musicbrainz_manager_v2 import migrate_database_v2_to_v3; migrate_database_v2_to_v3('test_db.db')"
+
+# 3. Verify schema
+python -c "import duckdb; conn = duckdb.connect('test_db.db'); print(conn.execute('PRAGMA table_info(tracks)').fetchall())"
+
+# 4. Test queries still work
+python -c "import duckdb; conn = duckdb.connect('test_db.db'); print(conn.execute('SELECT * FROM tracks LIMIT 5').fetchall())"
+```
+
+### Dependency Management
+
+**Adding New Dependencies**:
+
+```bash
+# 1. Install in development environment
+pip install new-package
+
+# 2. Test that feature works
+python run_toga_app.py
+
+# 3. Add to pyproject.toml
+# Edit [project] dependencies for all platforms
+# Edit [tool.briefcase.app.*.windows] requires for Windows-specific
+# Edit [tool.briefcase.app.*.macOS] requires for macOS-specific
+
+# 4. Test clean install
+python build.py clean
+python build.py create  # Should install new dependency
+
+# 5. Commit changes
+git add pyproject.toml
+git commit -m "chore: add new-package dependency"
+```
+
+**Updating Dependencies**:
+
+```bash
+# 1. Check for updates
+pip list --outdated
+
+# 2. Update specific package
+pip install --upgrade package-name
+
+# 3. Test extensively (dependencies can break things)
+python -m pytest tests_toga/ -v
+python run_toga_app.py
+
+# 4. Update version in pyproject.toml
+# Change: "package>=1.0.0" to "package>=1.1.0"
+
+# 5. Document breaking changes in commit message
+git commit -m "chore: upgrade package from 1.0 to 1.1
+
+Breaking changes:
+- API method renamed from old_name to new_name
+- Fixed compatibility with new version"
+```
+
+### Performance Optimization Guidelines
+
+**Profiling Code**:
+
+```python
+# Use cProfile for CPU profiling
+python -m cProfile -o profile.stats run_toga_app.py
+
+# Analyze results
+python -c "import pstats; p = pstats.Stats('profile.stats'); p.sort_stats('cumulative'); p.print_stats(20)"
+
+# Memory profiling
+pip install memory_profiler
+python -m memory_profiler script.py
+```
+
+**Performance Targets**:
+
+| Operation | Target | Current | Notes |
+|-----------|--------|---------|-------|
+| CSV parsing (10k rows) | <5s | ~3s | Use pandas chunking |
+| MusicBrainz search | <5ms | ~2ms | DuckDB indexed search |
+| iTunes API search | <200ms | ~150ms | Network dependent |
+| Database optimization | <5min | ~3min | Download + build indices |
+| App startup time | <3s | ~2s | Cold start |
+
+**Optimization Checklist**:
+
+- [ ] Use pandas chunking for large CSV files (`chunksize=10000`)
+- [ ] Batch database queries instead of N+1 queries
+- [ ] Use DuckDB indices for frequently queried columns
+- [ ] Cache expensive computations (use `functools.lru_cache`)
+- [ ] Use threading for I/O-bound tasks (API calls, file I/O)
+- [ ] Use async/await for Toga UI to prevent blocking
+- [ ] Profile before optimizing (don't guess bottlenecks)
+- [ ] Benchmark before and after changes
+
+### Debugging Techniques
+
+**Development Mode Debugging**:
+
+```bash
+# 1. Enable debug logging
+# Edit ~/.apple_music_converter/settings.json:
+{
+  "logging": {
+    "enabled": true,
+    "file_logging": true,
+    "console_logging": true,
+    "level": "DEBUG"
+  }
+}
+
+# 2. Run with console output
+python run_toga_app.py
+
+# 3. Use breakpoints
+# Add in code: import pdb; pdb.set_trace()
+# Or use IDE debugger (VS Code, PyCharm)
+
+# 4. Check logs
+tail -f ~/Library/Logs/AppleMusicConverter/apple_music_converter.log
+```
+
+**Production Debugging**:
+
+```bash
+# 1. Collect user logs
+# Ask user to send: ~/Library/Logs/AppleMusicConverter/
+
+# 2. Enable logging remotely
+# Provide settings.json with logging enabled
+
+# 3. Reproduce locally
+# Use user's CSV file and settings
+# Follow exact steps to reproduce
+
+# 4. Create test case
+# Add regression test to prevent recurrence
+```
+
+### Continuous Integration (CI) Future Setup
+
+When project scales, consider adding CI:
+
+```yaml
+# .github/workflows/ci.yml (example for future)
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests
+        run: pytest tests_toga/ -v --cov=src --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+```
+
 ## Common Development Tasks
 
 ### Development Workflow
