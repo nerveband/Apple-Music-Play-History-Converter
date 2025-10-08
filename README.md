@@ -14,7 +14,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 - **Three Search Providers**:
   - **MusicBrainz (Local DB)**: Offline database (~2GB) with 10,000+ tracks/sec search speed
   - **MusicBrainz API (Online)**: Direct API access with 1 req/sec rate limit (no database download needed)
-  - **iTunes API**: Online fallback with 10 parallel workers and adaptive rate limiting
+  - **iTunes API**: Online fallback with adaptive rate limiting (20-120 req/min)
 - **Ultra-Fast Processing**: Batch processing handles large files 100x faster than previous versions
 - **Live Progress Tracking**: Real-time updates showing exactly what's happening during searches
 - **Smart Auto-Save**: Automatic checkpoints every 50 tracks protect your progress
@@ -141,7 +141,7 @@ python run_toga_app.py
 ### v2.0 Major Features
 
 - **100x Faster**: Batch processing with DuckDB replaces old row-by-row searches
-- **Parallel iTunes Search**: 10 concurrent workers with smart rate limiting
+- **Smart Rate Limiting**: Adaptive iTunes API rate limiting (20-120 req/min)
 - **Live Updates**: See results as they arrive, not after everything completes
 - **Never Freezes**: Fully async UI stays responsive during processing
 - **Auto-Save**: Progress automatically saved every 50 tracks
