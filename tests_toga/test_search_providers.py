@@ -58,7 +58,7 @@ def print_separator(title=""):
         print("=" * 80)
     print()
 
-async def test_provider(service, provider_name, test_case):
+async def run_provider(service, provider_name, test_case):
     """Test a single provider with a test case."""
     print(f"🔍 Testing: {provider_name}")
     print(f"   Track: {test_case['track']}")
@@ -143,7 +143,7 @@ async def test_all_providers():
 
         for i, test_case in enumerate(TEST_CASES, 1):
             print(f"\n📋 Test Case {i}/{len(TEST_CASES)}")
-            result = await test_provider(service, provider, test_case)
+            result = await run_provider(service, provider, test_case)
             results[provider].append({
                 "test_case": test_case,
                 "result": result

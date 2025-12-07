@@ -12,8 +12,8 @@ import random
 from pathlib import Path
 from collections import defaultdict
 
-# Add src to path
-src_path = Path(__file__).parent / "src"
+# Add src to path (project root/src, not tests_toga/src)
+src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
 from apple_music_history_converter.musicbrainz_manager_v2_optimized import MusicBrainzManagerV2Optimized
@@ -102,7 +102,7 @@ def load_sample_tracks_from_full(csv_path: Path, sample_size: int = 200) -> list
     return tracks
 
 
-def test_track_matching(manager, track_data: dict, verbose: bool = False) -> dict:
+def run_track_matching(manager, track_data: dict, verbose: bool = False) -> dict:
     """Test matching for a single track."""
     result = {
         'track': track_data['track'],
@@ -212,7 +212,7 @@ def main():
     correct_count = 0
 
     for i, track_data in enumerate(all_tracks, 1):
-        result = test_track_matching(manager, track_data)
+        result = run_track_matching(manager, track_data)
         results.append(result)
 
         if result['correct']:

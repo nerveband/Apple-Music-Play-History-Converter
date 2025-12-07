@@ -4,26 +4,34 @@ Apple Music Play History Converter - Toga GUI Version
 Converts Apple Music CSV files to Last.fm compatible format.
 """
 
-import toga
-from toga.style import Pack
-from toga.style.pack import COLUMN, ROW, START, CENTER, END, HIDDEN, VISIBLE
-import pandas as pd  # Keep for now (used extensively)
-import httpx  # Keep for now
+import asyncio
+import csv
+import io
+import json
+import logging
+import os
+import platform
+import re
+import subprocess
+import sys
 import time
 import threading
 from collections import deque
-from typing import Optional, Dict, List, Any, Callable, Tuple
-import json
-import os
-import sys
-import csv
-import io
-import platform
-import logging
-import subprocess
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from datetime import datetime
+from typing import Optional, Dict, List, Any, Callable, Tuple
+
+import httpx
+import pandas as pd
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW, START, CENTER, END, HIDDEN, VISIBLE
+
+try:
+    import darkdetect
+except ImportError:
+    darkdetect = None
 
 try:
     from . import music_search_service_v2
@@ -31,21 +39,17 @@ try:
     from .trace_utils import TRACE_ENABLED, instrument_widget, trace_call, trace_log
     from .ultra_fast_csv_processor import UltraFastCSVProcessor
     from .logging_config import get_logger
+    from .app_directories import is_testing_enabled
 except ImportError:
     import music_search_service_v2
     import optimization_modal
     from trace_utils import TRACE_ENABLED, instrument_widget, trace_call, trace_log
     from ultra_fast_csv_processor import UltraFastCSVProcessor
     from logging_config import get_logger
+    from app_directories import is_testing_enabled
 
 logger = get_logger(__name__)
 MusicSearchService = music_search_service_v2.MusicSearchServiceV2
-import re
-import asyncio
-try:
-    import darkdetect
-except ImportError:
-    darkdetect = None
 
 
 class AppleMusicConverterApp(toga.App):
@@ -161,6 +165,10 @@ class AppleMusicConverterApp(toga.App):
         self.stop_itunes_search_flag = False
         # Removed: self.processing_thread = None (using async/await instead of threads)
 
+        # Testing infrastructure (only initialized when testing.enabled=True)
+        self._test_harness = None
+        self._testing_enabled = is_testing_enabled()
+
         # Initialize thread tracking variables to prevent GIL crash on exit
         self.search_thread = None
         self.reprocessing_thread = None
@@ -265,6 +273,10 @@ class AppleMusicConverterApp(toga.App):
         # STEP 9: Enable lazy initialization now that UI is built
         self._allow_lazy_init = True
 
+        # STEP 9.5: Initialize testing infrastructure (only when enabled)
+        if self._testing_enabled:
+            self._init_test_harness()
+
         # STEP 10: Initialize music search service in background (AFTER UI is visible)
         # This prevents blocking the UI with database loading
         if self._toga_event_loop is not None:
@@ -287,7 +299,6 @@ class AppleMusicConverterApp(toga.App):
         self._music_search_service_instance.rate_limit_callback = self.on_rate_limit_hit
         self._music_search_service_instance.rate_limit_wait_callback = self.on_rate_limit_wait
         self._music_search_service_instance.rate_limit_hit_callback = self.on_actual_rate_limit_detected
-        self._music_search_service_instance.rate_limit_discovered_callback = self.on_rate_limit_discovered
         self._music_search_service_ready = True
         logger.info(f"✅ Music search service ready with provider: {self._music_search_service_instance.get_search_provider()}")
 
@@ -308,6 +319,62 @@ class AppleMusicConverterApp(toga.App):
     def music_search_service(self, value):
         """Setter for music search service."""
         self._music_search_service_instance = value
+
+    # ========================================================================
+    # Testing Infrastructure
+    # ========================================================================
+
+    def _init_test_harness(self):
+        """
+        Initialize testing infrastructure (only when testing.enabled=True).
+
+        This creates the TestHarness which provides:
+        - Widget discovery and access by name
+        - Simulate button presses, switch toggles, text input
+        - Query widget states and values
+        - Inject file paths to bypass file dialogs
+        - Human handoff for manual verification steps
+        """
+        try:
+            from .test_harness import TestHarness
+        except ImportError:
+            from test_harness import TestHarness
+
+        logger.info("[TEST MODE] Initializing testing infrastructure...")
+        self._test_harness = TestHarness(self)
+        logger.info(f"[TEST MODE] Test harness ready - {len(self._test_harness.registry)} widgets discovered")
+
+    @property
+    def test(self):
+        """
+        Access test harness for programmatic UI control.
+
+        Only available when testing.enabled=True in settings.
+        Enable via: python run_toga_app.py --test-mode
+
+        Returns:
+            TestHarness: Interface for programmatic UI testing
+
+        Raises:
+            TestingNotEnabledError: If testing mode is not enabled
+
+        Example:
+            app.test.press_button("download_button")
+            app.test.set_switch("musicbrainz_radio", True)
+            state = app.test.get_state()
+        """
+        if self._test_harness is None:
+            if not self._testing_enabled:
+                try:
+                    from .test_harness import TestingNotEnabledError
+                except ImportError:
+                    from test_harness import TestingNotEnabledError
+                raise TestingNotEnabledError(
+                    "Testing mode not enabled. Use: python run_toga_app.py --test-mode"
+                )
+            # Testing enabled but harness not yet initialized
+            self._init_test_harness()
+        return self._test_harness
 
     async def _background_startup_initialization(self):
         """
@@ -1522,19 +1589,8 @@ class AppleMusicConverterApp(toga.App):
         #     )
         # )
 
-        # Adaptive rate limit toggle (handle None during UI build)
-        use_adaptive = True  # Default
-        if self.music_search_service is not None:
-            use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
-        self.adaptive_rate_limit_switch = toga.Switch(
-            "Use adaptive rate limit (learns from rate limit errors)",
-            value=use_adaptive,
-            on_change=self.on_adaptive_rate_limit_changed,
-            style=Pack(
-                margin_bottom=self.spacing["xs"]
-            )
-        )
-        itunes_box.add(self.adaptive_rate_limit_switch)
+        # NOTE: Adaptive rate limiting was removed - it produced unreliable results.
+        # iTunes API now uses a fixed rate limit (itunes_rate_limit setting).
 
         # Rate limit control with HIG form layout
         rate_row = toga.Box(
@@ -1625,34 +1681,16 @@ class AppleMusicConverterApp(toga.App):
 
         itunes_box.add(rate_row2)
 
-        # Discovered rate limit display (handle None during UI build)
-        discovered_limit = None
-        use_adaptive = True  # Default
-        if self.music_search_service is not None:
-            discovered_limit = self.music_search_service.settings.get("discovered_rate_limit", None)
-            use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
-
-        if discovered_limit:
-            safety_margin = 0.8  # Default
-            if self.music_search_service is not None:
-                safety_margin = self.music_search_service.settings.get("rate_limit_safety_margin", 0.8)
-            effective_limit = int(discovered_limit * safety_margin)
-            discovered_text = f"Discovered: {discovered_limit} req/min (using {effective_limit})"
-        else:
-            if use_adaptive:
-                discovered_text = "Discovery mode: Using 600 req/min until first rate limit (~10 req/sec)"
-            else:
-                discovered_text = "Discovered: None yet (adaptive mode off)"
-
-        self.discovered_limit_label = toga.Label(
-            discovered_text,
+        # Rate limit info label (explains the fixed rate behavior)
+        rate_limit_info = toga.Label(
+            "If rate limited, waits 60s then continues",
             style=self.get_pack_style(
                 **self.typography["caption"],
-                color=self.colors["accent"],
+                color=self.colors["text_secondary"],
                 margin_bottom=self.spacing["xxs"]
             )
         )
-        itunes_box.add(self.discovered_limit_label)
+        itunes_box.add(rate_limit_info)
 
         # API Status with HIG typography (no "Status: Ready" text, just timer)
         status_container = toga.Box(
@@ -2229,8 +2267,15 @@ class AppleMusicConverterApp(toga.App):
         return True
 
     @trace_call("App.browse_file")
-    async def browse_file(self, widget):
-        """Handle file browsing with comprehensive analysis and error handling."""
+    async def browse_file(self, widget, injected_path: str = None):
+        """
+        Handle file browsing with comprehensive analysis and error handling.
+
+        Args:
+            widget: The button widget that triggered this (can be None for injection)
+            injected_path: Optional file path to use instead of showing dialog.
+                          Used by testing infrastructure to bypass file dialogs.
+        """
         try:
             # Check if search is currently running
             if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.is_alive():
@@ -2247,18 +2292,23 @@ class AppleMusicConverterApp(toga.App):
                 ))
                 return
 
-            # Try to open the file dialog
-            try:
-                file_path = await self.main_window.dialog(toga.OpenFileDialog(
-                    title="Select Apple Music CSV File",
-                    file_types=["csv"]
-                ))
-            except Exception as e:
-                await self.main_window.dialog(toga.ErrorDialog(
-                    title="File Dialog Error",
-                    message="Could not open file dialog. Please check your system configuration."
-                ))
-                return
+            # Use injected path if provided (testing mode), otherwise show dialog
+            if injected_path is not None:
+                logger.test_action(f"File path injected: {injected_path}")
+                file_path = injected_path
+            else:
+                # Try to open the file dialog
+                try:
+                    file_path = await self.main_window.dialog(toga.OpenFileDialog(
+                        title="Select Apple Music CSV File",
+                        file_types=["csv"]
+                    ))
+                except Exception as e:
+                    await self.main_window.dialog(toga.ErrorDialog(
+                        title="File Dialog Error",
+                        message="Could not open file dialog. Please check your system configuration."
+                    ))
+                    return
             
             if file_path:
                 try:
@@ -2693,12 +2743,6 @@ class AppleMusicConverterApp(toga.App):
         except Exception as e:
             logger.error(f"Error in process_with_musicbrainz_async: {e}")
             return all_tracks  # Return original tracks on error
-    
-    async def process_missing_with_musicbrainz_async(self, missing_tracks, processed_tracks, completed_count, total_tracks):
-        """REMOVED: Old row-by-row implementation. Use reprocess_missing_artists instead."""
-        logger.error("❌ ERROR: process_missing_with_musicbrainz_async() is deprecated!")
-        logger.info("   Use the 'Search for Missing Artists' button instead.")
-        return processed_tracks
 
     @trace_call("App.finalize_processing_async")
     async def finalize_processing_async(self, final_results, start_time):
@@ -3740,8 +3784,11 @@ class AppleMusicConverterApp(toga.App):
     
     def get_duckdb_query_for_file_type(self, file_type):
         """Get the appropriate DuckDB SQL query based on file type."""
-        file_path = self.current_file_path
-        
+        # CRITICAL: Normalize file path for cross-platform DuckDB compatibility
+        # Windows uses backslashes which are escape characters in SQL strings
+        # DuckDB accepts forward slashes on all platforms
+        file_path = self.current_file_path.replace('\\', '/')
+
         if "Play Activity" in file_type:
             return f"""
             SELECT 
@@ -4226,16 +4273,20 @@ class AppleMusicConverterApp(toga.App):
             
             # Create DuckDB connection
             conn = duckdb.connect(':memory:')
-            
+
+            # CRITICAL: Normalize file path for cross-platform DuckDB compatibility
+            # Windows uses backslashes which are escape characters in SQL strings
+            normalized_path = self.current_file_path.replace('\\', '/')
+
             # Query to extract and process Play Activity data efficiently
             # Note: Don't ORDER BY timestamp as it may contain invalid values that crash DuckDB
             query = f"""
-            SELECT 
+            SELECT
                 {artist_select},
                 COALESCE(NULLIF(TRIM("Song Name"), ''), '') as Track,
                 {album_select},
                 COALESCE("Play Duration Milliseconds", 0) as play_duration
-            FROM read_csv_auto('{self.current_file_path}')
+            FROM read_csv_auto('{normalized_path}')
             WHERE COALESCE(NULLIF(TRIM("Song Name"), ''), '') != ''
             """
             
@@ -4534,15 +4585,7 @@ class AppleMusicConverterApp(toga.App):
                 return pd.to_datetime(timestamp_str)
         except Exception:
             return pd.Timestamp.now()
-    
-    @trace_call("App.search_artist_for_track")
-    async def search_artist_for_track(self, track_name, album_name=None, strict_provider=False):
-        """REMOVED: Old row-by-row MusicBrainz search. Use ultra-fast batch processor instead."""
-        logger.error(f"❌ ERROR: search_artist_for_track() is deprecated!")
-        logger.info(f"   This old row-by-row implementation has been replaced with ultra-fast batch processing.")
-        logger.info(f"   Use the 'Search for Missing Artists' button which uses batch processing.")
-        return None
-    
+
     def check_api_rate_limit(self):
         """Check and enforce API rate limiting."""
         with self.api_lock:
@@ -5118,18 +5161,18 @@ class AppleMusicConverterApp(toga.App):
                     filename = self.current_save_path.name
                     self.save_status_label.text = f"Progress saves to: {filename}"
                 else:
-                    self.save_status_label.text = "Save required to enable search"
+                    self.save_status_label.text = "Save to enable auto-save during search"
         except Exception as e:
             logger.error(f"Error updating save status: {e}")
 
     def update_search_button_state(self):
-        """Enable/disable Search for Missing Artists button based on save status."""
+        """Enable/disable Search for Missing Artists button based on data availability."""
         try:
             if hasattr(self, 'reprocess_button'):
-                # Only enable if we have data AND it's been saved
+                # Enable if we have data loaded (save is optional)
                 has_data = hasattr(self, 'processed_df') and self.processed_df is not None
-                is_saved = hasattr(self, 'current_save_path') and self.current_save_path is not None
-                self.reprocess_button.enabled = has_data and is_saved
+                has_rows = has_data and len(self.processed_df) > 0
+                self.reprocess_button.enabled = has_rows
         except Exception as e:
             logger.warning(f"⚠️  Error updating search button state: {e}")
 
@@ -5142,25 +5185,9 @@ class AppleMusicConverterApp(toga.App):
             logger.warning(f"⚠️  Error in rate limit callback: {e}")
 
     def on_actual_rate_limit_detected(self):
-        """Callback when iTunes API actually returns a 429 rate limit error."""
-        self.append_log(f"⚠️  iTunes API rate limit hit! Discovering actual limit...")
-        logger.warning(f"⚠️  ACTUAL rate limit detected from iTunes - discovering limit")
-
-    def on_rate_limit_discovered(self, discovered_limit):
-        """Callback when actual rate limit is discovered from 429 error."""
-        safety_margin = self.music_search_service.settings.get("rate_limit_safety_margin", 0.8)
-        effective_limit = int(discovered_limit * safety_margin)
-
-        self.append_log(f"✅ Discovered iTunes rate limit: {discovered_limit} req/min (using {effective_limit} with {int(safety_margin*100)}% safety)")
-        logger.print_always(f"✅ Discovered rate limit: {discovered_limit}, will use {effective_limit} going forward")
-
-        # Update the discovered limit display if it exists
-        self._schedule_ui_update(self._update_discovered_limit_ui(discovered_limit, effective_limit))
-
-    async def _update_discovered_limit_ui(self, discovered, effective):
-        """Update UI to show discovered rate limit."""
-        if hasattr(self, 'discovered_limit_label'):
-            self.discovered_limit_label.text = f"Discovered: {discovered} req/min (using {effective})"
+        """Callback when iTunes API returns a rate limit error (403/429)."""
+        self.append_log(f"⚠️  iTunes API rate limit hit - waiting 60 seconds...")
+        logger.warning(f"⚠️  Rate limit detected from iTunes API")
 
     async def _enable_skip_button(self):
         """Enable the skip wait button."""
@@ -5433,7 +5460,7 @@ Supported formats:
             message=instructions
         ))
 
-    def on_musicbrainz_selected(self, widget):
+    def on_musicbrainz_selected(self, widget, value=None):
         """Handle MusicBrainz radio button selection."""
         if widget.value:  # Only act when turned ON
             # Turn off other radios
@@ -5461,7 +5488,7 @@ Supported formats:
             else:
                 logger.warning(f"⚠️  rate_limit_row not found when switching to MusicBrainz!")
 
-    def on_itunes_selected(self, widget):
+    def on_itunes_selected(self, widget, value=None):
         """Handle iTunes radio button selection."""
         if widget.value:  # Only act when turned ON
             # Turn off other radios
@@ -5489,7 +5516,7 @@ Supported formats:
             else:
                 logger.warning(f"⚠️  rate_limit_row not found when switching to iTunes!")
 
-    def on_musicbrainz_api_selected(self, widget):
+    def on_musicbrainz_api_selected(self, widget, value=None):
         """Handle MusicBrainz API radio button selection."""
         if widget.value:  # Only act when turned ON
             # Turn off other radios
@@ -5514,7 +5541,7 @@ Supported formats:
             else:
                 logger.warning(f"⚠️  rate_limit_row not found when switching to MusicBrainz API!")
 
-    def on_itunes_api_changed(self, widget):
+    def on_itunes_api_changed(self, widget, value=None):
         """Handle iTunes API switch change."""
         # Implementation would go here
         pass
@@ -6357,8 +6384,15 @@ The import will validate the file format and show progress."""
                 message=f"Could not save missing artists list: {str(e)}"
             ))
 
-    async def save_results(self, widget):
-        """Save results as CSV file like tkinter version."""
+    async def save_results(self, widget, injected_path: str = None):
+        """
+        Save results as CSV file like tkinter version.
+
+        Args:
+            widget: The button widget that triggered this (can be None for injection)
+            injected_path: Optional file path to use instead of showing dialog.
+                          Used by testing infrastructure to bypass file dialogs.
+        """
         if not hasattr(self, 'processed_df'):
             await self.main_window.dialog(toga.ErrorDialog(
                 title="Error",
@@ -6380,11 +6414,16 @@ The import will validate the file format and show progress."""
             suggested_filename = f"{source_name}_Converted_{timestamp}.csv"
 
         try:
-            save_path = await self.main_window.dialog(toga.SaveFileDialog(
-                title="Save CSV File",
-                suggested_filename=suggested_filename,
-                file_types=["csv"]
-            ))
+            # Use injected path if provided (testing mode), otherwise show dialog
+            if injected_path is not None:
+                logger.test_action(f"Save path injected: {injected_path}")
+                save_path = injected_path
+            else:
+                save_path = await self.main_window.dialog(toga.SaveFileDialog(
+                    title="Save CSV File",
+                    suggested_filename=suggested_filename,
+                    file_types=["csv"]
+                ))
 
             if save_path:
                 try:
@@ -7413,8 +7452,8 @@ The import will validate the file format and show progress."""
                         logger.print_always(f"   These can be retried after waiting for the rate limit to reset")
                         self.append_log(f"\n⏸️  {rate_limited_count} rate-limited tracks available for retry")
 
-                    # Update retry button count
-                    self.update_rate_limited_button_count()
+                    # Update retry button count (schedule on main thread to avoid crash)
+                    self._schedule_ui_update(self._update_rate_limited_button_ui())
         except Exception as e:
             self.update_results(f"Error: Error during artist search: {str(e)}")
             self.update_progress("Error occurred", 0)
@@ -7773,48 +7812,16 @@ The import will validate the file format and show progress."""
                     message=f"Error during optimization: {str(e)}"
                 ))
 
-    def on_fallback_changed(self, widget):
+    def on_fallback_changed(self, widget, value=None):
         """Handle auto-fallback switch change."""
         self.music_search_service.set_auto_fallback(widget.value)
-    
-    def on_itunes_api_changed(self, widget):
-        """Handle iTunes API switch change."""
+
+    def on_itunes_api_changed_settings(self, widget, value=None):
+        """Handle iTunes API switch change in settings."""
         # Update time estimates when iTunes API setting changes
         self.update_time_estimate()
-        
-    def on_adaptive_rate_limit_changed(self, widget):
-        """Handle adaptive rate limit toggle."""
-        enabled = widget.value
-        if hasattr(self, 'music_search_service'):
-            self.music_search_service.settings["use_adaptive_rate_limit"] = enabled
-            self.music_search_service.save_settings()
 
-            if enabled:
-                discovered = self.music_search_service.settings.get("discovered_rate_limit", None)
-                if discovered:
-                    safety_margin = self.music_search_service.settings.get("rate_limit_safety_margin", 0.8)
-                    effective = int(discovered * safety_margin)
-                    self.append_log(f"✅ Adaptive rate limiting enabled (using discovered limit: {effective} req/min)")
-                else:
-                    self.append_log(f"✅ Adaptive rate limiting enabled (discovery mode: 600 req/min until first rate limit)")
-
-                # Update discovered limit label
-                if hasattr(self, 'discovered_limit_label'):
-                    if discovered:
-                        safety_margin = self.music_search_service.settings.get("rate_limit_safety_margin", 0.8)
-                        effective = int(discovered * safety_margin)
-                        self.discovered_limit_label.text = f"Discovered: {discovered} req/min (using {effective})"
-                    else:
-                        self.discovered_limit_label.text = "Discovery mode: Using 600 req/min until first rate limit (~10 req/sec)"
-            else:
-                manual_limit = self.music_search_service.settings.get("itunes_rate_limit", 20)
-                self.append_log(f"❌ Adaptive rate limiting disabled (using manual limit: {manual_limit} req/min)")
-
-                # Update discovered limit label
-                if hasattr(self, 'discovered_limit_label'):
-                    self.discovered_limit_label.text = "Discovered: None yet (adaptive mode off)"
-
-    def on_cache_results_changed(self, widget):
+    def on_cache_results_changed(self, widget, value=None):
         """Handle cache results toggle."""
         enabled = widget.value
         if hasattr(self, 'music_search_service'):
@@ -7834,7 +7841,7 @@ The import will validate the file format and show progress."""
             # Parse and validate the rate limit value
             new_rate_limit = int(self.rate_limit_input.value)
             if new_rate_limit <= 0:
-                self.append_log("❌ Rate limit must be greater than 0")
+                self.append_log("Rate limit must be greater than 0")
                 return
 
             # Update the music search service settings
@@ -7847,22 +7854,10 @@ The import will validate the file format and show progress."""
                 if hasattr(self, 'current_rate_label'):
                     self.current_rate_label.text = f"Current: {new_rate_limit} req/min"
 
-                # Check if adaptive mode is enabled
-                use_adaptive = self.music_search_service.settings.get("use_adaptive_rate_limit", True)
-                adaptive_note = " (only used if adaptive mode is off)" if use_adaptive else ""
-
-                # Show feedback about when the change takes effect
-                if hasattr(self, 'in_rate_limit_wait') and self.in_rate_limit_wait:
-                    # Currently in a rate limit wait - will apply after current wait
-                    self.append_log(f"✅ Rate limit changed from {old_rate_limit} to {new_rate_limit} req/min{adaptive_note} (applies after current wait)")
-                elif hasattr(self, 'active_search_provider') and self.active_search_provider == "itunes":
-                    # iTunes search is active - will apply on next rate limit check
-                    self.append_log(f"✅ Rate limit changed from {old_rate_limit} to {new_rate_limit} req/min{adaptive_note} (applies on next rate limit check)")
-                else:
-                    # No active search - will apply to next search
-                    self.append_log(f"✅ Rate limit saved: {new_rate_limit} req/min{adaptive_note}")
+                # Simple feedback
+                self.append_log(f"Rate limit saved: {new_rate_limit} req/min")
         except ValueError:
-            self.append_log("❌ Invalid rate limit value - must be a number")
+            self.append_log("Invalid rate limit value - must be a number")
 
         # Update time estimates when rate limit changes
         self.update_time_estimate()
@@ -8313,7 +8308,6 @@ The import will validate the file format and show progress."""
             for encoding in encodings:
                 try:
                     with open(file_path, 'r', encoding=encoding) as file:
-                        import csv
                         reader = csv.reader(file)
                         headers = next(reader)  # First row is headers
                         

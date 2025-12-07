@@ -39,18 +39,20 @@ The app automatically detects which format you have.
 5. Wait for Apple to email you the download link (usually 24-72 hours)
 6. Download and extract the ZIP file
 
-### What's the difference between MusicBrainz and iTunes API?
+### What's the difference between the search providers?
 
-| Feature | MusicBrainz (Local DB) | iTunes API (Online) |
-|---------|------------------------|---------------------|
-| **Speed** | Ultra-fast (10,000+ tracks/sec) | Moderate (10 parallel workers) |
-| **Setup** | Requires 2GB database download | Works immediately |
-| **Internet** | Only needed for initial download | Required for every search |
-| **Accuracy** | Very high (comprehensive music database) | Good (Apple's own data) |
-| **Rate Limits** | None | 20 requests/minute |
-| **Best For** | Large files (10k+ tracks) | Small files, quick checks |
+The app offers three search providers to find artist information:
 
-**Recommendation**: Use MusicBrainz for large files. The one-time 2GB download is worth the 100x speed improvement.
+| Feature | MusicBrainz (Local DB) | MusicBrainz API (Online) | iTunes API (Online) |
+|---------|------------------------|--------------------------|---------------------|
+| **Speed** | Ultra-fast (10,000+ tracks/sec) | Moderate (1 req/sec) | Slow (20-120 req/min) |
+| **Setup** | Requires 2GB database download | Works immediately | Works immediately |
+| **Internet** | Only for initial download | Required for every search | Required for every search |
+| **Accuracy** | Very high (comprehensive) | Very high (same database) | Good (Apple's data) |
+| **Rate Limits** | None | 1 request/second | 20-120 requests/minute (adaptive) |
+| **Best For** | Large files (10k+ tracks) | Medium files, no download | Small files, fallback |
+
+**Recommendation**: MusicBrainz (Local) for large files. MusicBrainz API for moderate files if you don't want to download the database. iTunes API as a fallback or for tracks not in MusicBrainz.
 
 ## Installation Questions
 
@@ -90,13 +92,13 @@ Yes, but you need to compile from source. Linux pre-built binaries are not curre
 
 Processing time depends on your CSV file size and search provider:
 
-| File Size | MusicBrainz (Local) | iTunes API (Online) |
-|-----------|---------------------|---------------------|
-| 1,000 tracks | < 1 minute | 2-5 minutes |
-| 10,000 tracks | 1-2 minutes | 20-30 minutes |
-| 100,000 tracks | 10-15 minutes | 3-5 hours |
+| File Size | MusicBrainz (Local) | MusicBrainz API | iTunes API |
+|-----------|---------------------|-----------------|------------|
+| 1,000 tracks | Under 1 minute | ~17 minutes | 10-50 minutes |
+| 10,000 tracks | 1-2 minutes | ~3 hours | 1.5-8 hours |
+| 100,000 tracks | 10-15 minutes | ~28 hours | 14-83 hours |
 
-**MusicBrainz is 100x faster** for large files.
+**MusicBrainz (Local) is 100x faster** than MusicBrainz API and significantly faster than iTunes API for large files.
 
 ### Can I pause and resume processing?
 
@@ -116,7 +118,7 @@ This is normal. The app will:
 
 You can:
 
-- Try the other search provider (switch between MusicBrainz and iTunes)
+- Try a different search provider (MusicBrainz Local, MusicBrainz API, or iTunes)
 - Manually edit the output CSV to add missing information
 - Export the list of failed tracks for review
 
@@ -216,11 +218,11 @@ For large CSV files (100k+ rows), the app loads the entire file into memory for 
 
 ### Can I speed up processing?
 
-**Yes!**
+**Yes:**
 
-1. **Use MusicBrainz** instead of iTunes API (100x faster)
-2. **More RAM** = faster pandas operations
-3. **SSD storage** = faster database queries
+1. **Use MusicBrainz (Local)** instead of MusicBrainz API or iTunes (100x faster)
+2. **More RAM** equals faster pandas operations
+3. **SSD storage** equals faster database queries
 4. **Don't run other heavy apps** during processing
 
 ### Does the app support Apple Silicon Macs?
@@ -242,7 +244,8 @@ No Rosetta 2 translation needed.
 
 **Partially**:
 
-- **MusicBrainz**: Yes, after initial database download (fully offline)
+- **MusicBrainz (Local)**: Yes, after initial database download (fully offline)
+- **MusicBrainz API**: No, requires internet for every search
 - **iTunes API**: No, requires internet for every search
 
 ### Where does the app store data?

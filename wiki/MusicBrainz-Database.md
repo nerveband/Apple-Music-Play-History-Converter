@@ -2,19 +2,21 @@
 
 Learn how to download, install, and optimize the MusicBrainz offline database for ultra-fast music searches.
 
+> **Note**: This guide covers the MusicBrainz **local database** option. The app also offers a **MusicBrainz API** option that requires no download but is slower (1 req/sec). See the [User Guide](User-Guide) for details on all three search providers.
+
 ## Overview
 
-MusicBrainz is a community-maintained open music encyclopedia. The offline database enables searches **100x faster** than the iTunes API:
+MusicBrainz is a community-maintained open music encyclopedia. The offline database enables searches **100x faster** than the MusicBrainz API and iTunes API:
 
-| Feature | MusicBrainz (Local) | iTunes API (Online) |
-|---------|---------------------|---------------------|
-| **Search Speed** | 10,000+ tracks/sec (1-5ms each) | ~10 tracks/sec (100-200ms each) |
-| **Setup Time** | 5-10 minutes (one-time download) | Instant (no setup) |
-| **Download Size** | ~2GB compressed | None |
-| **Disk Space Required** | ~3GB total | Minimal |
-| **Internet Required** | Only for initial download | For every search |
-| **Rate Limits** | None | 20 requests/minute |
-| **Best For** | Large files (10k+ tracks) | Small files, quick tests |
+| Feature | MusicBrainz (Local) | MusicBrainz API (Online) | iTunes API (Online) |
+|---------|---------------------|--------------------------|---------------------|
+| **Search Speed** | 10,000+ tracks/sec (1-5ms each) | 1 track/sec | 0.3-2 tracks/sec (20-120 req/min) |
+| **Setup Time** | 5-10 minutes (one-time download) | Instant (no setup) | Instant (no setup) |
+| **Download Size** | ~2GB compressed | None | None |
+| **Disk Space Required** | ~3GB total | Minimal | Minimal |
+| **Internet Required** | Only for initial download | For every search | For every search |
+| **Rate Limits** | None | 1 request/second | 20-120 requests/minute (adaptive) |
+| **Best For** | Large files (10k+ tracks) | Medium files (no download) | Small files, fallback |
 
 **Recommendation**: If you're processing more than 1,000 tracks, the MusicBrainz database is essential.
 

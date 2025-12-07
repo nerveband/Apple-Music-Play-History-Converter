@@ -503,7 +503,7 @@ python -m memory_profiler script.py
 
 **Background Threads**: Processing tasks
 - CSV parsing (pandas chunks)
-- Music searches (parallel workers for iTunes)
+- Music searches (sequential with rate limiting)
 - Database queries (DuckDB connection pool)
 - File I/O operations
 

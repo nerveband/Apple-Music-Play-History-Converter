@@ -27,9 +27,15 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional, Dict, Any
 
 try:
-    from .app_directories import get_log_path, get_settings_path, get_user_log_dir
+    from .app_directories import (
+        get_log_path, get_settings_path, get_user_log_dir,
+        get_testing_settings, is_testing_enabled
+    )
 except ImportError:
-    from app_directories import get_log_path, get_settings_path, get_user_log_dir
+    from app_directories import (
+        get_log_path, get_settings_path, get_user_log_dir,
+        get_testing_settings, is_testing_enabled
+    )
 
 
 class PrintLikeFormatter(logging.Formatter):
@@ -191,6 +197,10 @@ class SmartLogger:
         self.console_logging = self.settings.get("console_logging", True)
         self.file_logging = self.settings.get("file_logging", True)
 
+        # Testing infrastructure settings (lazy loaded to avoid overhead when disabled)
+        self._testing_settings: Optional[Dict[str, Any]] = None
+        self._testing_enabled: Optional[bool] = None
+
         # Only create actual logger if logging is enabled
         if self.enabled:
             # Convert string level to int
@@ -207,6 +217,20 @@ class SmartLogger:
             )
         else:
             self._logger = None
+
+    def _get_testing_settings(self) -> Dict[str, Any]:
+        """Lazy load testing settings to avoid overhead when not testing."""
+        if self._testing_settings is None:
+            self._testing_settings = get_testing_settings()
+            self._testing_enabled = self._testing_settings.get('enabled', False)
+        return self._testing_settings
+
+    @property
+    def testing_enabled(self) -> bool:
+        """Check if testing mode is enabled (lazy loaded)."""
+        if self._testing_enabled is None:
+            self._get_testing_settings()
+        return self._testing_enabled
 
     def is_enabled(self, level: int = logging.DEBUG) -> bool:
         """
@@ -262,6 +286,82 @@ class SmartLogger:
             flush: Whether to flush output immediately (default: True)
         """
         print(msg, flush=flush)
+
+    # ========================================================================
+    # Testing Infrastructure Logging Methods
+    # ========================================================================
+    # These methods only log when testing.enabled=True in settings.
+    # When testing is disabled, they are no-ops with zero overhead.
+
+    def test_action(self, message: str) -> None:
+        """
+        Log a test action (widget interaction, button press, etc.).
+
+        Only logs when testing mode is enabled AND log_actions is True.
+        Use this to track what programmatic actions are being performed.
+
+        Args:
+            message: Description of the action (e.g., "Button 'download' pressed")
+
+        Example:
+            logger.test_action("Button 'download_button' pressed")
+            logger.test_action("Switch 'musicbrainz_radio' set to True")
+        """
+        if not self.testing_enabled:
+            return
+
+        settings = self._get_testing_settings()
+        if settings.get('log_actions', True):
+            self.info(f"[TEST-ACTION] {message}")
+
+    def test_state(self, state: Dict[str, Any], label: str = "") -> None:
+        """
+        Log a state snapshot (widget values, enabled states, etc.).
+
+        Only logs when testing mode is enabled AND log_state is True.
+        Use this to capture the current state of the UI for verification.
+
+        Args:
+            state: Dictionary of state values to log
+            label: Optional label to identify this snapshot
+
+        Example:
+            logger.test_state({"progress": 0.5, "status": "Processing..."})
+            logger.test_state(app.test.get_state(), label="after_load")
+        """
+        if not self.testing_enabled:
+            return
+
+        settings = self._get_testing_settings()
+        if settings.get('log_state', True):
+            import json
+            prefix = f"[TEST-STATE:{label}]" if label else "[TEST-STATE]"
+            try:
+                state_str = json.dumps(state, indent=2, default=str)
+                self.debug(f"{prefix}\n{state_str}")
+            except Exception:
+                self.debug(f"{prefix} {state}")
+
+    def test_verbose(self, message: str) -> None:
+        """
+        Log verbose test details (internal state, timing, etc.).
+
+        Only logs when testing mode is enabled AND verbose is True.
+        Use this for detailed debugging information during test development.
+
+        Args:
+            message: Detailed message to log
+
+        Example:
+            logger.test_verbose("Widget registry scan took 0.05s")
+            logger.test_verbose(f"Found {len(widgets)} widgets in container")
+        """
+        if not self.testing_enabled:
+            return
+
+        settings = self._get_testing_settings()
+        if settings.get('verbose', False):
+            self.debug(f"[TEST-VERBOSE] {message}")
 
     # Aliases for compatibility
     warn = warning

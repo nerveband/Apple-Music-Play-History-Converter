@@ -134,7 +134,7 @@ def artists_match(csv_artist, found_artist):
 
     return matches
 
-async def test_all_providers(service, track, csv_artist, album):
+async def run_all_providers(service, track, csv_artist, album):
     """Test a track against all three providers."""
     results = {}
 
@@ -230,7 +230,7 @@ async def run_comprehensive_test():
             print(f"   Album: {album}")
 
         # Test all providers
-        provider_results = await test_all_providers(service, track, artist, album)
+        provider_results = await run_all_providers(service, track, artist, album)
 
         # Show results
         for provider, result in provider_results.items():

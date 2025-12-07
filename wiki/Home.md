@@ -24,6 +24,7 @@ New to the app? Start here:
 
 - **[Development Guide](Development)** - Contributing to the project
 - **[Building from Source](Building-from-Source)** - Compile the app yourself
+- **[Matching Algorithm](Matching-Algorithm)** - Technical details of the MusicBrainz matching algorithm
 - **[CLAUDE.md](https://github.com/nerveband/Apple-Music-Play-History-Converter/blob/main/CLAUDE.md)** - Comprehensive technical documentation
 
 ## What is This Tool?
@@ -39,23 +40,25 @@ Apple Music Play History Converter transforms your Apple Music CSV export files 
 
 The latest release includes critical stability improvements:
 
-### 🐛 Critical Fixes
+### Critical Fixes
 - **macOS Exit Crash Fixed** - Eliminated GIL crash when quitting the app
 - **Proper thread cleanup** with tracked executors and interruptible sleeps
 - **Clean exit every time** - No more "Abort trap 6" errors
 
-### 🚀 New Features
+### New Features
+- **Three search providers**:
+  - MusicBrainz (Local DB) - Offline, 10,000+ tracks/sec, requires 2GB download
+  - MusicBrainz API (Online) - Direct API access, 1 req/sec, no download needed
+  - iTunes API - Online fallback, adaptive rate limiting (20-120 req/min)
 - **Windows builds automated** via GitHub Actions
 - **Comprehensive documentation** (983 lines) covering build practices and development workflow
-- **100x faster processing** with MusicBrainz offline database
-- **Parallel iTunes search** with 10 concurrent workers
 - **Rate-limited track management** with retry and export features
 - **Live progress updates** as searches complete
 - **Modern Toga UI** that never freezes
 - **Auto-save checkpoints** every 50 tracks
 - **Cross-platform native apps** for Windows, macOS, and Linux
 
-### 🔧 Technical Improvements
+### Technical Improvements
 - **Pure Toga framework** - No tkinter dependencies
 - **Thread-safe architecture** - Proper async/await patterns
 - **DuckDB backend** - Optimized queries with vectorized pandas operations
@@ -64,10 +67,10 @@ The latest release includes critical stability improvements:
 ## Common Questions
 
 **Q: How long does it take to convert my music history?**
-A: With MusicBrainz: 1,000 tracks in <1 minute, 100,000 tracks in ~15 minutes. With iTunes API: much slower due to rate limits.
+A: Depends on your search provider. MusicBrainz (Local): 1,000 tracks in under 1 minute. MusicBrainz API: 1,000 tracks in ~17 minutes (1 req/sec). iTunes API: 1,000 tracks in 10-50 minutes (20-120 req/min adaptive rate limiting).
 
-**Q: Do I need the MusicBrainz database?**
-A: Not required, but highly recommended for files with 1,000+ tracks. It's 100x faster than iTunes API.
+**Q: Which search provider should I use?**
+A: MusicBrainz (Local) for large files (fastest but requires 2GB download). MusicBrainz API for moderate files without the download. iTunes API for quick tests or when other providers don't find results.
 
 **Q: Is my data sent anywhere?**
 A: No. All processing happens locally on your computer. Your data never leaves your machine.
@@ -114,10 +117,10 @@ Contributions are welcome! See the [Development Guide](Development) for:
 - **Linux**: [Build from Source](Building-from-Source) (no pre-built binaries)
 
 All releases include:
-- ✅ Code signed and notarized (macOS)
-- ✅ No Python installation required
-- ✅ Complete offline documentation
-- ✅ Auto-update notifications
+- Code signed and notarized (macOS)
+- No Python installation required
+- Complete offline documentation
+- Auto-update notifications
 
 ## System Requirements
 

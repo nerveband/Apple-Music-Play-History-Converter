@@ -258,7 +258,7 @@ class UltraFastCSVProcessor:
                        recording_clean, artist_credit_name, score
                 FROM musicbrainz_hot
                 WHERE recording_clean IN ({placeholders})
-                ORDER BY recording_clean, score DESC
+                ORDER BY recording_clean, score ASC
             """
 
             try:
@@ -294,7 +294,7 @@ class UltraFastCSVProcessor:
                            recording_clean, artist_credit_name, score
                     FROM musicbrainz_cold
                     WHERE recording_clean IN ({placeholders})
-                    ORDER BY recording_clean, score DESC
+                    ORDER BY recording_clean, score ASC
                 """
 
                 try:

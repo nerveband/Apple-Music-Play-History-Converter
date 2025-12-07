@@ -89,17 +89,16 @@ def get_settings_path() -> Path:
 
 def get_database_dir() -> Path:
     """
-    Get the database directory path.
+    Get the base database directory path.
 
-    MusicBrainz database files are stored in a 'musicbrainz' subdirectory
-    within the user data directory.
+    The MusicBrainz manager expects the base directory (user data dir) and
+    will add the 'musicbrainz' subdirectory itself.
 
     Returns:
-        Path: Directory containing MusicBrainz database files
+        Path: Base directory for database storage (user data dir)
     """
-    db_dir = get_user_data_dir() / "musicbrainz"
-    db_dir.mkdir(parents=True, exist_ok=True)
-    return db_dir
+    # Return the user data dir - the manager adds /musicbrainz itself
+    return get_user_data_dir()
 
 
 def get_log_path(log_name: str) -> Path:
@@ -115,43 +114,108 @@ def get_log_path(log_name: str) -> Path:
     return get_user_log_dir() / log_name
 
 
-def get_logging_settings() -> dict:
+# ============================================================================
+# Testing Infrastructure Settings
+# ============================================================================
+
+# Default testing settings - disabled by default for zero overhead
+DEFAULT_TESTING_SETTINGS = {
+    "enabled": False,           # Master switch - when False, zero overhead
+    "log_actions": True,        # Log widget interactions (clicks, value changes)
+    "log_state": True,          # Log state snapshots after actions
+    "verbose": False            # Extra detailed logging for debugging
+}
+
+
+def get_testing_settings() -> dict:
     """
-    Get logging settings from settings.json.
-    Returns default logging settings if not found.
+    Get testing infrastructure settings from settings.json.
+    Returns default testing settings if not found.
+
+    Testing mode is disabled by default to ensure zero overhead for regular users.
+    Enable via:
+    - Settings file: {"testing": {"enabled": true}}
+    - Command line: python run_toga_app.py --test-mode
+    - Environment variable: TEST_MODE=1
 
     Returns:
-        dict: Logging configuration with keys:
-            - enabled: bool (master switch)
-            - file_logging: bool (write to files)
-            - console_logging: bool (print to terminal)
-            - level: str (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-            - use_emoji: bool (emoji prefixes in terminal)
-            - max_file_size_mb: int (log rotation size)
-            - backup_count: int (rotated logs to keep)
+        dict: Testing configuration with keys:
+            - enabled: bool (master switch, default False)
+            - log_actions: bool (log widget interactions)
+            - log_state: bool (log state snapshots)
+            - verbose: bool (extra detailed logging)
     """
     import json
+    import os
 
-    default_settings = {
-        "enabled": True,
-        "file_logging": True,
-        "console_logging": True,
-        "level": "INFO",
-        "use_emoji": True,
-        "max_file_size_mb": 10,
-        "backup_count": 5
-    }
+    # Check environment variable first (highest priority)
+    if os.environ.get('TEST_MODE') == '1':
+        settings = DEFAULT_TESTING_SETTINGS.copy()
+        settings['enabled'] = True
+        if os.environ.get('TEST_VERBOSE') == '1':
+            settings['verbose'] = True
+        return settings
 
     try:
         settings_path = get_settings_path()
         if settings_path.exists():
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
-                return settings.get("logging", default_settings)
+                return settings.get("testing", DEFAULT_TESTING_SETTINGS.copy())
     except Exception:
         pass
 
-    return default_settings
+    return DEFAULT_TESTING_SETTINGS.copy()
+
+
+def save_testing_settings(testing_config: dict) -> bool:
+    """
+    Save testing settings to settings.json.
+
+    Args:
+        testing_config: Dict containing testing configuration
+
+    Returns:
+        bool: True if save successful, False otherwise
+    """
+    import json
+
+    try:
+        settings_path = get_settings_path()
+
+        # Load existing settings or create new
+        if settings_path.exists():
+            with open(settings_path, 'r') as f:
+                settings = json.load(f)
+        else:
+            settings = {}
+
+        # Update testing section
+        settings["testing"] = testing_config
+
+        # Save back to file
+        with open(settings_path, 'w') as f:
+            json.dump(settings, f, indent=2)
+
+        return True
+    except Exception:
+        return False
+
+
+def is_testing_enabled() -> bool:
+    """
+    Quick check if testing mode is enabled.
+
+    Returns:
+        bool: True if testing mode is enabled
+    """
+    import os
+
+    # Environment variable takes priority
+    if os.environ.get('TEST_MODE') == '1':
+        return True
+
+    return get_testing_settings().get('enabled', False)
 
 
 def save_logging_settings(logging_config: dict) -> bool:

@@ -40,17 +40,24 @@ Apple will email you when your data is ready (usually 1-3 days).
    - Review missing artist information
 
 3. **Choose Search Provider**
-   - **MusicBrainz** (recommended for large files):
+   - **MusicBrainz (Local DB)** (recommended for large files):
      - Requires ~2GB database download (one-time)
      - Searches 10,000+ tracks/second
      - No rate limiting
-   - **iTunes API** (works immediately):
+     - Fully offline after download
+   - **MusicBrainz API** (for moderate files):
      - No download required
-     - Slower (10 parallel requests)
-     - Rate limited to ~600 requests/minute
+     - 1 request per second
+     - Requires internet connection
+     - Same database as local version
+   - **iTunes API** (fallback option):
+     - No download required
+     - Adaptive rate limiting (20-120 requests/minute)
+     - Sequential processing
+     - Good for tracks not in MusicBrainz
 
 4. **Search for Missing Artists**
-   - Click "Search with MusicBrainz" or "Search with iTunes"
+   - Click "Search with MusicBrainz", "Search with MusicBrainz API", or "Search with iTunes"
    - Live progress updates show results as they arrive
    - Auto-saves every 50 tracks
    - Can be stopped and resumed
@@ -72,10 +79,10 @@ Apple will email you when your data is ready (usually 1-3 days).
 
 ### Search Provider Panel
 
-- **Radio Buttons**: Select MusicBrainz or iTunes
-- **Database Status**: Shows MusicBrainz database info
-- **Download Button**: Get MusicBrainz database
-- **Settings**: Configure search behavior
+- **Radio Buttons**: Select MusicBrainz (Local), MusicBrainz API, or iTunes
+- **Database Status**: Shows MusicBrainz local database info (when applicable)
+- **Download Button**: Get MusicBrainz database for local mode
+- **Settings**: Configure search behavior for each provider
 
 ### Status Information
 
@@ -108,14 +115,33 @@ The database auto-optimizes on first use. Re-optimization is needed if:
 - You manually import a new database file
 - Searches are significantly slower than expected
 
+## MusicBrainz API Mode
+
+### How It Works
+
+- Queries MusicBrainz API directly over the internet
+- No database download required
+- Rate limited to 1 request per second (API policy)
+- Same comprehensive database as local version
+
+### When to Use
+
+Use MusicBrainz API when:
+- You have moderate-sized files (1,000-10,000 tracks)
+- You don't want to download the 2GB database
+- You have a reliable internet connection
+- You can wait longer than iTunes but don't need local database speed
+
+**Typical Speed**: ~1,000 tracks in 17 minutes (1 req/sec rate limit)
+
 ## iTunes API Mode
 
 ### How It Works
 
 - Sends queries to Apple's iTunes Search API
-- Processes 10 tracks in parallel
+- Processes tracks sequentially with rate limiting
 - Adaptive rate limiting discovers actual API limits
-- Starts at 120 req/min, adjusts based on 403 responses
+- Starts at 120 req/min, adjusts down to 20 req/min based on 403 responses
 
 ### Rate Limiting
 
@@ -162,10 +188,11 @@ iTunes API occasionally returns 403 Forbidden errors when rate limits are exceed
 
 ### For 100,000+ Track Files
 
-1. **Use MusicBrainz** - Much faster for large datasets
+1. **Use MusicBrainz (Local)** - Much faster for large datasets
 2. **Monitor Progress** - Auto-saves protect against interruptions
 3. **Check Disk Space** - Ensure 3GB+ free for MusicBrainz database
 4. **RAM Requirements** - 8GB+ recommended for large files
+5. **Avoid MusicBrainz API** - Would take 28+ hours due to 1 req/sec limit
 
 ### Handling Errors
 
@@ -196,9 +223,9 @@ Creates a separate CSV containing only tracks with missing artists:
 ### Common Issues
 
 **"No artists found"**
-- Verify internet connection (for iTunes API)
-- Check MusicBrainz database is downloaded
-- Try switching search providers
+- Verify internet connection (for MusicBrainz API or iTunes API)
+- Check MusicBrainz database is downloaded (for local mode)
+- Try switching between search providers
 
 **"Application won't start"**
 - Check system requirements (8GB RAM for MusicBrainz)

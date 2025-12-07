@@ -74,7 +74,7 @@ def select_diverse_sample(df, sample_size=50):
 
     return combined
 
-async def test_track(service, track, artist, album, index, total):
+async def run_track(service, track, artist, album, index, total):
     """Test a single track with MusicBrainz DB."""
     print(f"\n[{index}/{total}] Testing: {track}")
     print(f"   CSV Artist: {artist}")
@@ -182,7 +182,7 @@ async def run_sampling_test():
         artist = row['Artist']
         album = row.get('Album', None)
 
-        result = await test_track(service, track, artist, album, idx, total)
+        result = await run_track(service, track, artist, album, idx, total)
         result['track'] = track
         result['csv_artist'] = artist
         result['album'] = album

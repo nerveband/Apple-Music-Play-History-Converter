@@ -25,6 +25,8 @@ try:
     from .trace_utils import TRACE_ENABLED, trace_call, trace_log
     from .app_directories import get_settings_path, get_database_dir
     from .logging_config import get_logger
+    from .track_mapping import TrackMappingCache
+    from .session_aligner import SessionAligner, AlbumSession
 except ImportError:
     # Fall back to optimized manager
     from musicbrainz_manager_v2_optimized import MusicBrainzManagerV2Optimized as MusicBrainzManagerV2
@@ -32,6 +34,8 @@ except ImportError:
     from trace_utils import TRACE_ENABLED, trace_call, trace_log
     from app_directories import get_settings_path, get_database_dir
     from logging_config import get_logger
+    from track_mapping import TrackMappingCache
+    from session_aligner import SessionAligner, AlbumSession
 
 logger = get_logger(__name__)
 
@@ -70,6 +74,12 @@ class MusicSearchServiceV2:
         # Cache lock to protect dictionary from concurrent access (CRITICAL for parallel mode)
         self._cache_lock = RLock()
 
+        # Per-user track mapping cache (Phase 3: persistent across sessions)
+        self._mapping_cache = TrackMappingCache()
+
+        # Session aligner for album-session alignment (Phase 2: group consecutive album tracks)
+        self._session_aligner = SessionAligner(self.musicbrainz_manager)
+
         # Settings lock to protect dictionary from concurrent access
         # (background threads read settings, main thread writes settings)
         self._settings_lock = RLock()
@@ -101,13 +111,12 @@ class MusicSearchServiceV2:
             logger.warning(f"Error loading settings: {e}")
 
         # Default settings
+        # NOTE: Adaptive rate limiting was removed - it produced unreliable results.
+        # iTunes API uses a fixed rate of itunes_rate_limit (default 20 req/min).
         return {
-            "search_provider": "musicbrainz_api",  # Default to online API first, then fallback to iTunes
+            "search_provider": "musicbrainz",  # Default to local MusicBrainz database
             "auto_fallback": True,
-            "itunes_rate_limit": 20,  # requests per minute (user-configurable)
-            "discovered_rate_limit": None,  # Actual limit discovered from rate limit errors
-            "use_adaptive_rate_limit": True,  # Use discovered limit if available
-            "rate_limit_safety_margin": 0.8,  # Use 80% of discovered limit for safety
+            "itunes_rate_limit": 20,  # Fixed requests per minute for iTunes API
             "cache_search_results": True  # Cache duplicate track lookups (saves API calls)
         }
 
@@ -252,9 +261,21 @@ class MusicSearchServiceV2:
             Dict with keys:
             - success: bool
             - artist: str (if found)
-            - source: str ("musicbrainz", "itunes", or "none")
+            - source: str ("musicbrainz", "itunes", "cached", or "none")
             - error: str (if error occurred)
         """
+        # Phase 3: Check persistent mapping cache first (instant lookup)
+        if self._mapping_cache.is_enabled:
+            cached = self._mapping_cache.lookup(song_name, album_name, artist_name)
+            if cached and cached.get('mb_artist_credit_name'):
+                logger.debug(f"Cache hit for '{song_name}' -> '{cached['mb_artist_credit_name']}'")
+                return {
+                    "success": True,
+                    "artist": cached['mb_artist_credit_name'],
+                    "source": "cached",
+                    "confidence": cached.get('confidence', 'high')
+                }
+
         provider = self.get_search_provider()
         auto_fallback = self.get_auto_fallback()
 
@@ -287,6 +308,15 @@ class MusicSearchServiceV2:
             if result["success"]:
                 if TRACE_ENABLED:
                     trace_log.debug("MusicBrainz success for %s -> %s", song_name, result.get("artist"))
+                # Phase 3: Store in persistent cache for future lookups
+                if self._mapping_cache.is_enabled:
+                    self._mapping_cache.store(
+                        apple_song=song_name,
+                        apple_album=album_name,
+                        apple_artist=artist_name,
+                        mb_artist_credit=result.get("artist", ""),
+                        confidence="high"
+                    )
                 return result
 
             # If no match and auto-fallback enabled, try iTunes
@@ -363,6 +393,28 @@ class MusicSearchServiceV2:
             elapsed = (time.time() - search_start) * 1000
 
             if artist_result:
+                # Check if result is a "bad" placeholder that should trigger fallback
+                is_bad = self.musicbrainz_manager._is_bad_result(artist_result)
+
+                # Check if artist hint was provided but result doesn't match
+                hint_mismatch = False
+                if artist_name and not is_bad:
+                    hint_mismatch = not self.musicbrainz_manager._result_matches_hint(artist_result, artist_name)
+
+                if is_bad or hint_mismatch:
+                    # Result is bad or doesn't match hint - trigger fallback
+                    reason = "bad placeholder result" if is_bad else "doesn't match artist hint"
+                    logger.debug(f"   ⚠️ MusicBrainz result '{artist_result}' {reason} - will try fallback")
+                    logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (BAD MATCH) ===\n")
+                    if TRACE_ENABLED:
+                        trace_log.debug("MusicBrainz bad match for %s: %s (%s)", song_name, artist_result, reason)
+                    return {
+                        "success": False,
+                        "source": "musicbrainz",
+                        "error": f"Result '{artist_result}' {reason}",
+                        "partial_result": artist_result  # Keep for debugging
+                    }
+
                 logger.debug(f"   ✅ MusicBrainz SUCCESS: Found '{artist_result}' for '{song_name}' in {elapsed:.1f}ms")
                 logger.debug(f"🎵 === MUSICBRAINZ SERVICE SEARCH END (SUCCESS) ===\n")
                 if TRACE_ENABLED:
@@ -574,27 +626,9 @@ class MusicSearchServiceV2:
                     if status_err.response.status_code == 403:
                         self._debug_log(f"   ⚠️  403 Forbidden - iTunes API is blocking due to rate limit")
 
-                        # Calculate discovered rate limit based on requests in last 60 seconds
-                        current_time = time.time()
-                        recent_requests = [t for t in self.itunes_requests if current_time - t <= 60]
-                        discovered_count = len(recent_requests)
-
-                        self._debug_log(f"   📊 Current request rate: {discovered_count} requests/minute")
-
-                        # Only update discovered rate limit if we have a meaningful sample
-                        if discovered_count > 5:
-                            # Use 80% of current rate as the safe limit
-                            safe_limit = int(discovered_count * 0.8)
-                            self._debug_log(f"   📊 Setting discovered rate limit to {safe_limit} req/min (80% of {discovered_count})")
-                            self.settings["discovered_rate_limit"] = safe_limit
-                            self._save_settings()
-
-                            # Notify UI about discovery
-                            if hasattr(self, 'rate_limit_discovered_callback') and self.rate_limit_discovered_callback:
-                                try:
-                                    self.rate_limit_discovered_callback(safe_limit)
-                                except Exception as cb_error:
-                                    self._debug_log(f"⚠️  Rate limit discovered callback failed: {cb_error}")
+                        # NOTE: We intentionally do NOT try to "learn" the rate limit from 403 errors.
+                        # Apple's rate limiting is unpredictable and our request counting doesn't match
+                        # their internal counting. Just wait 60 seconds and continue at fixed rate.
 
                         # Wait 60 seconds before returning (allow cooldown)
                         # This is simpler and clearer than filling the queue with fake timestamps
@@ -730,25 +764,11 @@ class MusicSearchServiceV2:
 
             if "429" in error_str or "rate limit" in error_str.lower() or "too many requests" in error_str.lower():
                 self._debug_log(f"   ⚠️  Rate limit detected from iTunes API: {e}")
-                logger.warning(f"⚠️  iTunes API rate limit hit - discovering actual limit")
+                logger.warning(f"⚠️  iTunes API rate limit hit (429)")
 
-                # Calculate discovered rate limit based on requests in last 60 seconds
-                current_time = time.time()
-                recent_requests = [t for t in self.itunes_requests if current_time - t <= 60]
-                discovered_count = len(recent_requests)
-
-                # Only update if we have a meaningful sample
-                if discovered_count > 5:
-                    self._debug_log(f"   📊 Discovered actual rate limit: {discovered_count} requests/minute")
-                    self.settings["discovered_rate_limit"] = discovered_count
-                    self._save_settings()
-
-                    # Notify UI about discovery
-                    if hasattr(self, 'rate_limit_discovered_callback') and self.rate_limit_discovered_callback:
-                        try:
-                            self.rate_limit_discovered_callback(discovered_count)
-                        except Exception as cb_error:
-                            self._debug_log(f"⚠️  Rate limit discovered callback failed: {cb_error}")
+                # NOTE: We intentionally do NOT try to "learn" the rate limit from 429 errors.
+                # Apple's rate limiting is unpredictable and our request counting doesn't match
+                # their internal counting. Just wait 60 seconds and continue at fixed rate.
 
                 # Reset rate limit queue to force full 60-second wait
                 # This prevents immediately hitting the limit again
@@ -794,28 +814,10 @@ class MusicSearchServiceV2:
             self.itunes_requests.append(current_time)
             return
 
-        # Use discovered limit if available and adaptive mode is enabled
-        use_adaptive = self.settings.get("use_adaptive_rate_limit", True)
-        discovered_limit = self.settings.get("discovered_rate_limit", None)
-        user_limit = self.settings.get("itunes_rate_limit", 20)
-
-        logger.debug(f"      📊 use_adaptive={use_adaptive}, discovered={discovered_limit}, user={user_limit}")
-
-        if use_adaptive:
-            if discovered_limit:
-                # Use discovered limit with safety margin
-                safety_margin = self.settings.get("rate_limit_safety_margin", 0.8)
-                rate_limit = int(discovered_limit * safety_margin)
-                logger.debug(f"      🎯 Using adaptive rate limit: {rate_limit} req/min (discovered: {discovered_limit}, margin: {safety_margin})")
-            else:
-                # No discovered limit yet - start conservatively to avoid 403 blocking
-                # Use 120 req/min (2 req/sec) which is safe and won't trigger 403
-                # iTunes API has been observed to block at 600 req/min with 403 Forbidden
-                rate_limit = 120
-                logger.debug(f"      🔍 Discovery mode: Using conservative {rate_limit} req/min to avoid 403 blocking (will adapt if we hit rate limit)")
-        else:
-            rate_limit = user_limit
-            logger.debug(f"      📊 Using manual rate limit: {rate_limit} requests/min")
+        # Use a fixed rate limit - adaptive learning was unreliable
+        # iTunes API works well at ~20 req/min. When 403/429 hit, we wait 60s and continue.
+        rate_limit = self.settings.get("itunes_rate_limit", 20)
+        logger.debug(f"      📊 Using fixed rate limit: {rate_limit} requests/min")
 
         min_interval = 60.0 / rate_limit
         logger.debug(f"      📊 Min interval: {min_interval:.2f}s")
@@ -966,6 +968,54 @@ class MusicSearchServiceV2:
     def is_musicbrainz_optimized(self) -> bool:
         """Check if MusicBrainz database is optimized and ready."""
         return self.musicbrainz_manager.is_ready()
+
+    # Phase 2: Session Alignment Methods
+    @property
+    def session_aligner(self) -> SessionAligner:
+        """Get the session aligner instance."""
+        return self._session_aligner
+
+    def apply_session_alignment(self, tracks: List[Dict]) -> Tuple[List[Dict], Dict]:
+        """
+        Apply album-session alignment to a list of tracks.
+
+        Detects consecutive tracks from the same album and aligns them to a
+        single MusicBrainz release, providing consistent artist credits.
+
+        Args:
+            tracks: List of track dictionaries with 'track', 'album', 'artist' keys
+
+        Returns:
+            Tuple of (updated_tracks, stats_dict)
+        """
+        if not self.is_musicbrainz_optimized():
+            logger.debug("Session alignment skipped: MusicBrainz not ready")
+            return tracks, {'sessions_detected': 0, 'tracks_aligned': 0}
+
+        # Detect album sessions
+        sessions = self._session_aligner.detect_sessions(tracks)
+
+        if not sessions:
+            logger.debug("No album sessions detected")
+            return tracks, self._session_aligner.get_stats()
+
+        logger.info(f"Detected {len(sessions)} album sessions")
+
+        # Align sessions and apply to tracks
+        aligned_tracks = self._session_aligner.align_all_sessions(sessions, tracks)
+
+        stats = self._session_aligner.get_stats()
+        logger.info(f"Session alignment complete: {stats['tracks_aligned']} tracks aligned from {stats['sessions_aligned']} sessions")
+
+        return aligned_tracks, stats
+
+    def get_session_alignment_stats(self) -> Dict:
+        """Get statistics from the last session alignment."""
+        return self._session_aligner.get_stats()
+
+    def reset_session_alignment_stats(self):
+        """Reset session alignment statistics."""
+        self._session_aligner.reset_stats()
 
     @trace_call("MusicSearch.force_itunes_fallback")
     def force_itunes_fallback(self):
