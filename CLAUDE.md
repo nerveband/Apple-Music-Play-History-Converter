@@ -320,19 +320,53 @@ spctl -a -t exec -vv "dist/Apple Music History Converter-2.0.2.dmg"  # Verify
 
 ### Windows Build Process
 
-**Automated via GitHub Actions** - no local Windows machine required.
+**Prerequisites**: Python 3.12+, Git, Windows 10/11
 
-```bash
-# Update version in pyproject.toml (3 locations), then:
-git tag v2.0.3 && git push origin v2.0.3
-
-# GitHub Actions automatically builds MSI and attaches to release
-gh run list --workflow=build-windows.yml
-gh run watch <RUN_ID>
-gh run download <RUN_ID> --name apple-music-history-converter-windows-x86_64-msi
+**Pull and Setup**:
+```cmd
+cd C:\path\to\Apple-Music-Play-History-Converter
+git fetch origin
+git checkout <branch-name>
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+pip install briefcase
 ```
 
-**Build Duration**: 3-4 minutes, 90-day retention, ~48-50MB MSI
+**Build Steps**:
+```cmd
+briefcase create windows
+briefcase build windows
+briefcase package windows
+```
+
+**Output**: `dist\Apple Music History Converter-2.0.2.msi` (~48-50MB)
+
+**Test Before Packaging** (optional):
+```cmd
+python -m pytest tests_toga/ -v
+briefcase dev  # Run in development mode
+```
+
+### Linux Build Process
+
+**No pre-built binaries available**. Linux users must compile from source:
+
+```bash
+git clone https://github.com/nerveband/Apple-Music-Play-History-Converter.git
+cd Apple-Music-Play-History-Converter
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python run_toga_app.py  # Run directly from source
+```
+
+For packaged builds, use Briefcase:
+```bash
+pip install briefcase
+briefcase create linux
+briefcase build linux
+briefcase package linux
+```
 
 ### Code Signing & Notarization
 
@@ -393,23 +427,22 @@ Format: `MAJOR.MINOR.PATCH` - MAJOR: breaking changes, MINOR: new features, PATC
 
 **Release Day**:
 ```bash
-# 1. Build macOS
+# 1. Build macOS (on Mac)
 python build.py clean && python build.py create && python build.py build
 briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
 
-# 2. Commit and tag
+# 2. Build Windows (on Windows machine)
+git fetch origin && git checkout main
+briefcase create windows && briefcase build windows && briefcase package windows
+
+# 3. Commit and tag
 git add pyproject.toml && git commit -m "chore: release v2.0.3"
 git push origin main && git tag v2.0.3 && git push origin v2.0.3
 
-# 3. Monitor Windows build
-gh run list --workflow=build-windows.yml --limit 1
-gh run watch <RUN_ID>
-
 # 4. Create release
-gh run download <RUN_ID> --name apple-music-history-converter-windows-x86_64-msi --dir ./release-windows
 gh release create v2.0.3 --title "v2.0.3 - [Title]" --notes "[Release notes]" \
   "dist/Apple Music History Converter-2.0.3.dmg#macOS DMG Installer (Universal)" \
-  "release-windows/Apple Music History Converter-2.0.3.msi#Windows MSI Installer"
+  "dist/Apple Music History Converter-2.0.3.msi#Windows MSI Installer"
 ```
 
 **Post-Release**:
