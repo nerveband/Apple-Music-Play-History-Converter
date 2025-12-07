@@ -3,3 +3,4 @@
 build_artifacts/*.zip filter=lfs diff=lfs merge=lfs -text
 build_artifacts/*.tar.gz filter=lfs diff=lfs merge=lfs -text
 build_artifacts/*.exe filter=lfs diff=lfs merge=lfs -text
+_test_csvs/*.csv filter=lfs diff=lfs merge=lfs -text

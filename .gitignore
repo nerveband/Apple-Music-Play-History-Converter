@@ -54,9 +54,7 @@ release-windows/
 app_data/
 data/
 converted.csv
-# Large test CSVs (>100MB) - small ones are tracked
-_test_csvs/*full*.csv
-_test_csvs/*Kira*.csv
+# Test CSV metadata (large CSVs tracked via Git LFS)
 _test_csvs/.DS_Store
 
 # Environment variables (contains sensitive credentials)
