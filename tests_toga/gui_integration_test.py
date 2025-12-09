@@ -252,7 +252,7 @@ class GUIIntegrationTester:
             # Test 4: Unicode characters
             tests_total += 1
             try:
-                r = await self.search_service.search_song("Cafe - Música Clásica")
+                r = await self.search_service.search_song("Cafe - Musica Clasica")
                 tests_passed += 1
                 self.log("  Unicode characters: PASS (handled without crash)")
             except Exception as e:

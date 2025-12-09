@@ -72,7 +72,7 @@ def select_strategic_sample(df, sample_size=100):
         n = min(20, len(unicode_tracks))
         unicode_sample = unicode_tracks.sample(n=n)
         samples.append(unicode_sample)
-        print(f"   📝 Selected {len(unicode_sample)} tracks with Unicode")
+        print(f"   [N] Selected {len(unicode_sample)} tracks with Unicode")
 
     # 2. Likely covers/remixes (30%) - the challenging cases
     df['is_cover'] = df.apply(lambda row: is_likely_cover_or_remix(
@@ -84,7 +84,7 @@ def select_strategic_sample(df, sample_size=100):
         n = min(30, len(cover_tracks))
         cover_sample = cover_tracks.sample(n=n)
         samples.append(cover_sample)
-        print(f"   📝 Selected {len(cover_sample)} likely covers/remixes")
+        print(f"   [N] Selected {len(cover_sample)} likely covers/remixes")
 
     # 3. Clean canonical tracks with album info (30%)
     canonical_tracks = df[
@@ -96,14 +96,14 @@ def select_strategic_sample(df, sample_size=100):
         n = min(30, len(canonical_tracks))
         canonical_sample = canonical_tracks.sample(n=n)
         samples.append(canonical_sample)
-        print(f"   📝 Selected {len(canonical_sample)} canonical tracks with albums")
+        print(f"   [N] Selected {len(canonical_sample)} canonical tracks with albums")
 
     # 4. Random diverse (20%)
     remaining = sample_size - sum(len(s) for s in samples)
     if remaining > 0:
         random_sample = df.sample(n=min(remaining, len(df)))
         samples.append(random_sample)
-        print(f"   📝 Selected {len(random_sample)} random tracks")
+        print(f"   [N] Selected {len(random_sample)} random tracks")
 
     # Combine and deduplicate
     combined = pd.concat(samples).drop_duplicates(subset=['Track', 'Artist', 'Album'])
@@ -177,14 +177,14 @@ async def run_comprehensive_test():
     print_separator("COMPREHENSIVE 3-PROVIDER COMPARISON - 100 TRACKS")
 
     # Load CSV
-    print(f"\n📂 Loading CSV: {CSV_PATH}")
+    print(f"\n[FOLDER] Loading CSV: {CSV_PATH}")
     df = pd.read_csv(CSV_PATH, encoding='utf-8-sig')
     print(f"   Total rows: {len(df):,}")
 
     # Select strategic sample
-    print("\n🎲 Selecting strategic sample of 100 tracks:")
+    print("\n[DICE] Selecting strategic sample of 100 tracks:")
     sample_df = select_strategic_sample(df, sample_size=100)
-    print(f"\n   ✅ Selected {len(sample_df)} unique tracks")
+    print(f"\n   [OK] Selected {len(sample_df)} unique tracks")
 
     # Statistics
     unicode_count = sum(1 for _, row in sample_df.iterrows()
@@ -195,21 +195,21 @@ async def run_comprehensive_test():
     album_count = sum(1 for _, row in sample_df.iterrows()
                      if pd.notna(row.get('Album')) and row.get('Album') != '')
 
-    print(f"\n📊 Sample Statistics:")
-    print(f"   🌐 Unicode tracks: {unicode_count}/{len(sample_df)}")
-    print(f"   🎸 Cover/Remix tracks: {cover_count}/{len(sample_df)}")
-    print(f"   📀 Tracks with album: {album_count}/{len(sample_df)}")
-    print(f"   🎵 Unique artists: {sample_df['Artist'].nunique()}")
+    print(f"\n[=] Sample Statistics:")
+    print(f"   [W] Unicode tracks: {unicode_count}/{len(sample_df)}")
+    print(f"   [GUITAR] Cover/Remix tracks: {cover_count}/{len(sample_df)}")
+    print(f"   [DISC] Tracks with album: {album_count}/{len(sample_df)}")
+    print(f"   [#] Unique artists: {sample_df['Artist'].nunique()}")
 
     # Initialize service
-    print("\n🚀 Initializing MusicSearchServiceV2...")
+    print("\n[>] Initializing MusicSearchServiceV2...")
     service = MusicSearchServiceV2()
 
     if not service.musicbrainz_manager.is_ready():
-        print("❌ MusicBrainz database not ready")
+        print("[X] MusicBrainz database not ready")
         return
 
-    print("   ✅ All providers ready")
+    print("   [OK] All providers ready")
 
     # Test each track
     print_separator("TESTING TRACKS AGAINST ALL PROVIDERS")
@@ -235,10 +235,10 @@ async def run_comprehensive_test():
         # Show results
         for provider, result in provider_results.items():
             if result['success']:
-                match_icon = "✅" if result['match'] else "❌"
-                print(f"   {match_icon} {provider:15} → {result['artist']}")
+                match_icon = "[OK]" if result['match'] else "[X]"
+                print(f"   {match_icon} {provider:15} -> {result['artist']}")
             else:
-                print(f"   💥 {provider:15} → FAILED: {result.get('error', 'Unknown')}")
+                print(f"   [!] {provider:15} -> FAILED: {result.get('error', 'Unknown')}")
 
         # Store
         all_results.append({
@@ -274,7 +274,7 @@ async def run_comprehensive_test():
                 provider_stats[provider]['failures'] += 1
 
     # Print overall stats
-    print(f"\n📊 Overall Results ({len(all_results)} tracks, {elapsed:.1f}s):\n")
+    print(f"\n[=] Overall Results ({len(all_results)} tracks, {elapsed:.1f}s):\n")
 
     for provider in ['musicbrainz', 'musicbrainz_api', 'itunes']:
         stats = provider_stats[provider]
@@ -284,10 +284,10 @@ async def run_comprehensive_test():
         success_rate = (total_success / total_tests * 100) if total_tests > 0 else 0
 
         print(f"{provider.upper().replace('_', ' '):20}")
-        print(f"   ✅ Matches:    {stats['matches']:3}/{total_tests} ({accuracy:.1f}%)")
-        print(f"   ❌ Mismatches: {stats['mismatches']:3}/{total_tests}")
-        print(f"   💥 Failures:   {stats['failures']:3}/{total_tests}")
-        print(f"   📈 Success:    {total_success:3}/{total_tests} ({success_rate:.1f}%)")
+        print(f"   [OK] Matches:    {stats['matches']:3}/{total_tests} ({accuracy:.1f}%)")
+        print(f"   [X] Mismatches: {stats['mismatches']:3}/{total_tests}")
+        print(f"   [!] Failures:   {stats['failures']:3}/{total_tests}")
+        print(f"   [CHART] Success:    {total_success:3}/{total_tests} ({success_rate:.1f}%)")
         print()
 
     # Category-specific analysis
@@ -306,7 +306,7 @@ async def run_comprehensive_test():
         if not cat_results:
             continue
 
-        print(f"\n📋 {cat_name} ({len(cat_results)} tracks):")
+        print(f"\n[LIST] {cat_name} ({len(cat_results)} tracks):")
 
         for provider in ['musicbrainz', 'musicbrainz_api', 'itunes']:
             matches = sum(1 for r in cat_results
@@ -344,7 +344,7 @@ async def run_comprehensive_test():
             else:
                 agreement_stats['all_different'] += 1
 
-    print(f"\n🤝 Provider Agreement:")
+    print(f"\n[HANDSHAKE] Provider Agreement:")
     print(f"   All 3 agree:        {agreement_stats['all_agree']}")
     print(f"   MB DB + API agree:  {agreement_stats['mb_api_agree']}")
     print(f"   MB DB + iTunes:     {agreement_stats['mb_itunes_agree']}")
@@ -367,7 +367,7 @@ async def run_comprehensive_test():
                    r['results']['itunes']['success'] and r['results']['itunes']['match'] and
                    (not r['results']['musicbrainz'].get('match', False) or not r['results']['musicbrainz_api'].get('match', False))]
 
-    print(f"\n🏆 Provider Strengths:")
+    print(f"\n[TROPHY] Provider Strengths:")
     print(f"   MusicBrainz DB unique wins:  {len(mb_wins)}")
     print(f"   MusicBrainz API unique wins: {len(api_wins)}")
     print(f"   iTunes unique wins:          {len(itunes_wins)}")
@@ -375,17 +375,17 @@ async def run_comprehensive_test():
     if mb_wins:
         print(f"\n   MusicBrainz DB excelled at:")
         for r in mb_wins[:3]:
-            print(f"      • {r['track']} - {r['csv_artist']}")
+            print(f"      - {r['track']} - {r['csv_artist']}")
 
     if api_wins:
         print(f"\n   MusicBrainz API excelled at:")
         for r in api_wins[:3]:
-            print(f"      • {r['track']} - {r['csv_artist']}")
+            print(f"      - {r['track']} - {r['csv_artist']}")
 
     if itunes_wins:
         print(f"\n   iTunes excelled at:")
         for r in itunes_wins[:3]:
-            print(f"      • {r['track']} - {r['csv_artist']}")
+            print(f"      - {r['track']} - {r['csv_artist']}")
 
     # Export detailed results
     output_file = "comprehensive_test_results.csv"
@@ -407,7 +407,7 @@ async def run_comprehensive_test():
 
     export_df = pd.DataFrame(export_data)
     export_df.to_csv(output_file, index=False)
-    print(f"\n💾 Detailed results exported to: {output_file}")
+    print(f"\n[D] Detailed results exported to: {output_file}")
 
 if __name__ == "__main__":
     asyncio.run(run_comprehensive_test())

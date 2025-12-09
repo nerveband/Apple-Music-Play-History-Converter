@@ -67,9 +67,17 @@ class UltraFastCSVProcessor:
         """
         start_time = time.time()
 
+        # Check mode
+        efficiency_mode = self.manager.is_efficiency_mode()
+        mode_str = "EFFICIENCY" if efficiency_mode else "PERFORMANCE"
+
         logger.print_always("\n" + "="*70)
-        logger.print_always("🚀 ULTRA-FAST CSV PROCESSING")
+        logger.print_always(f"[>] ULTRA-FAST CSV PROCESSING ({mode_str} MODE)")
         logger.print_always("="*70)
+        if efficiency_mode:
+            logger.print_always("[i] Using direct table queries (optimized for low-RAM)")
+        else:
+            logger.print_always("[i] Using HOT/COLD table cascade (high-RAM system)")
 
         # Phase 1: Read CSV
         if progress_callback:
@@ -79,7 +87,7 @@ class UltraFastCSVProcessor:
         df = self._read_csv(csv_file)
         read_time = time.time() - read_start
 
-        logger.print_always(f"✅ Read {len(df):,} rows in {read_time:.1f}s")
+        logger.print_always(f"[OK] Read {len(df):,} rows in {read_time:.1f}s")
         self.stats['total_rows'] = len(df)
 
         # Phase 2: Vectorized text cleaning
@@ -90,7 +98,7 @@ class UltraFastCSVProcessor:
         df = self._vectorized_clean(df)
         clean_time = time.time() - clean_start
 
-        logger.print_always(f"✅ Cleaned {len(df):,} tracks in {clean_time:.1f}s")
+        logger.print_always(f"[OK] Cleaned {len(df):,} tracks in {clean_time:.1f}s")
 
         # Phase 3: Deduplication analysis
         if progress_callback:
@@ -105,11 +113,11 @@ class UltraFastCSVProcessor:
         dedup_ratio = (self.stats['dedup_saves'] / len(df)) * 100
         dedup_speedup = len(df) / len(unique_df) if len(unique_df) > 0 else 1
 
-        logger.print_always(f"\n📊 Deduplication Analysis:")
+        logger.print_always(f"\n[=] Deduplication Analysis:")
         logger.print_always(f"   Total rows: {len(df):,}")
         logger.print_always(f"   Unique tracks: {len(unique_df):,} ({len(unique_df)/len(df)*100:.1f}%)")
-        logger.print_always(f"   💾 Deduplication saves: {self.stats['dedup_saves']:,} searches ({dedup_ratio:.1f}%)")
-        logger.print_always(f"   🚀 Speedup from dedup: {dedup_speedup:.1f}x")
+        logger.print_always(f"   [D] Deduplication saves: {self.stats['dedup_saves']:,} searches ({dedup_ratio:.1f}%)")
+        logger.print_always(f"   [>] Speedup from dedup: {dedup_speedup:.1f}x")
 
         # Phase 4: Batch SQL queries
         if progress_callback:
@@ -119,10 +127,10 @@ class UltraFastCSVProcessor:
         track_to_artist = self._batch_search(unique_df, progress_callback)
         search_time = time.time() - search_start
 
-        logger.print_always(f"\n✅ Batch search completed in {search_time:.1f}s")
-        logger.print_always(f"   🔥 HOT table hits: {self.stats['hot_hits']:,} ({self.stats['hot_hits']/len(unique_df)*100:.1f}%)")
-        logger.print_always(f"   ❄️  COLD table hits: {self.stats['cold_hits']:,} ({self.stats['cold_hits']/len(unique_df)*100:.1f}%)")
-        logger.warning(f"   ⚠️  Not found: {self.stats['not_found']:,} ({self.stats['not_found']/len(unique_df)*100:.1f}%)")
+        logger.print_always(f"\n[OK] Batch search completed in {search_time:.1f}s")
+        logger.print_always(f"   [FIRE] HOT table hits: {self.stats['hot_hits']:,} ({self.stats['hot_hits']/len(unique_df)*100:.1f}%)")
+        logger.print_always(f"   [SNOWFLAKE]  COLD table hits: {self.stats['cold_hits']:,} ({self.stats['cold_hits']/len(unique_df)*100:.1f}%)")
+        logger.warning(f"   [!]  Not found: {self.stats['not_found']:,} ({self.stats['not_found']/len(unique_df)*100:.1f}%)")
 
         # Phase 5: Vectorized mapping
         if progress_callback:
@@ -132,7 +140,7 @@ class UltraFastCSVProcessor:
         df = self._vectorized_map(df, track_to_artist)
         map_time = time.time() - map_start
 
-        logger.print_always(f"\n✅ Mapped results in {map_time:.1f}s")
+        logger.print_always(f"\n[OK] Mapped results in {map_time:.1f}s")
 
         # Final stats
         total_time = time.time() - start_time
@@ -143,7 +151,7 @@ class UltraFastCSVProcessor:
         throughput = len(df) / total_time
 
         logger.print_always(f"\n" + "="*70)
-        logger.print_always("📊 FINAL RESULTS:")
+        logger.print_always("[=] FINAL RESULTS:")
         logger.print_always("="*70)
         logger.print_always(f"Total rows:      {len(df):,}")
         logger.print_always(f"Matched:         {matched:,} ({match_rate:.1f}%)")
@@ -153,7 +161,7 @@ class UltraFastCSVProcessor:
         # Calculate speedup vs old method (77ms per row)
         old_time = len(df) * 0.077  # 77ms per row
         speedup = old_time / total_time
-        logger.print_always(f"Speedup:         🚀 {speedup:.1f}x faster!")
+        logger.print_always(f"Speedup:         [>] {speedup:.1f}x faster!")
         logger.print_always("="*70 + "\n")
 
         if progress_callback:
@@ -183,6 +191,9 @@ class UltraFastCSVProcessor:
         Vectorized text cleaning (MUCH faster than row-by-row).
 
         Uses pandas string operations instead of Python function calls.
+
+        In EFFICIENCY MODE, we use simpler cleaning to match recording_lower directly.
+        In PERFORMANCE MODE, we use full cleaning to match recording_clean.
         """
         # Get track name column (handle different CSV formats)
         track_col = None
@@ -194,18 +205,32 @@ class UltraFastCSVProcessor:
         if not track_col:
             raise ValueError("No track name column found in CSV")
 
-        # Vectorized cleaning pipeline
-        df['track_clean'] = (
-            df[track_col]
-            .fillna('')  # Handle NaN
-            .str.normalize('NFKC')  # Unicode normalization
-            .str.replace(r'\s*[\(\[].*?[\)\]]', '', regex=True)  # Remove parentheses
-            .str.replace(r'\bfeat(?:\.|uring)?\b.*', '', regex=True, case=False)  # Remove feat.
-            .str.lower()  # Lowercase
-            .str.replace(r'[^\w\s]', '', regex=True)  # Remove punctuation
-            .str.replace(r'\s+', ' ', regex=True)  # Collapse whitespace
-            .str.strip()  # Trim
-        )
+        # Check if we're in efficiency mode
+        efficiency_mode = self.manager.is_efficiency_mode()
+
+        if efficiency_mode:
+            # EFFICIENCY MODE: Simple cleaning (matches recording_lower)
+            # Just lowercase and strip - keeps parentheses, feat., punctuation
+            df['track_clean'] = (
+                df[track_col]
+                .fillna('')  # Handle NaN
+                .str.lower()  # Lowercase
+                .str.strip()  # Trim
+            )
+            logger.debug("Using simple track cleaning for efficiency mode")
+        else:
+            # PERFORMANCE MODE: Full cleaning (matches recording_clean)
+            df['track_clean'] = (
+                df[track_col]
+                .fillna('')  # Handle NaN
+                .str.normalize('NFKC')  # Unicode normalization
+                .str.replace(r'\s*[\(\[].*?[\)\]]', '', regex=True)  # Remove parentheses
+                .str.replace(r'\bfeat(?:\.|uring)?\b.*', '', regex=True, case=False)  # Remove feat.
+                .str.lower()  # Lowercase
+                .str.replace(r'[^\w\s]', '', regex=True)  # Remove punctuation
+                .str.replace(r'\s+', ' ', regex=True)  # Collapse whitespace
+                .str.strip()  # Trim
+            )
 
         # Also get album if available
         album_col = 'Album' if 'Album' in df.columns else None
@@ -226,22 +251,255 @@ class UltraFastCSVProcessor:
         unique_df = df[['track_clean', 'album_clean']].drop_duplicates()
         return unique_df.reset_index(drop=True)
 
-    def _batch_search(self, unique_df: pd.DataFrame, progress_callback: Optional[Callable] = None) -> Dict[Tuple[str, str], str]:
+    def _batch_search(self, unique_df: pd.DataFrame, progress_callback: Optional[Callable] = None) -> Dict[str, str]:
         """
         Batch search all unique tracks using massive SQL queries.
 
         This is the core optimization - single query for thousands of tracks!
+        ALWAYS uses album info when available for better accuracy.
+
+        Returns Dict[track_clean, artist] for compatibility with existing code.
+        """
+        if unique_df.empty:
+            return {}
+
+        # Check if we're in efficiency mode (simple schema)
+        efficiency_mode = self.manager.is_efficiency_mode()
+
+        if efficiency_mode:
+            # EFFICIENCY MODE: Use album-aware search for accuracy
+            return self._batch_search_efficiency_mode_with_album_v2(unique_df, progress_callback)
+
+        # PERFORMANCE MODE: Use HOT/COLD table cascade with album
+        return self._batch_search_performance_mode_with_album(unique_df, progress_callback)
+
+    def _batch_search_efficiency_mode_with_album_v2(self, unique_df: pd.DataFrame, progress_callback: Optional[Callable] = None) -> Dict[str, str]:
+        """
+        EFFICIENCY MODE: Album-aware BATCHED search for better accuracy AND speed.
+
+        Strategy:
+        1. Batch fetch all candidates for tracks
+        2. Filter by album match in Python (fast)
+        3. Fall back to best-score for tracks without album match
+
+        Returns Dict[track_clean, artist] for compatibility.
+        """
+        track_to_artist = {}
+        total = len(unique_df)
+
+        logger.print_always(f"\n[>] EFFICIENCY MODE: Album-aware BATCH search ({total:,} unique tracks)...")
+
+        # Build lookup dict: track -> album
+        track_to_album = dict(zip(unique_df['track_clean'], unique_df['album_clean']))
+
+        # Get all unique tracks
+        all_tracks = unique_df['track_clean'].unique().tolist()
+
+        # Count tracks with album
+        tracks_with_album = sum(1 for t in all_tracks if track_to_album.get(t, ''))
+        logger.print_always(f"   [i] {tracks_with_album:,} with album, {len(all_tracks) - tracks_with_album:,} without")
+
+        # Phase 1: Batch fetch ALL candidates for all tracks
+        logger.print_always(f"\n[>] Phase 1: Batch fetching candidates...")
+
+        # Store candidates: track -> [(artist, album, score), ...]
+        track_candidates = {}
+
+        for i in range(0, len(all_tracks), self.batch_size):
+            batch = all_tracks[i:i+self.batch_size]
+
+            if progress_callback:
+                progress = 35 + int((i / len(all_tracks)) * 40)
+                progress_callback(f"Fetching: {i:,}/{len(all_tracks):,}", progress)
+
+            placeholders = ','.join(['?' for _ in batch])
+            sql = f"""
+                SELECT recording_lower, artist_credit_name, release_lower, score
+                FROM musicbrainz
+                WHERE recording_lower IN ({placeholders})
+                ORDER BY recording_lower, score ASC
+            """
+
+            try:
+                results = self.conn.execute(sql, batch).fetchall()
+                for track, artist, album, score in results:
+                    if track not in track_candidates:
+                        track_candidates[track] = []
+                    track_candidates[track].append((artist, album or '', score))
+            except Exception as e:
+                logger.error(f"Batch fetch failed: {e}")
+
+        logger.print_always(f"   [OK] Fetched candidates for {len(track_candidates):,} tracks")
+
+        # Phase 2: Match with album preference
+        logger.print_always(f"\n[>] Phase 2: Matching with album preference...")
+
+        found_with_album = 0
+        found_without_album = 0
+
+        for i, track in enumerate(all_tracks):
+            if progress_callback and i % 5000 == 0:
+                progress = 75 + int((i / len(all_tracks)) * 20)
+                progress_callback(f"Matching: {i:,}/{len(all_tracks):,}", progress)
+
+            if track not in track_candidates:
+                continue
+
+            candidates = track_candidates[track]
+            user_album = track_to_album.get(track, '').lower()
+
+            # Try to find album match first
+            if user_album:
+                for artist, db_album, score in candidates:
+                    if user_album in db_album.lower() or db_album.lower() in user_album:
+                        track_to_artist[track] = artist
+                        found_with_album += 1
+                        self.stats['hot_hits'] += 1
+                        break
+
+            # If no album match, use first (lowest score = oldest/most established)
+            if track not in track_to_artist and candidates:
+                track_to_artist[track] = candidates[0][0]
+                found_without_album += 1
+                self.stats['cold_hits'] += 1
+
+        # Stats
+        not_found = len(all_tracks) - len(track_to_artist)
+        self.stats['not_found'] = not_found
+
+        logger.print_always(f"\n[OK] Search complete:")
+        logger.print_always(f"   [OK] Album match: {found_with_album:,}")
+        logger.print_always(f"   [i] Score fallback: {found_without_album:,}")
+        logger.print_always(f"   [!] Not found: {not_found:,}")
+
+        return track_to_artist
+
+    def _batch_search_performance_mode_with_album(self, unique_df: pd.DataFrame, progress_callback: Optional[Callable] = None) -> Dict[str, str]:
+        """
+        PERFORMANCE MODE: Album-aware HOT/COLD cascade search.
+
+        Strategy:
+        1. Search HOT table with track+album (most popular tracks)
+        2. Search COLD table for misses
+        3. Fall back to track-only for remaining
+
+        Returns Dict[track_clean, artist] for compatibility.
+        """
+        track_to_artist = {}
+        total = len(unique_df)
+
+        logger.print_always(f"\n[>] PERFORMANCE MODE: Album-aware HOT/COLD search ({total:,} tracks)...")
+
+        # Get all unique tracks
+        all_tracks = unique_df['track_clean'].tolist()
+
+        # Separate tracks with and without album
+        has_album = unique_df['album_clean'].str.len() > 0
+        tracks_with_album = unique_df[has_album]
+
+        # Phase 1: HOT table with album matching
+        logger.print_always(f"\n[FIRE] Phase 1: HOT table search...")
+
+        if len(tracks_with_album) > 0:
+            pairs = list(tracks_with_album[['track_clean', 'album_clean']].itertuples(index=False, name=None))
+
+            for i, (track, album) in enumerate(pairs):
+                if progress_callback and i % 500 == 0:
+                    progress = 35 + int((i / len(pairs)) * 20)
+                    progress_callback(f"HOT+Album: {i:,}/{len(pairs):,}", progress)
+
+                try:
+                    # Clean album for PERFORMANCE mode (remove parens etc)
+                    album_clean = album.lower().strip()
+                    result = self.conn.execute("""
+                        SELECT artist_credit_name
+                        FROM musicbrainz_hot
+                        WHERE recording_clean = ?
+                        AND release_lower LIKE ?
+                        ORDER BY score ASC
+                        LIMIT 1
+                    """, [track, f"%{album_clean}%"]).fetchone()
+
+                    if result:
+                        track_to_artist[track] = result[0]
+                        self.stats['hot_hits'] += 1
+                except Exception:
+                    pass
+
+        # Phase 2: HOT table track-only for remaining
+        remaining = [t for t in all_tracks if t not in track_to_artist]
+        if remaining:
+            for i in range(0, len(remaining), self.batch_size):
+                batch = remaining[i:i+self.batch_size]
+
+                if progress_callback:
+                    progress = 55 + int((i / len(remaining)) * 10)
+                    progress_callback(f"HOT track-only: {i:,}/{len(remaining):,}", progress)
+
+                placeholders = ','.join(['?' for _ in batch])
+                sql = f"""
+                    SELECT recording_clean, artist_credit_name
+                    FROM musicbrainz_hot
+                    WHERE recording_clean IN ({placeholders})
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY recording_clean ORDER BY score ASC) = 1
+                """
+
+                try:
+                    results = self.conn.execute(sql, batch).fetchall()
+                    for track, artist in results:
+                        if track not in track_to_artist:
+                            track_to_artist[track] = artist
+                            self.stats['hot_hits'] += 1
+                except Exception as e:
+                    logger.error(f"HOT batch failed: {e}")
+
+        # Phase 3: COLD table for remaining
+        remaining = [t for t in all_tracks if t not in track_to_artist]
+        if remaining:
+            logger.print_always(f"\n[SNOW] Phase 2: COLD table for {len(remaining):,} misses...")
+
+            for i in range(0, len(remaining), self.batch_size):
+                batch = remaining[i:i+self.batch_size]
+
+                if progress_callback:
+                    progress = 65 + int((i / len(remaining)) * 15)
+                    progress_callback(f"COLD: {i:,}/{len(remaining):,}", progress)
+
+                placeholders = ','.join(['?' for _ in batch])
+                sql = f"""
+                    SELECT recording_clean, artist_credit_name
+                    FROM musicbrainz_cold
+                    WHERE recording_clean IN ({placeholders})
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY recording_clean ORDER BY score ASC) = 1
+                """
+
+                try:
+                    results = self.conn.execute(sql, batch).fetchall()
+                    for track, artist in results:
+                        if track not in track_to_artist:
+                            track_to_artist[track] = artist
+                            self.stats['cold_hits'] += 1
+                except Exception as e:
+                    logger.error(f"COLD batch failed: {e}")
+
+        # Stats
+        not_found = len(all_tracks) - len(track_to_artist)
+        self.stats['not_found'] = not_found
+
+        logger.print_always(f"\n[OK] Search complete: {len(track_to_artist):,} found, {not_found:,} not found")
+
+        return track_to_artist
+
+    def _batch_search_performance_mode(self, unique_tracks: list, progress_callback: Optional[Callable] = None) -> Dict[str, str]:
+        """
+        Batch search using HOT/COLD table cascade (for high-RAM systems).
+
+        Uses materialized tables with pre-computed cleaned columns and indexes.
         """
         track_to_artist = {}
 
-        # Get list of unique tracks
-        unique_tracks = unique_df['track_clean'].tolist()
-
-        if not unique_tracks:
-            return track_to_artist
-
         # Phase 1: Query HOT table in batches
-        logger.print_always(f"\n🔥 Querying HOT table (batch size: {self.batch_size:,})...")
+        logger.print_always(f"\n[FIRE] Querying HOT table (batch size: {self.batch_size:,})...")
 
         for i in range(0, len(unique_tracks), self.batch_size):
             batch = unique_tracks[i:i+self.batch_size]
@@ -252,13 +510,13 @@ class UltraFastCSVProcessor:
                 progress_callback(f"Searching HOT table: {i:,}/{len(unique_tracks):,}", progress)
 
             # Build SQL with IN clause
+            # Use DuckDB's QUALIFY clause (PostgreSQL's DISTINCT ON is not supported)
             placeholders = ','.join(['?' for _ in batch])
             sql = f"""
-                SELECT DISTINCT ON (recording_clean)
-                       recording_clean, artist_credit_name, score
+                SELECT recording_clean, artist_credit_name, score
                 FROM musicbrainz_hot
                 WHERE recording_clean IN ({placeholders})
-                ORDER BY recording_clean, score ASC
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY recording_clean ORDER BY score ASC) = 1
             """
 
             try:
@@ -278,7 +536,7 @@ class UltraFastCSVProcessor:
         missed_tracks = [t for t in unique_tracks if t not in track_to_artist]
 
         if missed_tracks:
-            logger.print_always(f"\n❄️  Querying COLD table for {len(missed_tracks):,} misses...")
+            logger.print_always(f"\n[SNOWFLAKE]  Querying COLD table for {len(missed_tracks):,} misses...")
 
             for i in range(0, len(missed_tracks), self.batch_size):
                 batch = missed_tracks[i:i+self.batch_size]
@@ -290,11 +548,10 @@ class UltraFastCSVProcessor:
 
                 placeholders = ','.join(['?' for _ in batch])
                 sql = f"""
-                    SELECT DISTINCT ON (recording_clean)
-                           recording_clean, artist_credit_name, score
+                    SELECT recording_clean, artist_credit_name, score
                     FROM musicbrainz_cold
                     WHERE recording_clean IN ({placeholders})
-                    ORDER BY recording_clean, score ASC
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY recording_clean ORDER BY score ASC) = 1
                 """
 
                 try:
@@ -311,7 +568,7 @@ class UltraFastCSVProcessor:
         # Users can re-process with iTunes fallback for the ~6% misses if needed
         still_missed = [t for t in unique_tracks if t not in track_to_artist]
         if still_missed:
-            logger.warning(f"\n⚠️  {len(still_missed):,} tracks not found in batch queries (will be left blank)")
+            logger.warning(f"\n[!]  {len(still_missed):,} tracks not found in batch queries (will be left blank)")
             logger.info(f"   Tip: Re-run with iTunes fallback enabled for better coverage")
 
         # Count not found

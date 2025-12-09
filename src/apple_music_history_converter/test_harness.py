@@ -670,7 +670,7 @@ class TestHarness:
         if abs(actual - expected) > tolerance:
             raise AssertionFailedError(
                 f"Progress '{name}' mismatch: expected {expected:.2f} "
-                f"(±{tolerance}), got {actual:.2f}"
+                f"(+/-{tolerance}), got {actual:.2f}"
             )
 
     # ========================================================================
@@ -886,7 +886,7 @@ class TestHarness:
         print("=" * 60)
         for name, enabled in sorted(self.get_button_states().items()):
             status = "ENABLED" if enabled else "DISABLED"
-            symbol = "✓" if enabled else "✗"
+            symbol = "[OK]" if enabled else "[X]"
             print(f"  {symbol} {name}: {status}")
         print("=" * 60 + "\n")
 

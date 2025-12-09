@@ -20,9 +20,9 @@ logger = get_logger(__name__)
 if sys.platform == 'darwin':
     try:
         import nslog
-        logger.info("✅ NSLog enabled for stdout/stderr capture")
+        logger.info("[OK] NSLog enabled for stdout/stderr capture")
     except ImportError:
-        logger.warning("⚠️ NSLog not available - using standard output")
+        logger.warning("[!] NSLog not available - using standard output")
 
 # Import the Toga-based application
 try:
@@ -52,11 +52,11 @@ class AppleMusicHistoryConverterApp:
             diagnostics_passed = run_diagnostics(verbose=True)
             logger.debug(f"Diagnostics completed: {diagnostics_passed}")
             if diagnostics_passed:
-                logger.print_always("✅ Network diagnostics PASSED")
+                logger.print_always("[OK] Network diagnostics PASSED")
             else:
-                logger.error("⚠️ Network diagnostics FAILED")
+                logger.error("[!] Network diagnostics FAILED")
         except Exception as e:
-            logger.error(f"❌ Network diagnostics ERROR: {e}")
+            logger.error(f"[X] Network diagnostics ERROR: {e}")
             import traceback
             traceback.print_exc()
 

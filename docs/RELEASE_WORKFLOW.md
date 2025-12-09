@@ -44,9 +44,9 @@ git push origin v2.0.0
 ## Step 2: Build macOS (Local)
 
 ### Why Local?
-- ✅ Fast (2 minutes vs 10+ on CI/CD)
-- ✅ Secure (signing cert stays on your Mac)
-- ✅ You have a Mac anyway
+- [OK] Fast (2 minutes vs 10+ on CI/CD)
+- [OK] Secure (signing cert stays on your Mac)
+- [OK] You have a Mac anyway
 
 ### Commands
 
@@ -79,9 +79,9 @@ cp "dist/Apple Music History Converter-2.0.0.dmg" ~/Desktop/
 ## Step 3: Build Windows (GitHub Actions)
 
 ### Why GitHub Actions?
-- ✅ Automated (no Windows VM needed)
-- ✅ Free for public repos
-- ✅ Consistent build environment
+- [OK] Automated (no Windows VM needed)
+- [OK] Free for public repos
+- [OK] Consistent build environment
 
 ### Trigger Build
 
@@ -122,10 +122,10 @@ gh run download <run-id> --dir ~/Desktop/windows-build
 ## Step 4: Linux (No Builds)
 
 ### Why No Linux Builds?
-- ✅ Linux users are tech-savvy enough to compile from source
-- ✅ Reduces maintenance overhead
-- ✅ Multiple distro formats would be complex (deb, rpm, AppImage, Flatpak)
-- ✅ Briefcase AppImage support is discouraged by BeeWare team
+- [OK] Linux users are tech-savvy enough to compile from source
+- [OK] Reduces maintenance overhead
+- [OK] Multiple distro formats would be complex (deb, rpm, AppImage, Flatpak)
+- [OK] Briefcase AppImage support is discouraged by BeeWare team
 
 ### Linux Installation Instructions (for README)
 
@@ -207,11 +207,11 @@ See README for source installation instructions.
 open https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest
 
 # Verify:
-# ✅ macOS DMG uploaded
-# ✅ Windows ZIP uploaded
-# ✅ Release notes are correct
-# ✅ Download links work
-# ✅ Version tag matches
+# [OK] macOS DMG uploaded
+# [OK] Windows ZIP uploaded
+# [OK] Release notes are correct
+# [OK] Download links work
+# [OK] Version tag matches
 ```
 
 ---

@@ -2,7 +2,7 @@
 
 Set the environment variable ``APPLE_MUSIC_TRACE=1`` to enable tracing.
 Optional environment variables:
-    * ``APPLE_MUSIC_TRACE_FILE`` – path to the trace log file
+    * ``APPLE_MUSIC_TRACE_FILE`` - path to the trace log file
 
 These helpers can wrap synchronous and asynchronous callables, capturing
 entry/exit timing and arguments without altering the underlying logic.
@@ -60,14 +60,14 @@ def trace_call(label: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]
             @functools.wraps(wrapped_target)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 start = time.perf_counter()
-                trace_log.debug("→ %s thread=%s args=%s kwargs=%s", label, threading.current_thread().name, _trim_args(args), kwargs)
+                trace_log.debug("-> %s thread=%s args=%s kwargs=%s", label, threading.current_thread().name, _trim_args(args), kwargs)
                 call_args, call_kwargs = _prepare_args(wrapped_target, args, kwargs)
                 try:
                     result = wrapped_target(*call_args, **call_kwargs)
                     return await result
                 finally:
                     elapsed_ms = (time.perf_counter() - start) * 1000
-                    trace_log.debug("← %s (%.2f ms)", label, elapsed_ms)
+                    trace_log.debug("<- %s (%.2f ms)", label, elapsed_ms)
 
             async_wrapper._trace_wrapped = True  # type: ignore[attr-defined]
             return async_wrapper
@@ -75,13 +75,13 @@ def trace_call(label: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]
         @functools.wraps(wrapped_target)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
-            trace_log.debug("→ %s thread=%s args=%s kwargs=%s", label, threading.current_thread().name, _trim_args(args), kwargs)
+            trace_log.debug("-> %s thread=%s args=%s kwargs=%s", label, threading.current_thread().name, _trim_args(args), kwargs)
             call_args, call_kwargs = _prepare_args(wrapped_target, args, kwargs)
             try:
                 return wrapped_target(*call_args, **call_kwargs)
             finally:
                 elapsed_ms = (time.perf_counter() - start) * 1000
-                trace_log.debug("← %s (%.2f ms)", label, elapsed_ms)
+                trace_log.debug("<- %s (%.2f ms)", label, elapsed_ms)
 
         sync_wrapper._trace_wrapped = True  # type: ignore[attr-defined]
         if func is wrapped_target:
@@ -102,14 +102,14 @@ def _trim_args(args: tuple[Any, ...], max_items: int = 4) -> tuple[Any, ...]:
     if not args:
         return args
 
-    # Drop implicit self/cls from logging – usually the first argument.
+    # Drop implicit self/cls from logging - usually the first argument.
     trimmed = args[1:] if len(args) > 0 else args
 
     if len(trimmed) <= max_items:
         return trimmed
 
     head = trimmed[: max_items - 1]
-    tail = (f"…(+{len(trimmed) - len(head)} more)",)
+    tail = (f"...(+{len(trimmed) - len(head)} more)",)
     return head + tail
 
 
@@ -153,7 +153,7 @@ def _prepare_args(func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[
 
 
 def instrument_widget(widget: Any, name: str, events: Optional[list[str]] = None) -> Any:
-    """Wrap common Toga widget callbacks (on_press/on_change/…) in trace decorators."""
+    """Wrap common Toga widget callbacks (on_press/on_change/...) in trace decorators."""
 
     if not TRACE_ENABLED or widget is None:
         return widget

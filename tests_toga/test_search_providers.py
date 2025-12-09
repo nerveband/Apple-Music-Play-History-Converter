@@ -9,6 +9,7 @@ import os
 import asyncio
 import pandas as pd
 from pathlib import Path
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -46,7 +47,7 @@ TEST_CASES = [
         "track": "Street Lights",
         "artist": "Kanye West",  # Expected correct artist
         "album": "808s & Heartbreak",
-        "description": "Track from 808s & Heartbreak (was matching to Saint Pé)"
+        "description": "Track from 808s & Heartbreak (was matching to Saint Pe)"
     }
 ]
 
@@ -60,7 +61,7 @@ def print_separator(title=""):
 
 async def run_provider(service, provider_name, test_case):
     """Test a single provider with a test case."""
-    print(f"🔍 Testing: {provider_name}")
+    print(f"[?] Testing: {provider_name}")
     print(f"   Track: {test_case['track']}")
     print(f"   Album: {test_case['album']}")
     print(f"   Expected: {test_case['artist']}")
@@ -83,9 +84,9 @@ async def run_provider(service, provider_name, test_case):
                          found_lower.startswith(expected_artist + " feat"))
 
             if is_correct:
-                print(f"   ✅ CORRECT: Found '{found_artist}'")
+                print(f"   [OK] CORRECT: Found '{found_artist}'")
             else:
-                print(f"   ❌ WRONG: Found '{found_artist}' (expected '{test_case['artist']}')")
+                print(f"   [X] WRONG: Found '{found_artist}' (expected '{test_case['artist']}')")
 
             return {
                 "success": True,
@@ -95,14 +96,14 @@ async def run_provider(service, provider_name, test_case):
             }
         else:
             error = result.get('error', 'Unknown error')
-            print(f"   ❌ FAILED: {error}")
+            print(f"   [X] FAILED: {error}")
             return {
                 "success": False,
                 "error": error
             }
 
     except Exception as e:
-        print(f"   💥 EXCEPTION: {e}")
+        print(f"   [!] EXCEPTION: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -110,12 +111,13 @@ async def run_provider(service, provider_name, test_case):
             "error": str(e)
         }
 
+@pytest.mark.asyncio
 async def test_all_providers():
     """Test all providers with all test cases."""
     print_separator("COMPREHENSIVE SEARCH PROVIDER TEST")
 
     # Initialize service
-    print("🚀 Initializing MusicSearchServiceV2...")
+    print("[>] Initializing MusicSearchServiceV2...")
     service = MusicSearchServiceV2()
 
     # Check if MusicBrainz DB is ready
@@ -123,7 +125,7 @@ async def test_all_providers():
     print(f"   MusicBrainz DB Ready: {mb_ready}")
 
     if not mb_ready:
-        print("   ⚠️  MusicBrainz database not optimized - will skip DB tests")
+        print("   [!]  MusicBrainz database not optimized - will skip DB tests")
 
     results = {
         "musicbrainz": [],
@@ -134,7 +136,7 @@ async def test_all_providers():
     # Test each provider
     for provider in ["musicbrainz", "musicbrainz_api", "itunes"]:
         if provider == "musicbrainz" and not mb_ready:
-            print(f"\n⏭️  Skipping MusicBrainz DB (not ready)")
+            print(f"\n[SKIP]  Skipping MusicBrainz DB (not ready)")
             continue
 
         print_separator(f"TESTING: {provider.upper().replace('_', ' ')}")
@@ -142,7 +144,7 @@ async def test_all_providers():
         service.set_search_provider(provider)
 
         for i, test_case in enumerate(TEST_CASES, 1):
-            print(f"\n📋 Test Case {i}/{len(TEST_CASES)}")
+            print(f"\n[LIST] Test Case {i}/{len(TEST_CASES)}")
             result = await run_provider(service, provider, test_case)
             results[provider].append({
                 "test_case": test_case,
@@ -166,9 +168,9 @@ async def test_all_providers():
 
         print(f"\n{provider.upper().replace('_', ' ')}:")
         print(f"   Total Tests: {total}")
-        print(f"   ✅ Correct: {correct}/{total} ({correct/total*100:.1f}%)")
-        print(f"   ❌ Wrong: {total - correct - failed}/{total}")
-        print(f"   💥 Failed: {failed}/{total}")
+        print(f"   [OK] Correct: {correct}/{total} ({correct/total*100:.1f}%)")
+        print(f"   [X] Wrong: {total - correct - failed}/{total}")
+        print(f"   [!] Failed: {failed}/{total}")
 
         # Show which tests failed
         if correct < total:
@@ -178,9 +180,9 @@ async def test_all_providers():
                     tc = test['test_case']
                     res = test['result']
                     if res.get('success'):
-                        print(f"      • {tc['track']}: Got '{res['found_artist']}' (expected '{tc['artist']}')")
+                        print(f"      - {tc['track']}: Got '{res['found_artist']}' (expected '{tc['artist']}')")
                     else:
-                        print(f"      • {tc['track']}: {res.get('error', 'Unknown error')}")
+                        print(f"      - {tc['track']}: {res.get('error', 'Unknown error')}")
 
     # Compare providers
     if results["musicbrainz"] and results["musicbrainz_api"]:
@@ -192,32 +194,33 @@ async def test_all_providers():
             api_artist = api_test['result'].get('found_artist', 'N/A')
 
             match = db_artist == api_artist
-            symbol = "✅" if match else "⚠️"
+            symbol = "[OK]" if match else "[!]"
 
             print(f"\n{symbol} {tc['track']}:")
             print(f"   DB:  {db_artist}")
             print(f"   API: {api_artist}")
             if not match:
-                print(f"   ❌ MISMATCH!")
+                print(f"   [X] MISMATCH!")
 
+@pytest.mark.asyncio
 async def test_with_csv():
     """Test with actual CSV file to find problematic tracks."""
     csv_path = "/Users/nerveband/Desktop/Apple Music Play Activity full_Converted_20251006_201637.csv"
 
     if not os.path.exists(csv_path):
-        print(f"⚠️  CSV file not found: {csv_path}")
+        print(f"[!]  CSV file not found: {csv_path}")
         return
 
     print_separator("TESTING WITH REAL CSV DATA")
 
-    print(f"📂 Loading CSV: {csv_path}")
+    print(f"[FOLDER] Loading CSV: {csv_path}")
     df = pd.read_csv(csv_path, encoding='utf-8-sig')
 
     # Find 808s & Heartbreak tracks
     album_filter = df['Album'].str.contains('808', case=False, na=False)
     tracks_808s = df[album_filter].head(10)
 
-    print(f"\n🎵 Found {len(tracks_808s)} tracks from 808s & Heartbreak album:")
+    print(f"\n[#] Found {len(tracks_808s)} tracks from 808s & Heartbreak album:")
     print(tracks_808s[['Artist', 'Track', 'Album']].to_string(index=False))
 
     # Test with MusicBrainz DB
@@ -225,7 +228,7 @@ async def test_with_csv():
     service.set_search_provider("musicbrainz")
 
     if not service.musicbrainz_manager.is_ready():
-        print("\n⚠️  MusicBrainz DB not ready - cannot test")
+        print("\n[!]  MusicBrainz DB not ready - cannot test")
         return
 
     print_separator("TESTING CSV TRACKS WITH MUSICBRAINZ DB")
@@ -237,7 +240,7 @@ async def test_with_csv():
         track_name = row['Track']
         album_name = row['Album']
 
-        print(f"\n🔍 Testing: {track_name}")
+        print(f"\n[?] Testing: {track_name}")
         print(f"   Current: {current_artist}")
         print(f"   Album: {album_name}")
 
@@ -250,7 +253,7 @@ async def test_with_csv():
         if result['success']:
             found_artist = result['artist']
             if found_artist.lower().strip() != current_artist.lower().strip():
-                print(f"   ❌ MISMATCH: MusicBrainz found '{found_artist}'")
+                print(f"   [X] MISMATCH: MusicBrainz found '{found_artist}'")
                 mismatches.append({
                     "track": track_name,
                     "csv_artist": current_artist,
@@ -258,13 +261,13 @@ async def test_with_csv():
                     "album": album_name
                 })
             else:
-                print(f"   ✅ MATCH: {found_artist}")
+                print(f"   [OK] MATCH: {found_artist}")
         else:
-            print(f"   ❌ FAILED: {result.get('error', 'Unknown')}")
+            print(f"   [X] FAILED: {result.get('error', 'Unknown')}")
 
     if mismatches:
         print_separator("MISMATCHES FOUND")
-        print(f"\n🚨 Found {len(mismatches)} mismatches:")
+        print(f"\n[!!] Found {len(mismatches)} mismatches:")
         for m in mismatches:
             print(f"\n   Track: {m['track']}")
             print(f"   CSV says: {m['csv_artist']}")
@@ -284,14 +287,14 @@ async def debug_musicbrainz_query():
     test_track = "Say You Will"
     test_album = "808s & Heartbreak"
 
-    print(f"🔍 Debugging search for:")
+    print(f"[?] Debugging search for:")
     print(f"   Track: {test_track}")
     print(f"   Album: {test_album}")
     print(f"   Artist Hint: None (let it discover)")
 
     # Test with MusicBrainz DB
     if service.musicbrainz_manager.is_ready():
-        print("\n📊 Testing with MusicBrainz DB:")
+        print("\n[=] Testing with MusicBrainz DB:")
         service.set_search_provider("musicbrainz")
 
         result = await service.search_song(
@@ -303,7 +306,7 @@ async def debug_musicbrainz_query():
         print(f"\n   Result: {result}")
 
     # Test with MusicBrainz API
-    print("\n📊 Testing with MusicBrainz API:")
+    print("\n[=] Testing with MusicBrainz API:")
     service.set_search_provider("musicbrainz_api")
 
     result = await service.search_song(
@@ -315,7 +318,7 @@ async def debug_musicbrainz_query():
     print(f"\n   Result: {result}")
 
 if __name__ == "__main__":
-    print("🧪 Search Provider Test Suite\n")
+    print("[TEST] Search Provider Test Suite\n")
 
     # Run all tests
     asyncio.run(test_all_providers())

@@ -22,9 +22,73 @@ Feature Flag Support:
 import sys
 import logging
 import json
+import platform
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from typing import Optional, Dict, Any
+
+
+def _safe_encode_for_console(text: str) -> str:
+    """
+    Safely encode text for console output on Windows.
+    Windows console (CP1252) can't display many Unicode characters including emojis.
+    This function replaces unsupported characters with ASCII alternatives.
+
+    Args:
+        text: The text to encode safely
+
+    Returns:
+        Text safe for console output
+    """
+    if platform.system() != 'Windows':
+        return text
+
+    # First, remove variation selectors (invisible characters that modify emoji display)
+    # These are \ufe0e (text) and \ufe0f (emoji) variant selectors
+    result = text.replace('\ufe0f', '').replace('\ufe0e', '')
+
+    # Common emoji to ASCII replacements for Windows console
+    replacements = {
+        '\u2705': '[OK]',      # [OK]
+        '\u274c': '[X]',       # [X]
+        '\u26a0': '[!]',       # [!]
+        '\U0001f680': '[>]',   # [>]
+        '\U0001f3b5': '[#]',   # [#]
+        '\U0001f50d': '[?]',   # [?]
+        '\U0001f6a8': '[!!]',  # [!!]
+        '\U0001f4be': '[D]',   # [D]
+        '\U0001f4c1': '[F]',   # [F]
+        '\U0001f4c4': '[f]',   # [f]
+        '\U0001f504': '[R]',   # [R]
+        '\u2139': '[i]',       # [i]
+        '\u23f3': '[~]',       # [~]
+        '\u2b50': '[*]',       # [*]
+        '\u2714': '[v]',       # [v]
+        '\u2718': '[x]',       # [x]
+        '\u25b6': '[>]',       # [>]
+        '\u23f8': '[||]',      # [||]
+        '\u23f9': '[.]',       # [.]
+        '\u231b': '[H]',       # [H]
+        '\U0001f4ca': '[=]',   # [=]
+        '\U0001f527': '[T]',   # [T]
+        '\U0001f4e6': '[P]',   # [P]
+        '\U0001f310': '[W]',   # [W]
+        '\U0001f512': '[L]',   # [L]
+        '\U0001f513': '[U]',   # [U]
+    }
+
+    for emoji, replacement in replacements.items():
+        result = result.replace(emoji, replacement)
+
+    # For any remaining characters that can't be encoded, replace with '?'
+    try:
+        # Try to encode with the console encoding
+        result.encode('cp1252')
+    except UnicodeEncodeError:
+        # Replace remaining unencodable characters
+        result = result.encode('cp1252', errors='replace').decode('cp1252')
+
+    return result
 
 try:
     from .app_directories import (
@@ -48,11 +112,11 @@ class PrintLikeFormatter(logging.Formatter):
 
     # Emoji prefixes for different log levels (terminal only)
     TERMINAL_FORMATS = {
-        logging.DEBUG: "🔍 %(message)s",
+        logging.DEBUG: "[?] %(message)s",
         logging.INFO: "%(message)s",  # No prefix for info (cleanest)
-        logging.WARNING: "⚠️  %(message)s",
-        logging.ERROR: "❌ %(message)s",
-        logging.CRITICAL: "🚨 %(message)s",
+        logging.WARNING: "[!]  %(message)s",
+        logging.ERROR: "[X] %(message)s",
+        logging.CRITICAL: "[!!] %(message)s",
     }
 
     # Detailed format for file output
@@ -285,7 +349,8 @@ class SmartLogger:
             msg: Message to print
             flush: Whether to flush output immediately (default: True)
         """
-        print(msg, flush=flush)
+        safe_msg = _safe_encode_for_console(msg)
+        print(safe_msg, flush=flush)
 
     # ========================================================================
     # Testing Infrastructure Logging Methods
@@ -444,7 +509,7 @@ def setup_logger(
         logger.info("Hello!")  # Terminal: "Hello!"
 
         # With emoji (default):
-        logger.warning("Be careful!")  # Terminal: "⚠️  Be careful!"
+        logger.warning("Be careful!")  # Terminal: "[!]  Be careful!"
 
         # Without emoji (pure print style):
         logger = setup_logger(__name__, use_emoji=False)
@@ -466,10 +531,26 @@ def setup_logger(
     # 1. TERMINAL HANDLER (prints like print, with flush) - only if enabled
     if print_to_terminal:
         # Make it flush immediately (like print with flush=True)
+        # Also handles Windows encoding issues by sanitizing messages
         class FlushingStreamHandler(logging.StreamHandler):
             def emit(self, record):
-                super().emit(record)
-                self.flush()
+                try:
+                    # Sanitize the message for Windows console encoding
+                    if hasattr(record, 'msg') and isinstance(record.msg, str):
+                        record.msg = _safe_encode_for_console(record.msg)
+                    super().emit(record)
+                    self.flush()
+                except UnicodeEncodeError:
+                    # Fallback: replace unencodable characters
+                    try:
+                        if hasattr(record, 'msg') and isinstance(record.msg, str):
+                            record.msg = record.msg.encode('cp1252', errors='replace').decode('cp1252')
+                        super().emit(record)
+                        self.flush()
+                    except Exception:
+                        pass  # Silently fail rather than crash
+                except Exception:
+                    self.handleError(record)
 
         terminal_handler = FlushingStreamHandler(sys.stdout)
         terminal_handler.setLevel(level)
@@ -540,7 +621,7 @@ if __name__ == "__main__":
     logger1.info("Info message")
     logger1.warning("Warning message")
     logger1.error("Error message")
-    logger1.print_always("✅ This ALWAYS prints (user-facing)")
+    logger1.print_always("[OK] This ALWAYS prints (user-facing)")
 
     # Example 2: Logging DISABLED (zero overhead)
     print("\n2. Logging DISABLED (zero overhead):")
@@ -548,13 +629,13 @@ if __name__ == "__main__":
     logger2 = get_logger("demo.disabled", settings=disabled_settings)
     logger2.info("This won't show (logging disabled)")
     logger2.error("This won't show either")
-    logger2.print_always("✅ But print_always() still works!")
+    logger2.print_always("[OK] But print_always() still works!")
 
     # Example 3: Debug level
     print("\n3. Debug level enabled:")
     debug_settings = {"enabled": True, "level": "DEBUG", "use_emoji": True}
     logger3 = get_logger("demo.debug", settings=debug_settings)
-    logger3.debug("🔍 Now you can see debug messages!")
+    logger3.debug("[?] Now you can see debug messages!")
     logger3.info("And info messages")
 
     # Example 4: Console-only (no file logging)
@@ -570,7 +651,7 @@ if __name__ == "__main__":
     print(f"   logger2.is_enabled(logging.INFO) = {logger2.is_enabled(logging.INFO)}")
 
     # Show where logs are saved
-    print(f"\n✅ Logs are saved to:")
+    print(f"\n[OK] Logs are saved to:")
     print(f"   {get_user_log_dir()}")
-    print(f"\n✅ Settings file:")
+    print(f"\n[OK] Settings file:")
     print(f"   {get_settings_path()}")

@@ -43,22 +43,22 @@ pytest tests_toga/test_security.py::TestShellInjectionPrevention::test_no_shell_
 
 ## Test Coverage
 
-### ✅ Implemented Tests
+### [OK] Implemented Tests
 
 **Security (test_security.py):**
-- ✅ Shell injection prevention
-- ✅ Subprocess with shell=False
-- ✅ Path validation
-- ✅ Input validation
-- ✅ CSV special character handling
-- ✅ File system safety
+- [OK] Shell injection prevention
+- [OK] Subprocess with shell=False
+- [OK] Path validation
+- [OK] Input validation
+- [OK] CSV special character handling
+- [OK] File system safety
 
 **Basic Functionality (test_basic_functionality.py):**
-- ✅ File type detection
-- ✅ CSV processing
-- ✅ Security verification (no os.system)
-- ✅ Data normalization
-- ✅ Cross-platform path handling
+- [OK] File type detection
+- [OK] CSV processing
+- [OK] Security verification (no os.system)
+- [OK] Data normalization
+- [OK] Cross-platform path handling
 
 ### 📋 Planned Tests (Future)
 

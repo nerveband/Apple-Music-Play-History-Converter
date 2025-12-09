@@ -112,10 +112,10 @@ asyncio.run_coroutine_threadsafe(
 ```
 
 **Key Improvements:**
-- ✅ Proper async/await support
-- ✅ Thread-safe UI updates without race conditions
-- ✅ Non-blocking long-running operations
-- ✅ Clean shutdown with comprehensive cleanup
+- [OK] Proper async/await support
+- [OK] Thread-safe UI updates without race conditions
+- [OK] Non-blocking long-running operations
+- [OK] Clean shutdown with comprehensive cleanup
 
 ### 1.3 Search Architecture
 
@@ -348,7 +348,7 @@ def on_batch_progress(self, found, total, rate_limited, source):
 
     # Update UI in real-time
     message = (
-        f"✅ {source}: Found {found}/{total} ({percent:.1f}%) "
+        f"[OK] {source}: Found {found}/{total} ({percent:.1f}%) "
         f"in {elapsed:.0f}s | {rate:.1f} tracks/sec"
     )
 
@@ -384,7 +384,7 @@ def reprocess_missing_artists_thread(self):
         if tracks_since_save >= 50:
             checkpoint_path = self.save_checkpoint()
             logger.print_always(
-                f"💾 Auto-saved progress: {tracks_since_save} tracks "
+                f"[D] Auto-saved progress: {tracks_since_save} tracks "
                 f"updated since last save → {checkpoint_path}"
             )
             tracks_since_save = 0
@@ -423,7 +423,7 @@ logger.warning("Potential issue")        # Only when enabled
 logger.error("Error occurred")           # Only when enabled
 
 # User-facing output (ALWAYS prints)
-logger.print_always("✅ Processing completed!")
+logger.print_always("[OK] Processing completed!")
 ```
 
 **Configuration:**
@@ -653,9 +653,9 @@ def _schedule_ui_update(self, coro):
 ```
 
 **Key Lessons:**
-- ✅ Defensive widget checks prevent crashes
-- ✅ Async scheduling enables thread-safe updates
-- ✅ Clear separation of concerns (data vs UI)
+- [OK] Defensive widget checks prevent crashes
+- [OK] Async scheduling enables thread-safe updates
+- [OK] Clear separation of concerns (data vs UI)
 
 ### 4.2 Search Service (`music_search_service_v2.py`)
 
@@ -1199,7 +1199,7 @@ Total Time:            25-35 seconds
 # music_search_service_v2.py (v2.0.0)
 if status_code == 403:
     # Blocking 60-second sleep during rate limit
-    time.sleep(60)  # ❌ Can't be interrupted!
+    time.sleep(60)  # [X] Can't be interrupted!
 
 # User exits app → thread still sleeping → GIL crash
 # Fatal Python error: PyEval_SaveThread: the function must be called with the GIL held
@@ -1211,7 +1211,7 @@ if status_code == 403:
 if status_code == 403:
     # Interruptible sleep with callback
     if hasattr(self, 'rate_limit_wait_callback'):
-        self.rate_limit_wait_callback(60)  # ✅ Can be interrupted
+        self.rate_limit_wait_callback(60)  # [OK] Can be interrupted
     else:
         time.sleep(60)  # Fallback
 
@@ -1249,7 +1249,7 @@ def reprocess_missing_artists_thread(self):
     # Thread finishes but object remains
     # Next search check:
     if self.reprocessing_thread and self.reprocessing_thread.is_alive():
-        # ❌ Always true because object never cleared!
+        # [X] Always true because object never cleared!
         show_error("Search already in progress")
 ```
 
@@ -1261,7 +1261,7 @@ def reprocess_missing_artists_thread(self):
         # Do work...
         pass
     finally:
-        # ✅ Always clear thread references
+        # [OK] Always clear thread references
         self.reprocessing_thread = None
         self.retry_thread = None
 
@@ -1280,7 +1280,7 @@ def reprocess_missing_artists_thread(self):
 ```python
 # v1.3.1
 def load_csv(self, file_path):
-    # ❌ Runs on UI thread → freezes for 10-30 seconds
+    # [X] Runs on UI thread → freezes for 10-30 seconds
     self.df = pd.read_csv(file_path)
     self.analyze_file()
     self.update_ui()
@@ -1290,7 +1290,7 @@ def load_csv(self, file_path):
 ```python
 # v2.0.1
 async def load_csv(self, file_path):
-    # ✅ Run in background thread
+    # [OK] Run in background thread
     def load_worker():
         df = pd.read_csv(file_path)
         return self.analyze_file(df)
@@ -1320,7 +1320,7 @@ async def load_csv(self, file_path):
 ```python
 # v2.0.0
 def update_progress(self, message):
-    # ❌ Widget might not exist or be None
+    # [X] Widget might not exist or be None
     self.progress_label.text = message
     # AttributeError: 'NoneType' object has no attribute 'text'
 ```
@@ -1342,7 +1342,7 @@ def safe_set_widget_property(self, widget_name, property_name, value):
 
 async def _update_progress_ui(self, widget=None):
     """Update progress UI with crash protection."""
-    # ✅ Check before accessing
+    # [OK] Check before accessing
     if hasattr(self, 'progress_label') and self.progress_label:
         self.progress_label.text = self._pending_progress_message
 
@@ -1388,7 +1388,7 @@ def _ensure_event_loop(self):
 **Problem:**
 ```python
 # v1.3.1
-# ❌ Fails on Windows when moving across drives (C: → D:)
+# [X] Fails on Windows when moving across drives (C: → D:)
 shutil.move(temp_file, install_path)
 # OSError: [WinError 17] The system cannot move the file to a different disk drive
 ```
@@ -1396,7 +1396,7 @@ shutil.move(temp_file, install_path)
 **Solution:**
 ```python
 # v2.0.1
-# ✅ Copy then delete (works across drives)
+# [OK] Copy then delete (works across drives)
 shutil.copy2(temp_file, install_path)
 os.remove(temp_file)
 ```
@@ -1406,14 +1406,14 @@ os.remove(temp_file)
 **Problem:**
 ```python
 # v1.3.1
-# ❌ tempfile.mktemp() deprecated and unsafe on Windows
+# [X] tempfile.mktemp() deprecated and unsafe on Windows
 temp_file = tempfile.mktemp(suffix='.csv')
 ```
 
 **Solution:**
 ```python
 # v2.0.1
-# ✅ Use mkstemp() for safe temp file creation
+# [OK] Use mkstemp() for safe temp file creation
 fd, temp_file = tempfile.mkstemp(suffix='.csv')
 os.close(fd)  # Close file descriptor
 # ... use temp_file ...
@@ -1508,7 +1508,7 @@ if album_name:
 # Now Ariana Grande version:
 track_match = 100
 album_match = 50   # Exact album match!
-total = 150        # ✅ Wins!
+total = 150        # [OK] Wins!
 ```
 
 **Result:**
@@ -1543,47 +1543,47 @@ total = 150        # ✅ Wins!
 **v2.0.1 (Toga native widgets):**
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ 🎵 Apple Music Play History Converter                         │
+│ [#] Apple Music Play History Converter                         │
 ├─────────────────────────────────┬─────────────────────────────┤
 │ FILE PROCESSING                 │ SETTINGS                    │
 │                                 │                             │
-│ 📁 Select CSV File              │ 🔍 Search Provider          │
+│ [F] Select CSV File              │ [?] Search Provider          │
 │    /path/to/file.csv            │  ○ MusicBrainz (Local DB)   │
-│    ✅ 253,525 rows detected     │  ● MusicBrainz API (Online) │
+│    [OK] 253,525 rows detected     │  ● MusicBrainz API (Online) │
 │                                 │  ○ iTunes API               │
-│ 🎵 File Type:                   │                             │
+│ [#] File Type:                   │                             │
 │    Play Activity                │ DATABASE MANAGEMENT         │
 │                                 │  Database: Ready            │
-│ 🔍 SEARCH FOR ARTISTS           │  Size: 2.1 GB               │
+│ [?] SEARCH FOR ARTISTS           │  Size: 2.1 GB               │
 │                                 │  Tracks: 2.8M               │
 │  [Search with MusicBrainz API]  │  [ Download Latest ]        │
 │                                 │  [ Optimize Database ]      │
-│ 📊 PROGRESS                     │                             │
-│  ✅ Found 1,250/1,500 (83.3%)   │ 🌐 NETWORK STATUS           │
-│     in 15s | 83.3 tracks/sec    │  iTunes API: ✅ Connected   │
-│                                 │  MusicBrainz: ✅ Connected  │
+│ [=] PROGRESS                     │                             │
+│  [OK] Found 1,250/1,500 (83.3%)   │ [W] NETWORK STATUS           │
+│     in 15s | 83.3 tracks/sec    │  iTunes API: [OK] Connected   │
+│                                 │  MusicBrainz: [OK] Connected  │
 │  ████████████████████░░ 83%     │  [ Test Connection ]        │
 │                                 │                             │
 │  [ Pause ] [ Stop ]             │ ⚙️  RATE LIMITING           │
 │                                 │  Current: 120 req/min       │
-│ 💾 EXPORT                       │  Status: Ready              │
+│ [D] EXPORT                       │  Status: Ready              │
 │  [Export to Last.fm CSV]        │  [ Pause Rate Limit ]       │
 │  [Export Missing Artists]       │                             │
-│                                 │ 🔄 RETRY MANAGEMENT         │
+│                                 │ [R] RETRY MANAGEMENT         │
 │ 📋 LOGS                         │  Rate-Limited: 45 tracks    │
-│  ✅ MusicBrainz: 1,200 found    │  [ Retry Rate-Limited (45) ]│
-│  ⏸️  iTunes: 50 rate limited    │  [ Export Rate-Limited ]    │
-│  ❌ Failed: 5 tracks            │                             │
+│  [OK] MusicBrainz: 1,200 found    │  [ Retry Rate-Limited (45) ]│
+│  [||]️  iTunes: 50 rate limited    │  [ Export Rate-Limited ]    │
+│  [X] Failed: 5 tracks            │                             │
 └─────────────────────────────────┴─────────────────────────────┘
 ```
 
 **Key Differences:**
-- ✅ Two-column layout (processing + settings)
-- ✅ Live statistics with emojis
-- ✅ Separate sections for different features
-- ✅ Status indicators (✅ ⏸️ ❌)
-- ✅ More information density
-- ✅ Professional appearance
+- [OK] Two-column layout (processing + settings)
+- [OK] Live statistics with emojis
+- [OK] Separate sections for different features
+- [OK] Status indicators ([OK] [||]️ [X])
+- [OK] More information density
+- [OK] Professional appearance
 
 ### 7.2 Information Architecture
 
@@ -1625,14 +1625,14 @@ def update_progress(self, stats):
 
     # Main status
     self.progress_label.text = (
-        f"✅ {stats['source']}: Found {stats['found']}/{stats['total']} "
+        f"[OK] {stats['source']}: Found {stats['found']}/{stats['total']} "
         f"({stats['percent']:.1f}%) in {stats['elapsed']:.0f}s | "
         f"{stats['rate']:.1f} tracks/sec"
     )
 
     # Rate limit status
     if stats['rate_limited'] > 0:
-        self.rate_limit_label.text = f"⏸️ {stats['rate_limited']} rate limited"
+        self.rate_limit_label.text = f"[||]️ {stats['rate_limited']} rate limited"
 
     # Detailed breakdown
     self.detailed_stats.text = (
@@ -1793,11 +1793,11 @@ class AppleMusicConverterApp(toga.App):
 ```
 
 **Benefits:**
-- ✅ Thread-safe UI updates
-- ✅ Comprehensive cleanup
-- ✅ No race conditions
-- ✅ Clean shutdown
-- ✅ Full async/await support
+- [OK] Thread-safe UI updates
+- [OK] Comprehensive cleanup
+- [OK] No race conditions
+- [OK] Clean shutdown
+- [OK] Full async/await support
 
 ### 8.2 Parallel Processing Architecture
 
@@ -1875,13 +1875,13 @@ def search_batch_api(self, tracks, parallel_workers=10):
 # WRONG (v1.3.1)
 def background_worker():
     result = compute()
-    # ❌ Not thread-safe - can crash
+    # [X] Not thread-safe - can crash
     self.label.config(text=result)
 
 # RIGHT (v2.0.1)
 def background_worker():
     result = compute()
-    # ✅ Thread-safe via event loop
+    # [OK] Thread-safe via event loop
     self._schedule_ui_update(self._update_label(result))
 
 async def _update_label(self, text):
@@ -1894,12 +1894,12 @@ async def _update_label(self, text):
 ```python
 # WRONG (v2.0.0)
 def rate_limit_wait():
-    # ❌ Can't be interrupted - causes GIL crash
+    # [X] Can't be interrupted - causes GIL crash
     time.sleep(60)
 
 # RIGHT (v2.0.1)
 def rate_limit_wait():
-    # ✅ Check exit flag every 100ms
+    # [OK] Check exit flag every 100ms
     wait_time = 60.0
     while wait_time > 0:
         sleep_chunk = min(0.1, wait_time)
@@ -1915,14 +1915,14 @@ def rate_limit_wait():
 ```python
 # WRONG (v1.3.1)
 def cleanup(self):
-    # ❌ Incomplete cleanup
+    # [X] Incomplete cleanup
     if self.search_thread:
         # No timeout, might hang forever
         self.search_thread.join()
 
 # RIGHT (v2.0.1)
 def cleanup(self):
-    # ✅ Comprehensive cleanup with timeouts
+    # [OK] Comprehensive cleanup with timeouts
 
     # 1. Set interrupt flags
     self.is_search_interrupted = True
@@ -2033,10 +2033,10 @@ bundle = "com.nerveband"
 ```
 
 **Key Improvement:**
-- ✅ No manual dependency copying
-- ✅ Native Toga support in Briefcase
-- ✅ Cleaner build process
-- ✅ Better cross-platform compatibility
+- [OK] No manual dependency copying
+- [OK] Native Toga support in Briefcase
+- [OK] Cleaner build process
+- [OK] Better cross-platform compatibility
 
 ### 9.4 GitHub Actions CI/CD
 
@@ -2084,11 +2084,11 @@ jobs:
 ```
 
 **Benefits:**
-- ✅ Automated builds on every push
-- ✅ No need for Windows machine
-- ✅ Consistent build environment
-- ✅ 90-day artifact retention
-- ✅ Easy distribution
+- [OK] Automated builds on every push
+- [OK] No need for Windows machine
+- [OK] Consistent build environment
+- [OK] 90-day artifact retention
+- [OK] Easy distribution
 
 ### 9.5 Code Signing Workflow
 
@@ -2113,10 +2113,10 @@ briefcase package --identity "Developer ID Application: Ashraf Ali (7HQVB2S4BX)"
 ```
 
 **Result:**
-- ✅ One command builds production-ready DMG
-- ✅ Fully signed and notarized
-- ✅ No Gatekeeper warnings
-- ✅ Professional distribution
+- [OK] One command builds production-ready DMG
+- [OK] Fully signed and notarized
+- [OK] No Gatekeeper warnings
+- [OK] Professional distribution
 
 ---
 
@@ -2209,19 +2209,19 @@ tests_toga/test_real_csv_files.py::test_format_validation PASSED
 
 **v2.0.1 Test Results:**
 ```
-CSV Load:              3.2 seconds ✅
-MusicBrainz Search:    28.4 seconds ✅
+CSV Load:              3.2 seconds [OK]
+MusicBrainz Search:    28.4 seconds [OK]
   - Found: 1,450/1,500 (96.7%)
   - Speed: 51.1 tracks/sec
   - Accuracy: 100% (when album info available)
-Result Application:    0.8 seconds ✅
-Auto-Save Checkpoints: 30 checkpoints ✅
-Export to Last.fm:     2.1 seconds ✅
+Result Application:    0.8 seconds [OK]
+Auto-Save Checkpoints: 30 checkpoints [OK]
+Export to Last.fm:     2.1 seconds [OK]
 
-Total Time: 34.5 seconds ✅
-Memory Peak: 820 MB ✅
-UI Responsive: Yes ✅
-No Crashes: Yes ✅
+Total Time: 34.5 seconds [OK]
+Memory Peak: 820 MB [OK]
+UI Responsive: Yes [OK]
+No Crashes: Yes [OK]
 ```
 
 ### 10.3 Performance Benchmarks
@@ -2261,34 +2261,34 @@ print(f"Failed: {len(failed)}")
 ### 10.4 Manual Test Scenarios
 
 **Scenario 1: Large File with Album Info**
-- ✅ Loads without freezing UI
-- ✅ Shows accurate row count immediately
-- ✅ MusicBrainz search completes in < 30s
-- ✅ 100% accuracy when album info present
-- ✅ Auto-saves every 50 tracks
-- ✅ No memory issues
+- [OK] Loads without freezing UI
+- [OK] Shows accurate row count immediately
+- [OK] MusicBrainz search completes in < 30s
+- [OK] 100% accuracy when album info present
+- [OK] Auto-saves every 50 tracks
+- [OK] No memory issues
 
 **Scenario 2: iTunes API Rate Limiting**
-- ✅ Detects 403 rate limit correctly
-- ✅ Tracks rate-limited tracks separately
-- ✅ Shows countdown during 60s cooldown
-- ✅ Retry button appears with count
-- ✅ Retry succeeds after cooldown
-- ✅ Export rate-limited list works
+- [OK] Detects 403 rate limit correctly
+- [OK] Tracks rate-limited tracks separately
+- [OK] Shows countdown during 60s cooldown
+- [OK] Retry button appears with count
+- [OK] Retry succeeds after cooldown
+- [OK] Export rate-limited list works
 
 **Scenario 3: App Exit During Search**
-- ✅ App exits within 5 seconds
-- ✅ No GIL crashes
-- ✅ All threads properly terminated
-- ✅ Progress auto-saved
-- ✅ Can resume on next launch
+- [OK] App exits within 5 seconds
+- [OK] No GIL crashes
+- [OK] All threads properly terminated
+- [OK] Progress auto-saved
+- [OK] Can resume on next launch
 
 **Scenario 4: Network Disconnection**
-- ✅ Shows clear error message
-- ✅ Offers network diagnostics
-- ✅ Suggests troubleshooting steps
-- ✅ Doesn't crash or hang
-- ✅ Can retry after reconnection
+- [OK] Shows clear error message
+- [OK] Offers network diagnostics
+- [OK] Suggests troubleshooting steps
+- [OK] Doesn't crash or hang
+- [OK] Can retry after reconnection
 
 ---
 
@@ -2358,58 +2358,58 @@ print(f"Failed: {len(failed)}")
 
 #### 1. Code Organization
 ```
-✅ Separate concerns (UI, business logic, data)
-✅ Single responsibility per module
-✅ Clear naming conventions
-✅ Comprehensive docstrings
-✅ Type hints where helpful
+[OK] Separate concerns (UI, business logic, data)
+[OK] Single responsibility per module
+[OK] Clear naming conventions
+[OK] Comprehensive docstrings
+[OK] Type hints where helpful
 ```
 
 #### 2. Error Handling
 ```
-✅ Specific exception types
-✅ Contextual error messages
-✅ User-facing vs developer errors
-✅ Graceful degradation
-✅ Logging at appropriate levels
+[OK] Specific exception types
+[OK] Contextual error messages
+[OK] User-facing vs developer errors
+[OK] Graceful degradation
+[OK] Logging at appropriate levels
 ```
 
 #### 3. UI Updates
 ```
-✅ Always use event loop scheduling
-✅ Defensive widget property access
-✅ Progress updates on background threads
-✅ Clear visual feedback
-✅ Comprehensive state management
+[OK] Always use event loop scheduling
+[OK] Defensive widget property access
+[OK] Progress updates on background threads
+[OK] Clear visual feedback
+[OK] Comprehensive state management
 ```
 
 #### 4. Thread Management
 ```
-✅ Track all threads/tasks/executors
-✅ Set interrupt flags early
-✅ Use timeouts for joins
-✅ Implement interruptible sleeps
-✅ Comprehensive cleanup on exit
+[OK] Track all threads/tasks/executors
+[OK] Set interrupt flags early
+[OK] Use timeouts for joins
+[OK] Implement interruptible sleeps
+[OK] Comprehensive cleanup on exit
 ```
 
 #### 5. Testing Strategy
 ```
-✅ Unit tests for core logic
-✅ Integration tests for workflows
-✅ Performance tests for benchmarks
-✅ Security tests for vulnerabilities
-✅ Real data tests for validation
+[OK] Unit tests for core logic
+[OK] Integration tests for workflows
+[OK] Performance tests for benchmarks
+[OK] Security tests for vulnerabilities
+[OK] Real data tests for validation
 ```
 
 ### 11.4 Technical Debt Avoided
 
 **Resisted Temptations:**
 
-1. ❌ **Partial Migration**: All or nothing approach prevented "Frankenstein" codebase
-2. ❌ **Quick Hacks**: Took time to do things right (thread safety, cleanup, testing)
-3. ❌ **Feature Creep**: Focused on migration first, new features after
-4. ❌ **Poor Abstractions**: Created clean interfaces even when time-consuming
-5. ❌ **Skipping Tests**: Wrote tests even when tedious
+1. [X] **Partial Migration**: All or nothing approach prevented "Frankenstein" codebase
+2. [X] **Quick Hacks**: Took time to do things right (thread safety, cleanup, testing)
+3. [X] **Feature Creep**: Focused on migration first, new features after
+4. [X] **Poor Abstractions**: Created clean interfaces even when time-consuming
+5. [X] **Skipping Tests**: Wrote tests even when tedious
 
 **Result:** Clean, maintainable codebase ready for future development
 
@@ -2601,32 +2601,32 @@ This Document:        ~4,000 lines (migration analysis)
 ### 13.4 Technology Choices for Longevity
 
 **Why Toga/Briefcase:**
-- ✅ Active development (BeeWare project)
-- ✅ Native platform widgets
-- ✅ Python-native (no JS/web dependencies)
-- ✅ Cross-platform by design
-- ✅ Modern packaging approach
+- [OK] Active development (BeeWare project)
+- [OK] Native platform widgets
+- [OK] Python-native (no JS/web dependencies)
+- [OK] Cross-platform by design
+- [OK] Modern packaging approach
 
 **Why DuckDB:**
-- ✅ Embeddable (no server required)
-- ✅ Fast CSV queries
-- ✅ Actively maintained
-- ✅ SQL-compatible
-- ✅ Low memory footprint
+- [OK] Embeddable (no server required)
+- [OK] Fast CSV queries
+- [OK] Actively maintained
+- [OK] SQL-compatible
+- [OK] Low memory footprint
 
 **Why httpx Over requests:**
-- ✅ HTTP/2 support when needed
-- ✅ Better async support
-- ✅ More explicit SSL handling
-- ✅ Active development
-- ✅ Modern API design
+- [OK] HTTP/2 support when needed
+- [OK] Better async support
+- [OK] More explicit SSL handling
+- [OK] Active development
+- [OK] Modern API design
 
 **Why pandas:**
-- ✅ Industry standard for data processing
-- ✅ Excellent performance
-- ✅ Rich ecosystem
-- ✅ Well-maintained
-- ✅ Comprehensive documentation
+- [OK] Industry standard for data processing
+- [OK] Excellent performance
+- [OK] Rich ecosystem
+- [OK] Well-maintained
+- [OK] Comprehensive documentation
 
 ---
 
@@ -2673,13 +2673,13 @@ The migration from v1.3.1 (tkinter) to v2.0.1 (Toga) represents a **complete arc
 ### Was It Worth It?
 
 **Absolutely.** The v2.0.1 application is:
-- ✅ **100x faster** for common operations
-- ✅ **More reliable** with comprehensive error handling
-- ✅ **More maintainable** with clean architecture
-- ✅ **More user-friendly** with live feedback
-- ✅ **More professional** with native UI and signing
-- ✅ **Better tested** with automated test suite
-- ✅ **Future-proof** with modern framework
+- [OK] **100x faster** for common operations
+- [OK] **More reliable** with comprehensive error handling
+- [OK] **More maintainable** with clean architecture
+- [OK] **More user-friendly** with live feedback
+- [OK] **More professional** with native UI and signing
+- [OK] **Better tested** with automated test suite
+- [OK] **Future-proof** with modern framework
 
 ### Key Learnings
 

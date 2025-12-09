@@ -2,6 +2,8 @@
 """
 MusicBrainz Optimization Modal for Toga
 Blocks UI during one-time optimization with progress, elapsed time, and ETA.
+
+Now supports hardware-adaptive optimization with Performance/Efficiency modes.
 """
 
 import toga
@@ -24,6 +26,8 @@ class OptimizationModal:
     """
     Modal dialog for MusicBrainz optimization progress.
     Shows progress bar, elapsed time, ETA, and blocks user interaction.
+
+    Now displays hardware detection results and optimization mode.
     """
 
     def __init__(self, parent_window: toga.Window, cancellation_callback: Optional[Callable] = None):
@@ -34,14 +38,19 @@ class OptimizationModal:
         # Progress tracking
         self.progress = 0.0
         self.start_time = None
-        self.message = "Starting..."
+        self.message = "Detecting hardware..."
         self.is_active = False
         self.cancelled = False
+
+        # Hardware info (updated during optimization)
+        self.hardware_info = ""
+        self.mode_info = ""
 
         # UI components
         self.progress_bar = None
         self.message_label = None
         self.time_label = None
+        self.info_label = None  # New: shows hardware/mode info
 
         # Update timer
         self._update_task = None
@@ -76,19 +85,20 @@ class OptimizationModal:
 
     def _create_modal(self):
         """Create the modal dialog."""
+        # NOTE: on_close must be synchronous on Windows - async handlers freeze the UI
         self.modal_window = toga.Window(
             title="Preparing MusicBrainz",
-            size=(520, 220),
+            size=(520, 280),  # Taller to accommodate info label
             resizable=False,
-            on_close=self._handle_close_request
+            on_close=self._handle_close_request_sync
         )
 
         # Main container
         main_box = toga.Box(
             style=Pack(
                 direction=COLUMN,
-                margin=20,
-                align_items=CENTER
+                padding=20,
+                alignment=CENTER
             )
         )
 
@@ -99,17 +109,26 @@ class OptimizationModal:
                 text_align=CENTER,
                 font_size=16,
                 font_weight="bold",
-                margin_bottom=10
+                padding_bottom=10
             )
         )
 
         description_label = toga.Label(
-            "Creating indexes for instant searches (~2-3 minutes)\n"
-            "Please wait for completion to use MusicBrainz.\n"
-            "Future searches will be 100x faster!",
+            "Building optimized database for instant searches.\n"
+            "Time varies based on system: 2-8 minutes typical.",
             style=Pack(
                 text_align=CENTER,
-                margin_bottom=15
+                padding_bottom=10
+            )
+        )
+
+        # Hardware/mode info (updated during optimization)
+        self.info_label = toga.Label(
+            "Detecting system capabilities...",
+            style=Pack(
+                text_align=CENTER,
+                font_size=11,
+                padding_bottom=10
             )
         )
 
@@ -118,7 +137,7 @@ class OptimizationModal:
             max=100,
             style=Pack(
                 width=400,
-                margin_bottom=10
+                padding_bottom=10
             )
         )
 
@@ -127,13 +146,13 @@ class OptimizationModal:
             self.message,
             style=Pack(
                 text_align=CENTER,
-                margin_bottom=5
+                padding_bottom=5
             )
         )
 
         # Time information
         self.time_label = toga.Label(
-            "Elapsed: 0s • ETA: —",
+            "Elapsed: 0s - ETA: --",
             style=Pack(
                 text_align=CENTER,
                 font_size=12
@@ -143,6 +162,7 @@ class OptimizationModal:
         # Add all components
         main_box.add(title_label)
         main_box.add(description_label)
+        main_box.add(self.info_label)
         main_box.add(self.progress_bar)
         main_box.add(self.message_label)
         main_box.add(self.time_label)
@@ -178,6 +198,15 @@ class OptimizationModal:
         else:
             self.message_label.text = self.message
 
+        # Update hardware/mode info if available
+        if self.info_label and (self.hardware_info or self.mode_info):
+            info_text = []
+            if self.mode_info:
+                info_text.append(self.mode_info)
+            if self.hardware_info:
+                info_text.append(self.hardware_info)
+            self.info_label.text = " | ".join(info_text)
+
         # Calculate and display timing
         elapsed = int(time.time() - self.start_time)
 
@@ -188,14 +217,14 @@ class OptimizationModal:
             else:
                 eta_str = f"{remaining}s"
         else:
-            eta_str = "—"
+            eta_str = "--"
 
         if elapsed >= 60:
             elapsed_str = f"{elapsed//60}m {elapsed%60}s"
         else:
             elapsed_str = f"{elapsed}s"
 
-        self.time_label.text = f"Elapsed: {elapsed_str} • ETA: {eta_str}"
+        self.time_label.text = f"Elapsed: {elapsed_str} - ETA: {eta_str}"
 
     async def _run_optimization_async(self, optimization_function: Callable, *args, **kwargs):
         """Run optimization function in background thread."""
@@ -227,34 +256,31 @@ class OptimizationModal:
         # Small delay to ensure final progress update
         await asyncio.sleep(0.5)
 
-    async def _handle_close_request(self, widget):
-        """Handle window close request with confirmation dialog."""
+    def _handle_close_request_sync(self, widget):
+        """
+        Handle window close request synchronously.
+
+        NOTE: This MUST be synchronous (not async) for Windows compatibility.
+        Async on_close handlers freeze the WinForms UI.
+
+        We simply prevent closing during active optimization.
+        The user can wait for completion or force-close via Task Manager.
+        """
         # If already cancelled or not active, allow close
         if self.cancelled or not self.is_active:
             return True
 
-        # Show confirmation dialog
-        result = await self.modal_window.dialog(toga.ConfirmDialog(
-            title="Cancel Optimization?",
-            message="Do you want to cancel optimization?\n\n"
-                   "You will have to restart from the beginning if you cancel.\n\n"
-                   "Continue?"
-        ))
+        # During active optimization, prevent close
+        # Log a warning so user knows what's happening
+        logger.warning("[!] Close requested during optimization - preventing close")
+        logger.warning("   Please wait for optimization to complete.")
 
-        if result:
-            # User confirmed cancellation
-            logger.warning("⚠️ User confirmed optimization cancellation")
-            self.cancelled = True
+        # Update the message label to inform user
+        if self.message_label:
+            self.message_label.text = "Please wait for completion... (closing blocked)"
 
-            # Call the cancellation callback to stop the optimization
-            if self.cancellation_callback:
-                self.cancellation_callback()
-
-            # Allow window to close
-            return True
-        else:
-            # User wants to continue - prevent close
-            return False
+        # Prevent close - optimization must complete
+        return False
 
     async def _close_modal(self):
         """Close the modal and clean up."""
@@ -277,6 +303,19 @@ class OptimizationModal:
         """External method to update progress (thread-safe)."""
         self.message = message
         self.progress = percent
+
+    def set_hardware_info(self, mode: str, ram_mb: int, cpu_count: int):
+        """
+        Set hardware detection results to display.
+
+        Args:
+            mode: Optimization mode ("PERFORMANCE" or "EFFICIENCY")
+            ram_mb: Total RAM in MB
+            cpu_count: Number of CPUs
+        """
+        self.mode_info = f"Mode: {mode}"
+        ram_gb = ram_mb / 1024
+        self.hardware_info = f"RAM: {ram_gb:.1f}GB, CPUs: {cpu_count}"
 
 
 # Convenience function for easy integration

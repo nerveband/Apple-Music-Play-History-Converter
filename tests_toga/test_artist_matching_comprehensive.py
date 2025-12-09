@@ -6,6 +6,7 @@ Comprehensive test of artist matching accuracy after fix
 import asyncio
 import sys
 from pathlib import Path
+import pytest
 
 # Add src to path
 src_path = Path(__file__).parent / "src"
@@ -14,6 +15,7 @@ sys.path.insert(0, str(src_path))
 from apple_music_history_converter.music_search_service_v2 import MusicSearchServiceV2
 
 
+@pytest.mark.asyncio
 async def test_artist_matching():
     """Test various artist/track combinations"""
 
@@ -26,7 +28,7 @@ async def test_artist_matching():
     ]
 
     print("=" * 80)
-    print("🧪 COMPREHENSIVE ARTIST MATCHING TEST")
+    print("[TEST] COMPREHENSIVE ARTIST MATCHING TEST")
     print("=" * 80)
 
     service = MusicSearchServiceV2()
@@ -53,30 +55,30 @@ async def test_artist_matching():
 
         # Check results
         if offline_artist == expected_artist:
-            print(f"   ✅ PASS - Offline DB matches expected")
+            print(f"   [OK] PASS - Offline DB matches expected")
             passed += 1
         else:
-            print(f"   ❌ FAIL - Offline DB returned '{offline_artist}', expected '{expected_artist}'")
+            print(f"   [X] FAIL - Offline DB returned '{offline_artist}', expected '{expected_artist}'")
             failed += 1
 
         # Also check if iTunes agrees
         if itunes_artist and itunes_artist == offline_artist:
-            print(f"   ✅ iTunes API and Offline DB agree")
+            print(f"   [OK] iTunes API and Offline DB agree")
         elif itunes_artist:
-            print(f"   ⚠️  iTunes API returned '{itunes_artist}', Offline DB returned '{offline_artist}'")
+            print(f"   [!]  iTunes API returned '{itunes_artist}', Offline DB returned '{offline_artist}'")
 
     # Summary
     print("\n" + "=" * 80)
-    print("📊 TEST SUMMARY")
+    print("[=] TEST SUMMARY")
     print("=" * 80)
     print(f"Total tests: {total_tests}")
-    print(f"✅ Passed: {passed} ({passed/total_tests*100:.1f}%)")
-    print(f"❌ Failed: {failed} ({failed/total_tests*100:.1f}%)")
+    print(f"[OK] Passed: {passed} ({passed/total_tests*100:.1f}%)")
+    print(f"[X] Failed: {failed} ({failed/total_tests*100:.1f}%)")
 
     if failed == 0:
-        print("\n🎉 ALL TESTS PASSED!")
+        print("\n[YAY] ALL TESTS PASSED!")
     else:
-        print(f"\n⚠️  {failed} test(s) failed - please review")
+        print(f"\n[!]  {failed} test(s) failed - please review")
 
 
 if __name__ == "__main__":

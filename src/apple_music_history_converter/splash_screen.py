@@ -115,7 +115,7 @@ class SplashScreen:
 
             # Tip message
             tip_label = toga.Label(
-                "💡 Tip: First launch may take a moment on slower computers",
+                "[TIP] Tip: First launch may take a moment on slower computers",
                 style=Pack(
                     text_align=CENTER,
                     font_size=10,

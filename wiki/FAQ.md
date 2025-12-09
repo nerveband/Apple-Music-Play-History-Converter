@@ -127,7 +127,7 @@ You can:
 iTunes API limits requests to 20 per minute. When you hit this limit:
 
 - The app automatically pauses and waits 60 seconds
-- You'll see a "⏸️ Rate limited" message in the progress
+- You'll see a "[||]️ Rate limited" message in the progress
 - Processing resumes automatically after the cooldown
 
 **Tip**: Use the "Retry Rate-Limited" button after waiting to retry tracks that hit the limit.

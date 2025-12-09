@@ -3,7 +3,7 @@
 Comprehensive matching accuracy test with 100-200 real tracks.
 
 Tests the three critical fixes:
-1. Unicode normalization (curly quotes → straight quotes)
+1. Unicode normalization (curly quotes -> straight quotes)
 2. Dynamic SEARCH_ROW_LIMIT (10 vs 100 based on hints)
 3. SQL ORDER BY boost (1B+ for album matches)
 """
@@ -24,7 +24,7 @@ from apple_music_history_converter.app_directories import get_database_dir
 
 def load_sample_tracks(csv_path: Path, sample_size: int = 200) -> list:
     """Load sample tracks from CSV file."""
-    print(f"📂 Loading tracks from: {csv_path.name}")
+    print(f"[FOLDER] Loading tracks from: {csv_path.name}")
 
     try:
         df = pd.read_csv(csv_path, encoding='utf-8-sig')
@@ -52,7 +52,7 @@ def load_sample_tracks(csv_path: Path, sample_size: int = 200) -> list:
                 album_col = col
 
     if not track_col or not artist_col:
-        print(f"❌ Could not detect track/artist columns")
+        print(f"[X] Could not detect track/artist columns")
         return []
 
     # Filter out null values for required fields only
@@ -71,7 +71,7 @@ def load_sample_tracks(csv_path: Path, sample_size: int = 200) -> list:
         }
         tracks.append(track)
 
-    print(f"✅ Loaded {len(tracks)} tracks")
+    print(f"[OK] Loaded {len(tracks)} tracks")
     print(f"   {sum(1 for t in tracks if t['album']) / len(tracks) * 100:.0f}% have album info\n")
 
     return tracks
@@ -135,7 +135,7 @@ def run_track_matching(manager, track_data: dict) -> dict:
 def main():
     """Run comprehensive accuracy test."""
     print("=" * 100)
-    print("🧪 COMPREHENSIVE MATCHING ACCURACY TEST")
+    print("[TEST] COMPREHENSIVE MATCHING ACCURACY TEST")
     print("=" * 100)
     print()
 
@@ -144,10 +144,10 @@ def main():
     manager = MusicBrainzManagerV2Optimized(data_dir)
 
     if not manager.is_ready():
-        print("❌ Manager not ready - run optimization first")
+        print("[X] Manager not ready - run optimization first")
         return
 
-    print("✅ Manager ready\n")
+    print("[OK] Manager ready\n")
 
     # Try multiple CSVs to get enough tracks
     csv_files = [
@@ -163,17 +163,17 @@ def main():
             break
 
     if not csv_path:
-        print(f"❌ No CSV found in _test_csvs/")
+        print(f"[X] No CSV found in _test_csvs/")
         return
 
     tracks = load_sample_tracks(csv_path, sample_size=200)
 
     if not tracks:
-        print("❌ No tracks loaded")
+        print("[X] No tracks loaded")
         return
 
     # Test all tracks
-    print("🔍 Testing track matching...")
+    print("[?] Testing track matching...")
     print("-" * 100)
 
     results = []
@@ -194,7 +194,7 @@ def main():
     # Final statistics
     print()
     print("=" * 100)
-    print("📊 RESULTS")
+    print("[=] RESULTS")
     print("=" * 100)
 
     total = len(results)
@@ -204,13 +204,13 @@ def main():
 
     accuracy = (correct / total) * 100
 
-    print(f"\n✅ OVERALL ACCURACY: {accuracy:.1f}% ({correct}/{total})")
-    print(f"   📊 Correct matches: {correct}")
-    print(f"   ❌ Wrong artist: {wrong_artist}")
-    print(f"   ⚠️  Not found: {not_found}")
+    print(f"\n[OK] OVERALL ACCURACY: {accuracy:.1f}% ({correct}/{total})")
+    print(f"   [=] Correct matches: {correct}")
+    print(f"   [X] Wrong artist: {wrong_artist}")
+    print(f"   [!]  Not found: {not_found}")
 
     # Match type breakdown
-    print("\n📋 Match Type Breakdown:")
+    print("\n[LIST] Match Type Breakdown:")
     match_types = defaultdict(int)
     for r in results:
         match_types[r['match_type']] += 1
@@ -222,7 +222,7 @@ def main():
     # Show some failures for analysis
     failures = [r for r in results if not r['correct']]
     if failures:
-        print(f"\n❌ Sample Failures (showing first 10 of {len(failures)}):")
+        print(f"\n[X] Sample Failures (showing first 10 of {len(failures)}):")
         print("-" * 100)
         for i, r in enumerate(failures[:10], 1):
             print(f"\n[{i}] Track: {r['track']}")
@@ -235,7 +235,7 @@ def main():
     # Show some successes for confirmation
     successes = [r for r in results if r['correct']]
     if successes:
-        print(f"\n✅ Sample Successes (showing random 10):")
+        print(f"\n[OK] Sample Successes (showing random 10):")
         print("-" * 100)
         sample_successes = random.sample(successes, min(10, len(successes)))
         for i, r in enumerate(sample_successes, 1):
@@ -247,7 +247,7 @@ def main():
             print(f"    Type: {r['match_type']}")
 
     print("\n" + "=" * 100)
-    print(f"🎯 FINAL ACCURACY: {accuracy:.1f}%")
+    print(f"[*] FINAL ACCURACY: {accuracy:.1f}%")
     print("=" * 100)
 
 

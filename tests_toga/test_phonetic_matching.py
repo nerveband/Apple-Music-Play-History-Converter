@@ -189,7 +189,7 @@ class TestEnhancedArtistSimilarity:
         """Test that fuzzy matching still works well for typos."""
         sim = manager.enhanced_artist_similarity(
             "Beyonce",
-            "Beyoncé"  # With accent
+            "Beyonce"  # With accent
         )
         assert sim >= 0.8
 

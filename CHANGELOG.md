@@ -21,7 +21,7 @@ All notable changes to Apple Music Play History Converter will be documented in 
 
 ## [2.0.0] - 2025-10-05
 
-### 🚀 Major Rewrite: Toga GUI Framework
+### [>] Major Rewrite: Toga GUI Framework
 
 **This release represents a complete architectural rewrite from tkinter to BeeWare's Toga framework for true cross-platform native applications.**
 
@@ -106,16 +106,16 @@ All notable changes to Apple Music Play History Converter will be documented in 
 - **Packaging**: Portable ZIP for Windows (no installer), DMG for macOS
 
 ### Migration Benefits
-- ✅ True native applications on all platforms
-- ✅ 100x faster batch search processing
-- ✅ Live progress updates during parallel operations
-- ✅ No UI freezing during long operations
-- ✅ Proper async/threading architecture
-- ✅ Clean, maintainable codebase
-- ✅ Better error handling and reporting
-- ✅ Enhanced cross-platform compatibility
-- ✅ Rate-limited track retry system for resilience
-- ✅ Automated Windows builds via CI/CD
+- [OK] True native applications on all platforms
+- [OK] 100x faster batch search processing
+- [OK] Live progress updates during parallel operations
+- [OK] No UI freezing during long operations
+- [OK] Proper async/threading architecture
+- [OK] Clean, maintainable codebase
+- [OK] Better error handling and reporting
+- [OK] Enhanced cross-platform compatibility
+- [OK] Rate-limited track retry system for resilience
+- [OK] Automated Windows builds via CI/CD
 
 ---
 
@@ -145,7 +145,7 @@ All notable changes to Apple Music Play History Converter will be documented in 
 
 ## [1.3.0] - 2025-08-02
 
-### 🚀 Major Migration: PyInstaller → Briefcase
+### [>] Major Migration: PyInstaller → Briefcase
 
 **This release represents a complete rebuild using BeeWare's Briefcase framework for modern, native app packaging.**
 

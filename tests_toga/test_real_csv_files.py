@@ -73,7 +73,7 @@ class TestRealCSVFiles:
 
         # Should have hundreds of thousands of rows
         assert row_count > 10000, f"Expected >10k rows, got {row_count:,}"
-        print(f"✅ Full CSV has {row_count:,} rows")
+        print(f"[OK] Full CSV has {row_count:,} rows")
 
     def test_play_history_daily_structure(self):
         """Test Play History Daily Tracks CSV structure."""
@@ -161,7 +161,7 @@ class TestRealCSVFiles:
 
         elapsed = time.time() - start
 
-        print(f"✅ Processed {chunks_processed} chunks ({rows_processed:,} rows) in {elapsed:.2f}s")
+        print(f"[OK] Processed {chunks_processed} chunks ({rows_processed:,} rows) in {elapsed:.2f}s")
         print(f"   Speed: {rows_processed/elapsed:.0f} rows/second")
 
         assert chunks_processed >= 3
@@ -206,7 +206,7 @@ class TestCrossFormatCompatibility:
             # Should load without errors
             df = pd.read_csv(filepath, nrows=5)
             assert len(df) > 0, f"Failed to load {format_type}"
-            print(f"✅ {format_type}: {len(df.columns)} columns, loaded successfully")
+            print(f"[OK] {format_type}: {len(df.columns)} columns, loaded successfully")
 
     def test_format_detection_by_filename(self):
         """Test that format can be detected from filename."""
@@ -267,7 +267,7 @@ class TestMemoryEfficiency:
             # Each chunk should use less memory than full file
             assert chunk_memory < full_memory or chunk_count == 1
 
-        print(f"✅ Full file: {full_memory:,} bytes")
+        print(f"[OK] Full file: {full_memory:,} bytes")
         print(f"   Processed in {chunk_count} chunks")
 
     def test_nrows_parameter_limits_memory(self):
@@ -278,7 +278,7 @@ class TestMemoryEfficiency:
         df_small = pd.read_csv(filepath, nrows=100)
 
         assert len(df_small) == 100
-        print(f"✅ Limited read to {len(df_small)} rows")
+        print(f"[OK] Limited read to {len(df_small)} rows")
 
 
 class TestDataQuality:
@@ -306,7 +306,7 @@ class TestDataQuality:
         valid_songs = df[df["Song Name"].notna() & (df["Song Name"] != "")]
 
         assert len(valid_songs) > 0, "No valid song names found!"
-        print(f"✅ Found {len(valid_songs)} rows with song names out of {len(df)} total")
+        print(f"[OK] Found {len(valid_songs)} rows with song names out of {len(df)} total")
 
     def test_special_characters_handling(self):
         """Test that special characters in data are handled correctly."""

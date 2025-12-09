@@ -67,22 +67,22 @@ def run_diagnostics(log_file=None, verbose=True):
         try:
             test_file.write_text("test")
             test_file.unlink()
-            log(f"   ✅ Log directory is writable")
+            log(f"   [OK] Log directory is writable")
         except Exception as e:
-            log(f"   ❌ Log directory NOT writable: {e}")
+            log(f"   [X] Log directory NOT writable: {e}")
     except Exception as e:
-        log(f"   ⚠️  Directory check error: {e}")
+        log(f"   [!]  Directory check error: {e}")
 
     # SSL/TLS certificates
     log(f"\n3. SSL/TLS Certificate Configuration:")
     try:
         import ssl
-        log(f"   ✅ ssl module imported successfully")
+        log(f"   [OK] ssl module imported successfully")
         log(f"   OpenSSL version: {ssl.OPENSSL_VERSION}")
         ctx = ssl.create_default_context()
-        log(f"   ✅ Default SSL context created")
+        log(f"   [OK] Default SSL context created")
     except Exception as e:
-        log(f"   ❌ SSL module error: {e}")
+        log(f"   [X] SSL module error: {e}")
         return False
 
     # Certifi
@@ -90,27 +90,27 @@ def run_diagnostics(log_file=None, verbose=True):
     try:
         import certifi
         certifi_path = certifi.where()
-        log(f"   ✅ certifi imported successfully")
+        log(f"   [OK] certifi imported successfully")
         log(f"   Certificate bundle path: {certifi_path}")
 
         if os.path.exists(certifi_path):
             size = os.path.getsize(certifi_path)
-            log(f"   ✅ Certificate bundle exists ({size:,} bytes)")
+            log(f"   [OK] Certificate bundle exists ({size:,} bytes)")
         else:
-            log(f"   ❌ Certificate bundle NOT FOUND at {certifi_path}")
+            log(f"   [X] Certificate bundle NOT FOUND at {certifi_path}")
             return False
     except Exception as e:
-        log(f"   ❌ Certifi error: {e}")
+        log(f"   [X] Certifi error: {e}")
         return False
 
     # httpx
     log(f"\n5. httpx HTTP Client:")
     try:
         import httpx
-        log(f"   ✅ httpx imported successfully")
+        log(f"   [OK] httpx imported successfully")
         log(f"   httpx version: {httpx.__version__}")
     except Exception as e:
-        log(f"   ❌ httpx import error: {e}")
+        log(f"   [X] httpx import error: {e}")
         log("   CRITICAL: Cannot proceed without httpx")
         return False
 
@@ -125,18 +125,18 @@ def run_diagnostics(log_file=None, verbose=True):
         log(f"   Testing connection to https://www.apple.com...")
 
         response = httpx.get("https://www.apple.com", timeout=10, verify=ssl_context)
-        log(f"   ✅ Connection successful!")
+        log(f"   [OK] Connection successful!")
         log(f"   Status code: {response.status_code}")
         log(f"   Response size: {len(response.content):,} bytes")
     except httpx.ConnectError as e:
-        log(f"   ❌ Connection error: {e}")
+        log(f"   [X] Connection error: {e}")
         log(f"   Error type: {type(e).__name__}")
         return False
     except httpx.TimeoutException as e:
-        log(f"   ❌ Timeout error: {e}")
+        log(f"   [X] Timeout error: {e}")
         return False
     except Exception as e:
-        log(f"   ❌ Unexpected error: {type(e).__name__}: {e}")
+        log(f"   [X] Unexpected error: {type(e).__name__}: {e}")
         import traceback
         log(f"   Traceback:\n{traceback.format_exc()}")
         return False
@@ -159,7 +159,7 @@ def run_diagnostics(log_file=None, verbose=True):
 
         log(f"   Testing iTunes API with SSL context...")
         response = httpx.get(url, params=params, timeout=10, verify=ssl_context)
-        log(f"   ✅ iTunes API connection successful!")
+        log(f"   [OK] iTunes API connection successful!")
         log(f"   Status code: {response.status_code}")
 
         data = response.json()
@@ -172,15 +172,15 @@ def run_diagnostics(log_file=None, verbose=True):
             log(f"   Sample result: {artist} - {track}")
 
     except Exception as e:
-        log(f"   ❌ iTunes API error: {type(e).__name__}: {e}")
+        log(f"   [X] iTunes API error: {type(e).__name__}: {e}")
         import traceback
         log(f"   Traceback:\n{traceback.format_exc()}")
         return False
 
     log(f"\n" + "="*80)
-    log("✅ ALL DIAGNOSTICS PASSED - Network connectivity OK")
+    log("[OK] ALL DIAGNOSTICS PASSED - Network connectivity OK")
     log("="*80 + "\n")
-    log(f"📝 Full log saved to: {log_file}", force_print=True)
+    log(f"[N] Full log saved to: {log_file}", force_print=True)
 
     return True
 
@@ -189,14 +189,14 @@ if __name__ == "__main__":
     # Use a simple logger for standalone execution
     logger = get_logger(__name__)
 
-    logger.print_always("\n🔬 Running Network Diagnostics...")
+    logger.print_always("\n[MICROSCOPE] Running Network Diagnostics...")
     logger.print_always("="*80)
     success = run_diagnostics(verbose=True)
     logger.print_always("="*80)
 
     if success:
-        logger.print_always("\n✅ All diagnostics passed! Network is working correctly.\n")
+        logger.print_always("\n[OK] All diagnostics passed! Network is working correctly.\n")
         sys.exit(0)
     else:
-        logger.print_always("\n❌ Diagnostics failed! Check the log file for details.\n")
+        logger.print_always("\n[X] Diagnostics failed! Check the log file for details.\n")
         sys.exit(1)

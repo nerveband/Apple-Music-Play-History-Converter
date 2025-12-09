@@ -20,10 +20,10 @@ def run_command(command, description):
     
     try:
         result = subprocess.run(command, shell=True, check=True, capture_output=False)
-        print(f"✅ {description} completed successfully!")
+        print(f"[OK] {description} completed successfully!")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ {description} failed with exit code {e.returncode}")
+        print(f"[X] {description} failed with exit code {e.returncode}")
         return False
 
 
@@ -54,7 +54,7 @@ def build_package():
 
 def build_all():
     """Complete build pipeline: create, build, and package."""
-    print("🚀 Starting complete build pipeline...")
+    print("[>] Starting complete build pipeline...")
     
     steps = [
         (build_create, "Create"),
@@ -64,10 +64,10 @@ def build_all():
     
     for step_func, step_name in steps:
         if not step_func():
-            print(f"\n❌ Build pipeline failed at {step_name} step")
+            print(f"\n[X] Build pipeline failed at {step_name} step")
             return False
     
-    print("\n🎉 Complete build pipeline finished successfully!")
+    print("\n[YAY] Complete build pipeline finished successfully!")
     return True
 
 
@@ -86,7 +86,7 @@ def main():
     
     # Check if we're in the right directory
     if not Path("pyproject.toml").exists():
-        print("❌ Error: pyproject.toml not found. Please run this script from the project root.")
+        print("[X] Error: pyproject.toml not found. Please run this script from the project root.")
         sys.exit(1)
     
     commands = {

@@ -2,6 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## IMPORTANT: No Emojis
+
+**NEVER use emojis anywhere in this codebase.** Windows console (CP1252 encoding) cannot display Unicode emojis, causing crashes and encoding errors. Always use ASCII text indicators instead:
+
+| Instead of | Use |
+|------------|-----|
+| ✅ | `[OK]` |
+| ❌ | `[X]` or `[FAIL]` |
+| ⚠️ | `[!]` or `[WARN]` |
+| 🚀 | `[>]` or `-->` |
+| 🔍 | `[?]` or `[SEARCH]` |
+| ℹ️ | `[i]` or `[INFO]` |
+| 🛑 | `[STOP]` |
+| 🔒 | `[L]` or `[LOCK]` |
+| 📊 | `[=]` or `[STATS]` |
+| 💾 | `[D]` or `[SAVE]` |
+| 📁 | `[F]` or `[FILE]` |
+| 🔄 | `[R]` or `[SYNC]` |
+
+This applies to: log messages, print statements, comments, docstrings, UI text, and any user-facing strings.
+
 ## Project Overview
 
 Apple Music Play History Converter is a Python-based desktop application that converts Apple Music CSV files into Last.fm compatible format. Built with Toga/Briefcase for cross-platform support, featuring dual music search: MusicBrainz (offline database, ~2GB) and iTunes API (online).
@@ -78,7 +99,7 @@ logger.info("MusicBrainz initialized")
 logger.error(f"API call failed: {e}")
 
 # User-facing (ALWAYS prints)
-logger.print_always("✅ Processing completed!")
+logger.print_always("[OK] Processing completed!")
 logger.print_always("=" * 80)
 ```
 
@@ -398,11 +419,11 @@ codesign --force --options runtime --timestamp \
 
 ### Critical: macOS Distribution
 
-**⚠️ NEVER use ZIP for macOS app distribution** - it corrupts code signatures and notarization.
+**[!] NEVER use ZIP for macOS app distribution** - it corrupts code signatures and notarization.
 
-**✅ Use DMG** (primary): `briefcase package` creates properly signed DMG
-**✅ Use TAR.GZ** (alternative): `tar -czf "App.tar.gz" "App.app"` preserves signatures
-**❌ NEVER use ZIP**: Strips extended attributes, breaks signatures, causes "damaged app" errors
+**[OK] Use DMG** (primary): `briefcase package` creates properly signed DMG
+**[OK] Use TAR.GZ** (alternative): `tar -czf "App.tar.gz" "App.app"` preserves signatures
+**[X] NEVER use ZIP**: Strips extended attributes, breaks signatures, causes "damaged app" errors
 
 **Verification**: `spctl -a -t exec -vv "App.app"` should show "accepted, source=Notarized Developer ID"
 

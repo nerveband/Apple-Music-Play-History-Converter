@@ -40,7 +40,7 @@ def parse_track_description(desc: str) -> tuple:
 
 def load_sample_tracks_from_daily(csv_path: Path, sample_size: int = 200) -> list:
     """Load sample tracks from Play History Daily Tracks CSV."""
-    print(f"📂 Loading tracks from: {csv_path.name}")
+    print(f"[FOLDER] Loading tracks from: {csv_path.name}")
 
     df = pd.read_csv(csv_path, encoding='utf-8-sig')
 
@@ -57,7 +57,7 @@ def load_sample_tracks_from_daily(csv_path: Path, sample_size: int = 200) -> lis
                 'album': None  # Daily Tracks doesn't have album info
             })
 
-    print(f"✅ Loaded {len(tracks)} tracks with artist/track info")
+    print(f"[OK] Loaded {len(tracks)} tracks with artist/track info")
 
     if len(tracks) > sample_size:
         tracks = random.sample(tracks, sample_size)
@@ -68,7 +68,7 @@ def load_sample_tracks_from_daily(csv_path: Path, sample_size: int = 200) -> lis
 
 def load_sample_tracks_from_full(csv_path: Path, sample_size: int = 200) -> list:
     """Load sample tracks from full Play Activity CSV."""
-    print(f"📂 Loading tracks from: {csv_path.name}")
+    print(f"[FOLDER] Loading tracks from: {csv_path.name}")
 
     try:
         df = pd.read_csv(csv_path, encoding='utf-8-sig', low_memory=False)
@@ -96,7 +96,7 @@ def load_sample_tracks_from_full(csv_path: Path, sample_size: int = 200) -> list
             'album': str(row[album_col]) if pd.notna(row.get(album_col)) else None
         })
 
-    print(f"✅ Loaded {len(tracks)} tracks")
+    print(f"[OK] Loaded {len(tracks)} tracks")
     print(f"   {sum(1 for t in tracks if t['album']) / max(len(tracks), 1) * 100:.0f}% have album info\n")
 
     return tracks
@@ -167,7 +167,7 @@ def run_track_matching(manager, track_data: dict, verbose: bool = False) -> dict
 def main():
     """Run 200-track accuracy test."""
     print("=" * 100)
-    print("🧪 200-TRACK COMPREHENSIVE ACCURACY TEST")
+    print("[TEST] 200-TRACK COMPREHENSIVE ACCURACY TEST")
     print("=" * 100)
     print()
 
@@ -176,10 +176,10 @@ def main():
     manager = MusicBrainzManagerV2Optimized(data_dir)
 
     if not manager.is_ready():
-        print("❌ Manager not ready - run optimization first")
+        print("[X] Manager not ready - run optimization first")
         return
 
-    print("✅ Manager ready\n")
+    print("[OK] Manager ready\n")
 
     # Try to load 200 tracks from available CSVs
     all_tracks = []
@@ -199,13 +199,13 @@ def main():
             all_tracks.extend(full_tracks)
 
     if not all_tracks:
-        print("❌ No tracks loaded from CSV files")
+        print("[X] No tracks loaded from CSV files")
         return
 
-    print(f"📊 Total tracks to test: {len(all_tracks)}\n")
+    print(f"[=] Total tracks to test: {len(all_tracks)}\n")
 
     # Test all tracks
-    print("🔍 Testing track matching...")
+    print("[?] Testing track matching...")
     print("-" * 100)
 
     results = []
@@ -226,7 +226,7 @@ def main():
     # Final statistics
     print()
     print("=" * 100)
-    print("📊 RESULTS")
+    print("[=] RESULTS")
     print("=" * 100)
 
     total = len(results)
@@ -236,13 +236,13 @@ def main():
 
     accuracy = (correct / total) * 100
 
-    print(f"\n✅ OVERALL ACCURACY: {accuracy:.1f}% ({correct}/{total})")
-    print(f"   📊 Correct matches: {correct}")
-    print(f"   ❌ Wrong artist: {wrong_artist}")
-    print(f"   ⚠️  Not found: {not_found}")
+    print(f"\n[OK] OVERALL ACCURACY: {accuracy:.1f}% ({correct}/{total})")
+    print(f"   [=] Correct matches: {correct}")
+    print(f"   [X] Wrong artist: {wrong_artist}")
+    print(f"   [!]  Not found: {not_found}")
 
     # Match type breakdown
-    print("\n📋 Match Type Breakdown:")
+    print("\n[LIST] Match Type Breakdown:")
     match_types = defaultdict(int)
     for r in results:
         match_types[r['match_type']] += 1
@@ -254,7 +254,7 @@ def main():
     # Analyze failures by pattern
     failures = [r for r in results if not r['correct']]
     if failures:
-        print(f"\n🔍 Failure Analysis ({len(failures)} failures):")
+        print(f"\n[?] Failure Analysis ({len(failures)} failures):")
         print("-" * 100)
 
         # Group by failure type
@@ -262,14 +262,14 @@ def main():
         wrong_artist_cases = [f for f in failures if f['match_type'] == 'WRONG_ARTIST']
 
         if not_found_cases:
-            print(f"\n❌ NOT FOUND ({len(not_found_cases)} cases):")
+            print(f"\n[X] NOT FOUND ({len(not_found_cases)} cases):")
             for i, r in enumerate(not_found_cases[:5], 1):
                 print(f"   [{i}] '{r['track']}' by '{r['artist_expected']}'")
                 if r['album_expected']:
                     print(f"       Album: {r['album_expected']}")
 
         if wrong_artist_cases:
-            print(f"\n❌ WRONG ARTIST ({len(wrong_artist_cases)} cases):")
+            print(f"\n[X] WRONG ARTIST ({len(wrong_artist_cases)} cases):")
             for i, r in enumerate(wrong_artist_cases[:10], 1):
                 print(f"   [{i}] Track: {r['track']}")
                 print(f"       Expected: {r['artist_expected']}")
@@ -281,14 +281,14 @@ def main():
     # Show sample successes
     successes = [r for r in results if r['correct']]
     if successes:
-        print(f"✅ Sample Successes (random 10 of {len(successes)}):")
+        print(f"[OK] Sample Successes (random 10 of {len(successes)}):")
         print("-" * 100)
         sample_successes = random.sample(successes, min(10, len(successes)))
         for i, r in enumerate(sample_successes, 1):
-            print(f"   [{i}] '{r['track']}' by '{r['artist_expected']}' → {r['artist_found']} ({r['match_type']})")
+            print(f"   [{i}] '{r['track']}' by '{r['artist_expected']}' -> {r['artist_found']} ({r['match_type']})")
 
     print("\n" + "=" * 100)
-    print(f"🎯 FINAL ACCURACY: {accuracy:.1f}%")
+    print(f"[*] FINAL ACCURACY: {accuracy:.1f}%")
     print("=" * 100)
 
 
