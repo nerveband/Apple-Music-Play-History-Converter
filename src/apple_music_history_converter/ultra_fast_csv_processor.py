@@ -210,14 +210,19 @@ class UltraFastCSVProcessor:
 
         if efficiency_mode:
             # EFFICIENCY MODE: Simple cleaning (matches recording_lower)
-            # Just lowercase and strip - keeps parentheses, feat., punctuation
+            # CRITICAL: Strip ALL apostrophes/quotes for consistent matching
+            # MusicBrainz has mixed apostrophe types (curly U+2019 vs straight 0x27)
+            # By stripping all, we match regardless of which quote type is used
             df['track_clean'] = (
                 df[track_col]
                 .fillna('')  # Handle NaN
+                .str.replace("'", '', regex=False)   # Remove straight apostrophe
+                .str.replace('\u2019', '', regex=False)  # Remove curly apostrophe
+                .str.replace('\u2018', '', regex=False)  # Remove left single quote
                 .str.lower()  # Lowercase
                 .str.strip()  # Trim
             )
-            logger.debug("Using simple track cleaning for efficiency mode")
+            logger.debug("Using simple track cleaning for efficiency mode (apostrophe-stripped)")
         else:
             # PERFORMANCE MODE: Full cleaning (matches recording_clean)
             df['track_clean'] = (
@@ -313,11 +318,17 @@ class UltraFastCSVProcessor:
                 progress_callback(f"Fetching: {i:,}/{len(all_tracks):,}", progress)
 
             placeholders = ','.join(['?' for _ in batch])
+            # Use REPLACE to strip apostrophes from DB column for consistent matching
+            # This handles both curly (U+2019) and straight (') apostrophes
             sql = f"""
-                SELECT recording_lower, artist_credit_name, release_lower, score
+                SELECT
+                    REPLACE(REPLACE(REPLACE(recording_lower, '''', ''), chr(8217), ''), chr(8216), '') as track_normalized,
+                    artist_credit_name,
+                    release_lower,
+                    score
                 FROM musicbrainz
-                WHERE recording_lower IN ({placeholders})
-                ORDER BY recording_lower, score ASC
+                WHERE REPLACE(REPLACE(REPLACE(recording_lower, '''', ''), chr(8217), ''), chr(8216), '') IN ({placeholders})
+                ORDER BY track_normalized, score ASC
             """
 
             try:
