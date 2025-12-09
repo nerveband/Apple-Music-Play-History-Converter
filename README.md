@@ -73,7 +73,7 @@ python run_toga_app.py
 **Requirements:**
 - Python 3.12+
 - GTK 3 development libraries
-- See [Linux Build Guide](../../wiki/Linux-Installation) for distribution-specific instructions
+- See [Linux Build Guide](wiki/Installation.md) for distribution-specific instructions
 
 ### Run from Source
 
@@ -120,7 +120,7 @@ The app achieves **** on typical music libraries, but some tracks may not match 
 4. **Export failures for manual review** - use the "Export Missing" button
 
 For technical details on how matching works, see:
-- [Matching Algorithm Wiki](../../wiki/Matching-Algorithm) - Full technical documentation
+- [Matching Algorithm Wiki](wiki/Matching-Algorithm.md) - Full technical documentation
 - [MusicBrainz Matching Algorithm](docs/MUSICBRAINZ_MATCHING_ALGORITHM.md) - Database and search details
 
 ## What's New in v2.0.3
@@ -218,12 +218,12 @@ The app now automatically detects your system's capabilities and adjusts its opt
 
 ## Documentation
 
-- [Installation Guide](../../wiki/Installation)
-- [User Guide](../../wiki/User-Guide)
-- [MusicBrainz Database Setup](../../wiki/MusicBrainz-Database)
-- [Building from Source](../../wiki/Building-from-Source)
-- [Development Guide](../../wiki/Development)
-- [Troubleshooting](../../wiki/Troubleshooting)
+- [Installation Guide](wiki/Installation.md)
+- [User Guide](wiki/User-Guide.md)
+- [MusicBrainz Database Setup](wiki/MusicBrainz-Database.md)
+- [Building from Source](wiki/Building-from-Source.md)
+- [Development Guide](wiki/Development.md)
+- [Troubleshooting](wiki/Troubleshooting.md)
 
 ## System Requirements
 
@@ -240,7 +240,7 @@ The app now automatically detects your system's capabilities and adjusts its opt
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
-- **Wiki**: [Documentation](../../wiki)
+- **Wiki**: [Documentation](wiki/Home.md)
 - **Releases**: [Download Page](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases)
 
 ## License
@@ -253,4 +253,4 @@ Built with [BeeWare Toga](https://beeware.org/) • [Pandas](https://pandas.pyda
 
 ---
 
-**Version 2.0.3** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
+**Version 2.0.3** | [Changelog](CHANGELOG.md) | [Wiki](wiki/Home.md) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)

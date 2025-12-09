@@ -4,7 +4,7 @@ This document provides explicit technical details about how the Apple Music Hist
 
 ## Overview
 
-The matching algorithm uses a **HOT/COLD tiered DuckDB database** derived from MusicBrainz canonical data. It employs a **cascading search strategy** with multiple matching methods, **artist hint prioritization**, **intelligent candidate scoring with confidence metrics**, and **edge case handling** to achieve 94%+ accuracy.
+The matching algorithm uses a **HOT/COLD tiered DuckDB database** derived from MusicBrainz canonical data. It employs a **cascading search strategy** with multiple matching methods, **artist hint prioritization**, **intelligent candidate scoring with confidence metrics**, and **edge case handling**.
 
 ### Key Features
 

@@ -67,7 +67,7 @@ See [Artist Matching: What to Expect](README.md#artist-matching-what-to-expect) 
 ## Technical Details
 
 For detailed algorithm documentation:
-- [Matching Algorithm Wiki](../../wiki/Matching-Algorithm) - Full technical documentation
+- [Matching Algorithm Wiki](wiki/Matching-Algorithm.md) - Full technical documentation
 - [MusicBrainz Matching Algorithm](docs/MUSICBRAINZ_MATCHING_ALGORITHM.md) - Database and search details
 - [FAQ](wiki/FAQ.md) - Common questions
 
