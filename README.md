@@ -6,7 +6,7 @@
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
-> **New in v2.0.3**: Major matching algorithm improvements with 94%+ accuracy, new MusicBrainz optimizer, and comprehensive documentation. [See what's new](#whats-new-in-v203)
+> **New in v2.0.3**: Major matching algorithm improvements with new MusicBrainz optimizer, and comprehensive documentation. [See what's new](#whats-new-in-v203)
 
 ## Features
 
@@ -95,7 +95,7 @@ python run_toga_app.py
 
 ## Artist Matching: What to Expect
 
-The app achieves **94%+ accuracy** on typical music libraries, but some tracks may not match correctly. Here's what you should know:
+The app achieves **** on typical music libraries, but some tracks may not match correctly. Here's what you should know:
 
 ### What Works Well
 - **Popular music**: Mainstream tracks match instantly (The Weeknd, Taylor Swift, etc.)
@@ -114,7 +114,7 @@ The app achieves **94%+ accuracy** on typical music libraries, but some tracks m
 | **Mashups/medleys** | Combined tracks don't exist as single entries | Usually won't match |
 
 ### Tips for Best Results
-1. **Use MusicBrainz first** - it's fast and handles 85-95% of tracks
+1. **Use MusicBrainz first** - it's fast and handles most tracks
 2. **Use iTunes API for leftovers** - it has better fuzzy matching but is rate-limited
 3. **Review your results** - spot-check the output before importing to Last.fm
 4. **Export failures for manual review** - use the "Export Missing" button
@@ -125,7 +125,7 @@ For technical details on how matching works, see:
 
 ## What's New in v2.0.3
 
-### Enhanced Matching Algorithm (94%+ Accuracy)
+### Enhanced Matching Algorithm 
 
 - **Improved artist matching**: New scoring system prioritizes established tracks over covers
 - **Edge case handling**: Better detection of generic titles ("Intro", "Home") and short titles

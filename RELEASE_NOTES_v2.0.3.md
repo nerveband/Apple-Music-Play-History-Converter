@@ -1,10 +1,10 @@
 # v2.0.3 - Enhanced Matching Algorithm
 
-Major improvements to artist matching with 94%+ accuracy on typical music libraries.
+Major improvements to artist matching with improved accuracy on typical music libraries.
 
 ## Highlights
 
-- **94%+ Matching Accuracy**: Completely overhauled matching algorithm with proper score ordering, edge case detection, and phonetic matching
+- **improved Matching Accuracy**: Completely overhauled matching algorithm with proper score ordering, edge case detection, and phonetic matching
 - **Better Edge Case Handling**: Generic titles ("Intro", "Home"), short titles, and collaboration credits now handled correctly
 - **Hardware-Adaptive Performance**: Auto-detects system capabilities; works on budget hardware (tested on AWS t2.medium: 2 vCPUs, 4GB RAM)
 - **Windows Stability**: Fixed console encoding crashes by replacing emojis with ASCII indicators
@@ -23,7 +23,7 @@ Major improvements to artist matching with 94%+ accuracy on typical music librar
 
 | Feature | Before | After |
 |---------|--------|-------|
-| **Accuracy** | ~60-70% | **94%+** |
+| **Accuracy** | variable | **improved** |
 | **Score ordering** | Wrong (DESC) | Fixed (ASC - lower = more established) |
 | **Edge cases** | Often wrong | Detected and handled |
 | **Collaborations** | Partial | Full tokenization (feat., &, with, vs) |
