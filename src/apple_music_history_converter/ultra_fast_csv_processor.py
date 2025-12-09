@@ -210,19 +210,14 @@ class UltraFastCSVProcessor:
 
         if efficiency_mode:
             # EFFICIENCY MODE: Simple cleaning (matches recording_lower)
-            # CRITICAL: Strip ALL apostrophes/quotes for consistent matching
-            # MusicBrainz has mixed apostrophe types (curly U+2019 vs straight 0x27)
-            # By stripping all, we match regardless of which quote type is used
+            # Keep apostrophes - we'll search for both variants in SQL
             df['track_clean'] = (
                 df[track_col]
                 .fillna('')  # Handle NaN
-                .str.replace("'", '', regex=False)   # Remove straight apostrophe
-                .str.replace('\u2019', '', regex=False)  # Remove curly apostrophe
-                .str.replace('\u2018', '', regex=False)  # Remove left single quote
                 .str.lower()  # Lowercase
                 .str.strip()  # Trim
             )
-            logger.debug("Using simple track cleaning for efficiency mode (apostrophe-stripped)")
+            logger.debug("Using simple track cleaning for efficiency mode")
         else:
             # PERFORMANCE MODE: Full cleaning (matches recording_clean)
             df['track_clean'] = (
@@ -283,12 +278,14 @@ class UltraFastCSVProcessor:
         EFFICIENCY MODE: Album-aware BATCHED search for better accuracy AND speed.
 
         Strategy:
-        1. Batch fetch all candidates for tracks
+        1. Batch fetch all candidates for tracks (exact match with apostrophe variants)
         2. Filter by album match in Python (fast)
         3. Fall back to best-score for tracks without album match
+        4. FUZZY PASS: Strip parenthetical content for unmatched tracks and retry
 
         Returns Dict[track_clean, artist] for compatibility.
         """
+        import re
         track_to_artist = {}
         total = len(unique_df)
 
@@ -304,43 +301,73 @@ class UltraFastCSVProcessor:
         tracks_with_album = sum(1 for t in all_tracks if track_to_album.get(t, ''))
         logger.print_always(f"   [i] {tracks_with_album:,} with album, {len(all_tracks) - tracks_with_album:,} without")
 
+        # Helper to generate apostrophe variants
+        def get_apostrophe_variants(track):
+            """Generate both apostrophe variants for a track."""
+            variants = [track]
+            # If has straight apostrophe, also search for curly
+            if "'" in track:
+                variants.append(track.replace("'", '\u2019'))
+            # If has curly apostrophe, also search for straight
+            if '\u2019' in track:
+                variants.append(track.replace('\u2019', "'"))
+            return variants
+
+        # Helper to strip parenthetical content for fuzzy matching
+        def strip_parenthetical(track):
+            """Strip (feat. X), (live), (remix), (8-bit version), etc."""
+            # Remove content in parentheses or brackets
+            stripped = re.sub(r'\s*[\(\[].*?[\)\]]', '', track).strip()
+            # Also handle "feat." without parentheses
+            stripped = re.sub(r'\s+feat\.?\s+.*$', '', stripped, flags=re.IGNORECASE).strip()
+            return stripped if stripped != track else None
+
         # Phase 1: Batch fetch ALL candidates for all tracks
-        logger.print_always(f"\n[>] Phase 1: Batch fetching candidates...")
+        logger.print_always(f"\n[>] Phase 1: Batch fetching candidates (exact match)...")
 
         # Store candidates: track -> [(artist, album, score), ...]
         track_candidates = {}
 
         for i in range(0, len(all_tracks), self.batch_size):
-            batch = all_tracks[i:i+self.batch_size]
+            batch_original = all_tracks[i:i+self.batch_size]
 
             if progress_callback:
-                progress = 35 + int((i / len(all_tracks)) * 40)
+                progress = 35 + int((i / len(all_tracks)) * 25)
                 progress_callback(f"Fetching: {i:,}/{len(all_tracks):,}", progress)
 
-            placeholders = ','.join(['?' for _ in batch])
-            # Use REPLACE to strip apostrophes from DB column for consistent matching
-            # This handles both curly (U+2019) and straight (') apostrophes
+            # Expand batch to include apostrophe variants
+            batch_expanded = []
+            track_mapping = {}  # Maps variant -> original track
+            for track in batch_original:
+                for variant in get_apostrophe_variants(track):
+                    batch_expanded.append(variant)
+                    track_mapping[variant] = track
+
+            placeholders = ','.join(['?' for _ in batch_expanded])
+            # Direct query - no REPLACE, uses index!
             sql = f"""
                 SELECT
-                    REPLACE(REPLACE(REPLACE(recording_lower, '''', ''), chr(8217), ''), chr(8216), '') as track_normalized,
+                    recording_lower,
                     artist_credit_name,
                     release_lower,
                     score
                 FROM musicbrainz
-                WHERE REPLACE(REPLACE(REPLACE(recording_lower, '''', ''), chr(8217), ''), chr(8216), '') IN ({placeholders})
-                ORDER BY track_normalized, score ASC
+                WHERE recording_lower IN ({placeholders})
+                ORDER BY recording_lower, score ASC
             """
 
             try:
-                results = self.conn.execute(sql, batch).fetchall()
-                for track, artist, album, score in results:
-                    if track not in track_candidates:
-                        track_candidates[track] = []
-                    track_candidates[track].append((artist, album or '', score))
+                results = self.conn.execute(sql, batch_expanded).fetchall()
+                for db_track, artist, album, score in results:
+                    # Map back to original user track
+                    original_track = track_mapping.get(db_track, db_track)
+                    if original_track not in track_candidates:
+                        track_candidates[original_track] = []
+                    track_candidates[original_track].append((artist, album or '', score))
             except Exception as e:
                 logger.error(f"Batch fetch failed: {e}")
 
-        logger.print_always(f"   [OK] Fetched candidates for {len(track_candidates):,} tracks")
+        logger.print_always(f"   [OK] Exact match candidates for {len(track_candidates):,} tracks")
 
         # Phase 2: Match with album preference
         logger.print_always(f"\n[>] Phase 2: Matching with album preference...")
@@ -350,7 +377,7 @@ class UltraFastCSVProcessor:
 
         for i, track in enumerate(all_tracks):
             if progress_callback and i % 5000 == 0:
-                progress = 75 + int((i / len(all_tracks)) * 20)
+                progress = 60 + int((i / len(all_tracks)) * 10)
                 progress_callback(f"Matching: {i:,}/{len(all_tracks):,}", progress)
 
             if track not in track_candidates:
@@ -374,7 +401,96 @@ class UltraFastCSVProcessor:
                 found_without_album += 1
                 self.stats['cold_hits'] += 1
 
-        # Stats
+        exact_found = len(track_to_artist)
+        logger.print_always(f"   [OK] Found {exact_found:,} with exact match")
+
+        # Phase 3: FUZZY MATCHING - Strip parenthetical content for unmatched tracks
+        unmatched = [t for t in all_tracks if t not in track_to_artist]
+
+        if unmatched:
+            logger.print_always(f"\n[>] Phase 3: Fuzzy matching for {len(unmatched):,} unmatched tracks...")
+
+            # Build stripped -> original mapping for tracks that benefit from stripping
+            stripped_to_original = {}
+            for track in unmatched:
+                stripped = strip_parenthetical(track)
+                if stripped:  # Only if stripping changed something
+                    stripped_to_original[stripped] = track
+
+            if stripped_to_original:
+                logger.print_always(f"   [i] {len(stripped_to_original):,} tracks have parenthetical content to strip")
+
+                # Batch search for stripped versions
+                stripped_tracks = list(stripped_to_original.keys())
+                fuzzy_candidates = {}
+
+                for i in range(0, len(stripped_tracks), self.batch_size):
+                    batch_original = stripped_tracks[i:i+self.batch_size]
+
+                    if progress_callback:
+                        progress = 70 + int((i / len(stripped_tracks)) * 15)
+                        progress_callback(f"Fuzzy search: {i:,}/{len(stripped_tracks):,}", progress)
+
+                    # Expand with apostrophe variants
+                    batch_expanded = []
+                    track_mapping = {}
+                    for track in batch_original:
+                        for variant in get_apostrophe_variants(track):
+                            batch_expanded.append(variant)
+                            track_mapping[variant] = track
+
+                    placeholders = ','.join(['?' for _ in batch_expanded])
+                    sql = f"""
+                        SELECT
+                            recording_lower,
+                            artist_credit_name,
+                            release_lower,
+                            score
+                        FROM musicbrainz
+                        WHERE recording_lower IN ({placeholders})
+                        ORDER BY recording_lower, score ASC
+                    """
+
+                    try:
+                        results = self.conn.execute(sql, batch_expanded).fetchall()
+                        for db_track, artist, album, score in results:
+                            stripped_track = track_mapping.get(db_track, db_track)
+                            if stripped_track not in fuzzy_candidates:
+                                fuzzy_candidates[stripped_track] = []
+                            fuzzy_candidates[stripped_track].append((artist, album or '', score))
+                    except Exception as e:
+                        logger.error(f"Fuzzy batch fetch failed: {e}")
+
+                # Match fuzzy results with album preference
+                fuzzy_album_match = 0
+                fuzzy_fallback = 0
+
+                for stripped, candidates in fuzzy_candidates.items():
+                    original_track = stripped_to_original[stripped]
+                    user_album = track_to_album.get(original_track, '').lower()
+
+                    # Try album match first
+                    matched = False
+                    if user_album:
+                        for artist, db_album, score in candidates:
+                            if user_album in db_album.lower() or db_album.lower() in user_album:
+                                track_to_artist[original_track] = artist
+                                fuzzy_album_match += 1
+                                self.stats['hot_hits'] += 1
+                                matched = True
+                                break
+
+                    # Fall back to best score
+                    if not matched and candidates:
+                        track_to_artist[original_track] = candidates[0][0]
+                        fuzzy_fallback += 1
+                        self.stats['cold_hits'] += 1
+
+                fuzzy_total = fuzzy_album_match + fuzzy_fallback
+                logger.print_always(f"   [OK] Fuzzy matched {fuzzy_total:,} additional tracks")
+                logger.print_always(f"      Album match: {fuzzy_album_match:,}, Score fallback: {fuzzy_fallback:,}")
+
+        # Final stats
         not_found = len(all_tracks) - len(track_to_artist)
         self.stats['not_found'] = not_found
 
