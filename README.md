@@ -2,11 +2,11 @@
 
 ![Apple Music Play History Converter](images/aphc_logo.png)
 
-![Version 2.0.2 built with Toga/Briefcase](images/screenshot-v4.png)
+![Version 2.0.3 built with Toga/Briefcase](images/screenshot-v5.png)
 
 A modern desktop application that converts Apple Music play history CSV files into Last.fm and Universal Scrobbler compatible format.
 
-> **New in v2.0.2**: macOS exit crash resolved. Fixed Toga/Rubicon GIL crash that occurred when quitting the app. Plus automated Windows builds via GitHub Actions. [See what's new](#whats-new-in-v202)
+> **New in v2.0.3**: Major matching algorithm improvements with 94%+ accuracy, new MusicBrainz optimizer, and comprehensive documentation. [See what's new](#whats-new-in-v203)
 
 ## Features
 
@@ -32,7 +32,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 **No Python required.** Download the ready-to-run app for your platform:
 
 #### macOS (Universal Binary)
-**[Download Apple Music History Converter-2.0.2.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[Download Apple Music History Converter-2.0.3.dmg](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 **Fully signed and notarized** by Apple Developer ID
 **No security warnings**, opens immediately
@@ -46,7 +46,7 @@ A modern desktop application that converts Apple Music play history CSV files in
 ---
 
 #### Windows (MSI Installer)
-**[Download Apple-Music-History-Converter-2.0.2.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
+**[Download Apple-Music-History-Converter-2.0.3.msi](https://github.com/nerveband/Apple-Music-Play-History-Converter/releases/latest)**
 
 **Professional MSI installer**
 **No Python installation required**
@@ -93,6 +93,75 @@ python run_toga_app.py
 3. **Click "Search for Missing Artists"** to find missing artist information
 4. **Save** the converted CSV file for Last.fm or Universal Scrobbler
 
+## Artist Matching: What to Expect
+
+The app achieves **94%+ accuracy** on typical music libraries, but some tracks may not match correctly. Here's what you should know:
+
+### What Works Well
+- **Popular music**: Mainstream tracks match instantly (The Weeknd, Taylor Swift, etc.)
+- **Albums you've listened to completely**: The app detects album "sessions" and applies consistent artist credits
+- **Tracks with artist info in your CSV**: When Apple provides artist names, matching is highly accurate
+
+### What May Not Match
+| Scenario | Why It Happens | Workaround |
+|----------|----------------|------------|
+| **Generic titles** ("Intro", "Home", "Escape") | Many artists have songs with these names | App needs artist hint from your CSV |
+| **Japanese/Korean/non-Latin text** | Different romanizations exist | iTunes API often works better |
+| **Typos in your data** ("fuckk" vs "fuck") | Exact matching fails | iTunes API handles fuzzy matching |
+| **Obscure indie releases** | Not in MusicBrainz database | Try iTunes API or manual entry |
+| **Soundtracks** ("Scott Pilgrim", video game music) | Often missing from databases | iTunes API usually finds these |
+| **Classical music** with movement numbers | Naming conventions vary wildly | May require manual correction |
+| **Mashups/medleys** | Combined tracks don't exist as single entries | Usually won't match |
+
+### Tips for Best Results
+1. **Use MusicBrainz first** - it's fast and handles 85-95% of tracks
+2. **Use iTunes API for leftovers** - it has better fuzzy matching but is rate-limited
+3. **Review your results** - spot-check the output before importing to Last.fm
+4. **Export failures for manual review** - use the "Export Missing" button
+
+For technical details on how matching works, see:
+- [Matching Algorithm Wiki](../../wiki/Matching-Algorithm) - Full technical documentation
+- [MusicBrainz Matching Algorithm](docs/MUSICBRAINZ_MATCHING_ALGORITHM.md) - Database and search details
+
+## What's New in v2.0.3
+
+### Enhanced Matching Algorithm (94%+ Accuracy)
+
+- **Improved artist matching**: New scoring system prioritizes established tracks over covers
+- **Edge case handling**: Better detection of generic titles ("Intro", "Home") and short titles
+- **Unicode normalization**: Handles curly quotes, apostrophe variants, and special characters (A$AP, Ke$ha)
+- **Artist tokenization**: Properly handles collaborations ("feat.", "&", "with", "vs")
+- **Phonetic matching**: Soundex-based matching for artist name misspellings (Jon/John, Smith/Smyth)
+- **Album-session alignment**: Consecutive tracks from same album get consistent artist credits
+
+### New MusicBrainz Optimizer
+
+- **Background optimization**: Database optimization runs without blocking the UI
+- **Progress tracking**: Real-time progress updates during optimization
+- **Memory efficiency**: Optimized for systems with 4GB+ RAM
+
+### Hardware-Adaptive Performance Modes
+
+The app now automatically detects your system's capabilities and adjusts its optimization strategy:
+
+| Mode | Requirements | What It Does |
+|------|--------------|--------------|
+| **Performance** | 8GB+ RAM, fast SSD | Full optimization with HOT/COLD tables and all indexes |
+| **Efficiency** | 4GB RAM, any disk | Minimal schema for slower systems (tested on AWS t2.medium) |
+
+- **Automatic detection**: Probes RAM, CPU cores, and disk speed at startup
+- **Works on budget hardware**: Efficiency mode tested on AWS t2.medium (2 vCPUs, 4GB RAM, slow EBS)
+- **No configuration needed**: The app picks the right mode automatically
+
+### Code Quality & Performance
+
+- **Dead code removal**: Cleaned up legacy debug scripts and unused code
+- **Windows compatibility**: Fixed console encoding issues with emojis (replaced with ASCII indicators)
+- **Test suite**: 204 tests passing with comprehensive coverage
+- **Documentation**: New [Matching Algorithm](docs/MUSICBRAINZ_MATCHING_ALGORITHM.md) technical documentation
+
+### Previous Release (v2.0.2)
+
 ## What's New in v2.0.2
 
 ### Critical macOS Exit Crash Fixed
@@ -105,15 +174,6 @@ python run_toga_app.py
   - All ThreadPoolExecutors now properly tracked and shut down before exit
   - App now quits cleanly every time without "Abort trap 6" errors
   - See `TOGA_EXIT_CRASH_WORKAROUND.md` for complete technical documentation
-
-### Windows Build Automation
-
-- **GitHub Actions Integration**: Windows builds now fully automated via GitHub Actions
-  - No local Windows machine required for releases
-  - Automatic MSI generation on version tag push
-  - 90-day artifact retention for builds
-  - Automatic upload to GitHub releases
-  - 3-4 minute build time per release
 
 ### Comprehensive Documentation
 
@@ -193,4 +253,4 @@ Built with [BeeWare Toga](https://beeware.org/) • [Pandas](https://pandas.pyda
 
 ---
 
-**Version 2.0.2** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)
+**Version 2.0.3** | [Changelog](CHANGELOG.md) | [Wiki](../../wiki) | [Report Issue](https://github.com/nerveband/Apple-Music-Play-History-Converter/issues)

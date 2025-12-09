@@ -2,6 +2,46 @@
 
 All notable changes to Apple Music Play History Converter will be documented in this file.
 
+## [2.0.3] - 2025-12-09
+
+### Enhanced Matching Algorithm (94%+ Accuracy)
+
+- **Improved scoring system**: Score ordering corrected (`ASC` not `DESC`) - lower MusicBrainz scores indicate more established/original tracks
+- **Edge case detection**: New detection for short titles (<3 chars), generic titles ("Intro", "Outro"), and numeric titles ("#1", "17")
+- **Unicode normalization**: Two-stage pipeline handles apostrophe variants (U+2019 vs U+0027), curly quotes, and special characters (A$AP -> ASAP, Ke$ha -> Kesha)
+- **Artist tokenization**: Properly splits collaboration credits ("feat.", "&", "with", "vs") into individual tokens for matching
+- **Phonetic matching**: Soundex-based artist matching handles misspellings (Jon/John, Smith/Smyth, Brittany/Britney)
+- **Album-session alignment**: Detects consecutive tracks from same album and applies consistent artist credits
+- **Per-user mapping cache**: Caches verified matches for instant repeat imports (<1ms vs 2-10ms)
+- **Confidence scoring**: Explicit confidence levels (high/medium/low/no_match) with margin calculation
+
+### New MusicBrainz Optimizer
+
+- **Background optimization**: Database optimization runs non-blocking with progress tracking
+- **HOT/COLD table optimization**: Pre-computed clean columns for faster matching
+- **Memory efficiency**: Optimized for 4GB+ RAM systems
+
+### Hardware-Adaptive Performance Modes
+
+- **Automatic hardware detection**: Probes RAM, CPU cores, and disk speed at startup
+- **Performance mode**: Full optimization with all indexes and HOT/COLD tables for systems with 8GB+ RAM and fast disk
+- **Efficiency mode**: Minimal schema for low-spec systems (tested on AWS t2.medium: 2 vCPUs, 4GB RAM, slow EBS storage)
+- **Dynamic memory limits**: Tiered memory allocation (1GB for 4GB systems, up to 6GB for 16GB+ systems)
+- **Conservative threading**: Efficiency mode uses max 2 threads to avoid overwhelming slow systems
+
+### Code Quality & Cleanup
+
+- **Dead code removal**: Removed legacy debug scripts (`debug_*.py`), duplicate files, and unused code
+- **Windows compatibility**: Replaced emojis with ASCII indicators to fix Windows console encoding (CP1252) crashes
+- **Documentation**: New comprehensive [Matching Algorithm](docs/MUSICBRAINZ_MATCHING_ALGORITHM.md) technical documentation
+- **Test suite**: 204 tests passing with comprehensive coverage across all CSV formats
+
+### Technical Details
+
+- **Accuracy**: 94.4% on Play History Daily Tracks (119/126 correct)
+- **Performance**: 10,000+ tracks/sec MusicBrainz search, 100x faster than v1.x
+- **Database**: ~29 million track-artist mappings in optimized DuckDB format
+
 ## [2.0.1] - 2025-10-08
 
 ### Fixed
