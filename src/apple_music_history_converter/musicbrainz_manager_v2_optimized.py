@@ -2274,19 +2274,15 @@ class MusicBrainzManagerV2Optimized:
         logger.info("Basic table created")
 
     def _index_basic_table_parallel(self, progress_callback: Optional[Callable] = None):
-        """OPTIMIZATION: Create indexes in PARALLEL using ThreadPoolExecutor."""
-        logger.info("[>] OPTIMIZATION: Creating basic indexes in PARALLEL")
+        """OPTIMIZATION: Create indexes in PARALLEL using ThreadPoolExecutor.
 
-        # Create separate connections for each thread (DuckDB requirement)
-        def create_index(index_name: str, table: str, column: str, thread_id: int):
-            try:
-                # Each thread needs its own connection to the same database
-                conn = duckdb.connect(str(self.duckdb_file))
-                conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({column})")
-                conn.close()
-                return (index_name, True, None)
-            except Exception as e:
-                return (index_name, False, str(e))
+        NOTE: Intel Macs (x86_64 on macOS) use SEQUENTIAL mode to avoid
+        DuckDB connection issues caused by weaker memory ordering.
+        """
+        import platform
+
+        # Detect Intel Mac - use sequential mode to avoid DuckDB issues
+        is_intel_mac = (platform.system() == "Darwin" and platform.machine() == "x86_64")
 
         indexes = [
             ("idx_basic_rec_lower", "musicbrainz_basic", "recording_lower", 0),
@@ -2294,21 +2290,51 @@ class MusicBrainzManagerV2Optimized:
             ("idx_basic_rel_lower", "musicbrainz_basic", "release_lower", 2)
         ]
 
-        # Execute in parallel
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(create_index, *idx) for idx in indexes]
+        if is_intel_mac:
+            # INTEL MAC: Use sequential index creation to avoid DuckDB connection issues
+            logger.info("[>] INTEL MAC: Creating basic indexes SEQUENTIALLY (avoiding parallel DuckDB issues)")
 
             completed = 0
-            for future in as_completed(futures):
-                result = future.result()
-                completed += 1
-                if progress_callback:
-                    progress_callback(f"{completed}/3 complete", completed / 3.0)
+            for index_name, table, column, _ in indexes:
+                try:
+                    self._conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({column})")
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(f"{completed}/3 complete", completed / 3.0)
+                except Exception as e:
+                    logger.error(f"Index creation failed: {index_name} - {e}")
 
-                if not result[1]:
-                    logger.error(f"Index creation failed: {result[0]} - {result[2]}")
+            logger.info("Basic table indexes created (SEQUENTIAL - Intel Mac)")
+        else:
+            # ARM64/OTHER: Use parallel index creation for performance
+            logger.info("[>] OPTIMIZATION: Creating basic indexes in PARALLEL")
 
-        logger.info("Basic table indexes created (PARALLEL)")
+            # Create separate connections for each thread (DuckDB requirement)
+            def create_index(index_name: str, table: str, column: str, thread_id: int):
+                try:
+                    # Each thread needs its own connection to the same database
+                    conn = duckdb.connect(str(self.duckdb_file))
+                    conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({column})")
+                    conn.close()
+                    return (index_name, True, None)
+                except Exception as e:
+                    return (index_name, False, str(e))
+
+            # Execute in parallel
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = [executor.submit(create_index, *idx) for idx in indexes]
+
+                completed = 0
+                for future in as_completed(futures):
+                    result = future.result()
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(f"{completed}/3 complete", completed / 3.0)
+
+                    if not result[1]:
+                        logger.error(f"Index creation failed: {result[0]} - {result[2]}")
+
+            logger.info("Basic table indexes created (PARALLEL)")
 
     def _build_fuzzy_table_optimized(self):
         """OPTIMIZATION: Build fuzzy table with PURE SQL cleaning (FAST + UNICODE!)."""
@@ -2396,37 +2422,63 @@ class MusicBrainzManagerV2Optimized:
         logger.info(f"Fuzzy table created with {result_count:,} rows in {query_time:.1f}s (Unicode-aware SQL)")
 
     def _index_fuzzy_table_parallel(self, progress_callback: Optional[Callable] = None):
-        """OPTIMIZATION: Create fuzzy indexes in PARALLEL."""
-        logger.info("[>] OPTIMIZATION: Creating fuzzy indexes in PARALLEL")
+        """OPTIMIZATION: Create fuzzy indexes in PARALLEL.
 
-        def create_index(index_name: str, table: str, column: str, thread_id: int):
-            try:
-                conn = duckdb.connect(str(self.duckdb_file))
-                conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({column})")
-                conn.close()
-                return (index_name, True, None)
-            except Exception as e:
-                return (index_name, False, str(e))
+        NOTE: Intel Macs (x86_64 on macOS) use SEQUENTIAL mode to avoid
+        DuckDB connection issues caused by weaker memory ordering.
+        """
+        import platform
+
+        # Detect Intel Mac - use sequential mode to avoid DuckDB issues
+        is_intel_mac = (platform.system() == "Darwin" and platform.machine() == "x86_64")
 
         indexes = [
             ("idx_fuzzy_rec_clean", "musicbrainz_fuzzy", "recording_clean", 0),
             ("idx_fuzzy_art_clean", "musicbrainz_fuzzy", "artist_clean", 1)
         ]
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [executor.submit(create_index, *idx) for idx in indexes]
+        if is_intel_mac:
+            # INTEL MAC: Use sequential index creation to avoid DuckDB connection issues
+            logger.info("[>] INTEL MAC: Creating fuzzy indexes SEQUENTIALLY (avoiding parallel DuckDB issues)")
 
             completed = 0
-            for future in as_completed(futures):
-                result = future.result()
-                completed += 1
-                if progress_callback:
-                    progress_callback(f"{completed}/2 complete", completed / 2.0)
+            for index_name, table, column, _ in indexes:
+                try:
+                    self._conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({column})")
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(f"{completed}/2 complete", completed / 2.0)
+                except Exception as e:
+                    logger.error(f"Index creation failed: {index_name} - {e}")
 
-                if not result[1]:
-                    logger.error(f"Index creation failed: {result[0]} - {result[2]}")
+            logger.info("Fuzzy table indexes created (SEQUENTIAL - Intel Mac)")
+        else:
+            # ARM64/OTHER: Use parallel index creation for performance
+            logger.info("[>] OPTIMIZATION: Creating fuzzy indexes in PARALLEL")
 
-        logger.info("Fuzzy table indexes created (PARALLEL)")
+            def create_index(index_name: str, table: str, column: str, thread_id: int):
+                try:
+                    conn = duckdb.connect(str(self.duckdb_file))
+                    conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({column})")
+                    conn.close()
+                    return (index_name, True, None)
+                except Exception as e:
+                    return (index_name, False, str(e))
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(create_index, *idx) for idx in indexes]
+
+                completed = 0
+                for future in as_completed(futures):
+                    result = future.result()
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(f"{completed}/2 complete", completed / 2.0)
+
+                    if not result[1]:
+                        logger.error(f"Index creation failed: {result[0]} - {result[2]}")
+
+            logger.info("Fuzzy table indexes created (PARALLEL)")
 
     def _build_tiered_tables(
         self,

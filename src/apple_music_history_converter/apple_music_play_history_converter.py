@@ -199,6 +199,8 @@ class AppleMusicConverterApp(toga.App):
         # Rate limiting setup (iTunes API)
         self.api_calls = deque(maxlen=20)  # Track last 20 API calls
         self.api_lock = Lock()  # Thread-safe lock for API calls
+        self._data_lock = Lock()  # Thread-safe lock for DataFrame and shared state modifications
+        self._thread_lock = Lock()  # Thread-safe lock for thread reference checks
         self.rate_limit_timer = None
         self.api_wait_start = None
         self.wait_duration = 0
@@ -597,6 +599,30 @@ class AppleMusicConverterApp(toga.App):
 
         # Allow exit
         return True
+
+    def _is_thread_running(self, thread_name: str) -> bool:
+        """THREAD SAFETY: Check if a thread is alive without race conditions.
+
+        This method safely checks if a thread reference is non-None and alive,
+        avoiding the race condition where the thread could be cleared between
+        checking for None and calling is_alive().
+
+        Args:
+            thread_name: Name of the thread attribute to check
+                        (e.g., 'reprocessing_thread', 'retry_thread')
+
+        Returns:
+            True if thread exists and is alive, False otherwise
+        """
+        with self._thread_lock:
+            thread = getattr(self, thread_name, None)
+            if thread is None:
+                return False
+            try:
+                return thread.is_alive()
+            except (AttributeError, RuntimeError):
+                # Thread was cleared or in invalid state
+                return False
 
     def _final_cleanup(self):
         """Final cleanup called by atexit AFTER Toga's event loop has stopped.
@@ -2350,15 +2376,15 @@ class AppleMusicConverterApp(toga.App):
                           Used by testing infrastructure to bypass file dialogs.
         """
         try:
-            # Check if search is currently running
-            if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.is_alive():
+            # Check if search is currently running (THREAD SAFETY: use helper method)
+            if self._is_thread_running('search_thread'):
                 await self.main_window.dialog(toga.InfoDialog(
                     title="Search In Progress",
                     message="Please stop the current search before loading a new file."
                 ))
                 return
 
-            if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+            if self._is_thread_running('reprocessing_thread'):
                 await self.main_window.dialog(toga.InfoDialog(
                     title="Search In Progress",
                     message="Please stop the current search before loading a new file."
@@ -2491,8 +2517,14 @@ class AppleMusicConverterApp(toga.App):
                             ))
                             return
                         
-                        # Update songs counter with comprehensive info
-                        
+                        # Update detailed stats label on MAIN THREAD (safe for Toga)
+                        # This was previously in analyze_file_comprehensive() but caused
+                        # crashes on Intel Macs due to thread-safety violation
+                        if hasattr(self, 'detailed_stats_label'):
+                            file_size_formatted = self.format_file_size(self.file_size)
+                            file_info = f"[f] {self.row_count:,} tracks - {file_size_formatted} - ~{self.estimated_missing_artists:,} missing artists"
+                            self.detailed_stats_label.text = file_info
+
                         # Update time estimates based on comprehensive analysis
                         self.update_time_estimate()
                         
@@ -7071,8 +7103,8 @@ The import will validate the file format and show progress."""
 
             # Start search immediately (no redundant dialog)
             try:
-                # Check if a search is already running
-                if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+                # Check if a search is already running (THREAD SAFETY: use helper method)
+                if self._is_thread_running('reprocessing_thread'):
                     await self.main_window.dialog(toga.InfoDialog(
                         title="Search Already Running",
                         message="A search is already in progress.\n\n"
@@ -7125,12 +7157,14 @@ The import will validate the file format and show progress."""
 
                 # Start reprocessing thread - PASS PROVIDER to ensure thread uses correct one
                 try:
-                    self.reprocessing_thread = threading.Thread(
-                        target=self.reprocess_missing_artists_thread,
-                        args=(missing_artists, current_provider),
-                        daemon=True
-                    )
-                    self.reprocessing_thread.start()
+                    # THREAD SAFETY: Use lock when creating/assigning thread reference
+                    with self._thread_lock:
+                        self.reprocessing_thread = threading.Thread(
+                            target=self.reprocess_missing_artists_thread,
+                            args=(missing_artists, current_provider),
+                            daemon=True
+                        )
+                        self.reprocessing_thread.start()
 
                     # Update UI to show search started
                     self.update_results(f"[?] Starting search for {len(missing_artists)} missing artists...")
@@ -7288,10 +7322,12 @@ The import will validate the file format and show progress."""
                         if track_clean in track_to_artist:
                             artist = track_to_artist[track_clean]
                             # Update in processed_df (using the ORIGINAL index, not loop index)
-                            if hasattr(self, 'processed_df'):
-                                # Explicitly cast to string to avoid dtype warnings
-                                self.processed_df.at[original_idx, 'Artist'] = str(artist)
-                                self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
+                            # THREAD SAFETY: Use lock to prevent race conditions on Intel Macs
+                            with self._data_lock:
+                                if hasattr(self, 'processed_df'):
+                                    # Explicitly cast to string to avoid dtype warnings
+                                    self.processed_df.at[original_idx, 'Artist'] = str(artist)
+                                    self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
                             found_count += 1
 
                         # Progress update every 10,000 rows
@@ -7314,16 +7350,20 @@ The import will validate the file format and show progress."""
                     logger.info(f"[!] Throughput: {throughput:,.0f} tracks/sec")
                     logger.info(f"{'='*70}\n")
 
-                    self.musicbrainz_count = found_count
+                    # THREAD SAFETY: Use lock for shared state modifications
+                    with self._data_lock:
+                        self.musicbrainz_count = found_count
 
                     # Auto-save after MusicBrainz search completes
                     if hasattr(self, 'current_save_path') and self.current_save_path:
                         try:
-                            self.processed_df.to_csv(
-                                self.current_save_path,
-                                index=False,
-                                encoding='utf-8-sig'
-                            )
+                            # THREAD SAFETY: Use lock when saving DataFrame
+                            with self._data_lock:
+                                self.processed_df.to_csv(
+                                    self.current_save_path,
+                                    index=False,
+                                    encoding='utf-8-sig'
+                                )
                             save_msg = f"[D] Auto-saved progress to: {self.current_save_path.name}"
                             logger.print_always(f"[D] Auto-saved progress after MusicBrainz search to: {self.current_save_path}")
                             self.append_log(save_msg)
@@ -7340,7 +7380,9 @@ The import will validate the file format and show progress."""
                         # Set auto-suggestion flag to hint next provider
                         # CRITICAL: Don't modify self.current_provider directly - that's user state!
                         # Only set the flag and let UI update handle the provider change
-                        self.force_itunes_next = True  # Flag suggests MusicBrainz API next
+                        # THREAD SAFETY: Use lock for shared state modifications
+                        with self._data_lock:
+                            self.force_itunes_next = True  # Flag suggests MusicBrainz API next
                         logger.print_always(f"[OK] Auto-suggesting MusicBrainz API for remaining artists")
 
                         # Update progress message with results and suggestion
@@ -7445,16 +7487,20 @@ The import will validate the file format and show progress."""
                             logger.print_always(f"   [OK] Found artist: {artist} for track: '{track_name}'")
                             self.append_log(f"[OK] [{completed_count}/{total_count}] {track_name} -> {artist}")
                             # Update in processed_df (using the ORIGINAL index)
-                            if hasattr(self, 'processed_df'):
-                                self.processed_df.at[original_idx, 'Artist'] = str(artist)
-                                self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
+                            # THREAD SAFETY: Use lock for DataFrame modifications
+                            with self._data_lock:
+                                if hasattr(self, 'processed_df'):
+                                    self.processed_df.at[original_idx, 'Artist'] = str(artist)
+                                    self.processed_df.at[original_idx, 'Album Artist'] = str(artist)
                             found_artists += 1
                             artist_was_found = True
 
                             # Remove from failed set if it was there (may have been added to database later)
+                            # THREAD SAFETY: Use lock for shared state modifications
                             track_key = track_name.strip().lower()
                             if track_key and current_provider in self.permanently_failed_tracks:
-                                self.permanently_failed_tracks[current_provider].discard(track_key)
+                                with self._data_lock:
+                                    self.permanently_failed_tracks[current_provider].discard(track_key)
                         else:
                             self.append_log(f"[X] [{completed_count}/{total_count}] {track_name} -> No artist found")
                     else:
@@ -7465,7 +7511,9 @@ The import will validate the file format and show progress."""
                             # Track separately for retry after rate limit expires
                             track_info = missing_artists_tracks[track_idx].copy()
                             track_info['original_index'] = original_idx
-                            self.rate_limited_tracks.append(track_info)
+                            # THREAD SAFETY: Use lock for list modifications
+                            with self._data_lock:
+                                self.rate_limited_tracks.append(track_info)
                             # Determine HTTP status based on source
                             http_status = result.get('http_status', '503' if result.get('source') == 'musicbrainz_api' else '403')
                             logger.warning(f"[||]  Rate limited: '{track_name}' (can retry later)")
@@ -7479,9 +7527,11 @@ The import will validate the file format and show progress."""
                             self.append_log(f"[X] [{completed_count}/{total_count}] {track_name} -> {error_msg}")
 
                             # Add to permanently failed set for this provider (for smart reordering)
+                            # THREAD SAFETY: Use lock for shared state modifications
                             track_key = track_name.strip().lower()
                             if track_key and current_provider in self.permanently_failed_tracks:
-                                self.permanently_failed_tracks[current_provider].add(track_key)
+                                with self._data_lock:
+                                    self.permanently_failed_tracks[current_provider].add(track_key)
 
                     # Update progress with live stats including rate-limited count
                     elapsed = time.time() - search_start_time
@@ -7506,13 +7556,15 @@ The import will validate the file format and show progress."""
                         self.update_missing_artist_count()
 
                     # Auto-save checkpoint every 50 tracks
+                    # THREAD SAFETY: Use lock when saving DataFrame
                     if completed_count % 50 == 0 and hasattr(self, 'current_save_path') and self.current_save_path:
                         try:
-                            self.processed_df.to_csv(
-                                self.current_save_path,
-                                index=False,
-                                encoding='utf-8-sig'
-                            )
+                            with self._data_lock:
+                                self.processed_df.to_csv(
+                                    self.current_save_path,
+                                    index=False,
+                                    encoding='utf-8-sig'
+                                )
                             logger.print_always(f"[D] Auto-saved progress: {completed_count}/{total_count} tracks")
                         except Exception as e:
                             logger.warning(f"[!]  Auto-save failed: {e}")
@@ -7534,7 +7586,9 @@ The import will validate the file format and show progress."""
                     logger.print_always(f"[||]  Rate limited: {rate_limited_count} tracks (can retry later)")
                     logger.info(f"   Rate limited tracks: {rate_limited_count}")
 
-                self.itunes_found = found_artists
+                # THREAD SAFETY: Use lock for shared state modifications
+                with self._data_lock:
+                    self.itunes_found = found_artists
 
                 # Build progress message with rate limit info if applicable
                 progress_msg = f"[OK] {provider_display}: Found {found_artists}/{total_tracks} in {elapsed_time:.1f}s"
@@ -7547,13 +7601,15 @@ The import will validate the file format and show progress."""
                 self.update_missing_artist_count()
 
                 # Final auto-save after search completes
+                # THREAD SAFETY: Use lock when saving DataFrame
                 if hasattr(self, 'current_save_path') and self.current_save_path:
                     try:
-                        self.processed_df.to_csv(
-                            self.current_save_path,
-                            index=False,
-                            encoding='utf-8-sig'
-                        )
+                        with self._data_lock:
+                            self.processed_df.to_csv(
+                                self.current_save_path,
+                                index=False,
+                                encoding='utf-8-sig'
+                            )
                         logger.print_always(f"[D] Final auto-save after {provider_display} search to: {self.current_save_path}")
                     except Exception as e:
                         logger.warning(f"[!]  Final auto-save failed: {e}")
@@ -7570,7 +7626,9 @@ The import will validate the file format and show progress."""
                         # Set auto-suggestion flag to hint iTunes as final fallback
                         # CRITICAL: Don't modify self.current_provider directly - that's user state!
                         # Only set the flag and let UI update handle the provider change
-                        self.force_itunes_next = True
+                        # THREAD SAFETY: Use lock for shared state modifications
+                        with self._data_lock:
+                            self.force_itunes_next = True
                         logger.print_always(f"[OK] Auto-suggesting iTunes API for final fallback search")
 
                         # Update progress message with results and suggestion
@@ -7622,8 +7680,10 @@ The import will validate the file format and show progress."""
         finally:
             # Clear thread references to allow future searches
             # (this function can be called from either reprocessing_thread or retry_thread)
-            self.reprocessing_thread = None
-            self.retry_thread = None
+            # THREAD SAFETY: Use thread lock for thread reference modifications
+            with self._thread_lock:
+                self.reprocessing_thread = None
+                self.retry_thread = None
 
             # Re-enable buttons on main thread
             self._schedule_ui_update(self._reset_reprocess_buttons_ui())
@@ -8148,8 +8208,8 @@ The import will validate the file format and show progress."""
             ))
             return
 
-        # Check if a search is already running
-        if hasattr(self, 'reprocessing_thread') and self.reprocessing_thread and self.reprocessing_thread.is_alive():
+        # Check if a search is already running (THREAD SAFETY: use helper method)
+        if self._is_thread_running('reprocessing_thread'):
             await self.main_window.dialog(toga.InfoDialog(
                 title="Search Already Running",
                 message="Cannot retry rate-limited tracks while another search is running.\n\n"
@@ -8188,23 +8248,28 @@ The import will validate the file format and show progress."""
         self.process_stop_button.enabled = True
         self.process_stop_button.text = "Stop Retry"
 
-        # Copy rate-limited tracks list (will be cleared on success)
-        tracks_to_retry = self.rate_limited_tracks.copy()
+        # THREAD SAFETY: Use lock for atomic copy and clear operation
+        # Prevents race condition with background threads appending to the list
+        with self._data_lock:
+            # Copy rate-limited tracks list (will be cleared on success)
+            tracks_to_retry = self.rate_limited_tracks.copy()
 
-        # Clear rate-limited list (will be repopulated if they fail again)
-        self.rate_limited_tracks.clear()
+            # Clear rate-limited list (will be repopulated if they fail again)
+            self.rate_limited_tracks.clear()
         self.update_rate_limited_button_count()
 
         # Reset interrupt flag
         self.is_search_interrupted = False
 
         # Start retry in background thread (use current provider)
-        self.retry_thread = threading.Thread(
-            target=self.reprocess_missing_artists_thread,
-            args=(tracks_to_retry, provider),
-            daemon=True
-        )
-        self.retry_thread.start()
+        # THREAD SAFETY: Use lock when creating/assigning thread reference
+        with self._thread_lock:
+            self.retry_thread = threading.Thread(
+                target=self.reprocess_missing_artists_thread,
+                args=(tracks_to_retry, provider),
+                daemon=True
+            )
+            self.retry_thread.start()
 
     async def export_rate_limited_csv(self, widget):
         """Export rate-limited tracks to a CSV file."""
@@ -8511,13 +8576,11 @@ The import will validate the file format and show progress."""
             
             self.row_count = max(0, row_count)
             self.estimated_missing_artists = missing_artists
-            
-            # Update comprehensive file information like tkinter version
-            file_size_formatted = self.format_file_size(self.file_size)
-            file_info = f"[f] {self.row_count:,} tracks - {file_size_formatted} - ~{missing_artists:,} missing artists"
-            if hasattr(self, 'detailed_stats_label'):
-                self.detailed_stats_label.text = file_info
-            
+
+            # NOTE: Do NOT update UI here - this runs in a background thread!
+            # UI updates must happen on the main thread after run_in_executor returns.
+            # Updating Toga widgets from background threads causes crashes on Intel Macs.
+
             return True
             
         except Exception as e:

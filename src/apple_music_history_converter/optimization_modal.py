@@ -35,16 +35,20 @@ class OptimizationModal:
         self.modal_window = None
         self.cancellation_callback = cancellation_callback
 
-        # Progress tracking
-        self.progress = 0.0
+        # THREAD SAFETY: Lock for progress state modified from background threads
+        # Prevents race conditions on Intel Macs with weaker memory ordering
+        self._progress_lock = threading.Lock()
+
+        # Progress tracking (protected by _progress_lock)
+        self._progress = 0.0
+        self._message = "Detecting hardware..."
+        self._hardware_info = ""
+        self._mode_info = ""
+
+        # Other state (main thread only)
         self.start_time = None
-        self.message = "Detecting hardware..."
         self.is_active = False
         self.cancelled = False
-
-        # Hardware info (updated during optimization)
-        self.hardware_info = ""
-        self.mode_info = ""
 
         # UI components
         self.progress_bar = None
@@ -54,6 +58,47 @@ class OptimizationModal:
 
         # Update timer
         self._update_task = None
+
+    # THREAD-SAFE PROPERTY ACCESSORS
+    @property
+    def progress(self) -> float:
+        with self._progress_lock:
+            return self._progress
+
+    @progress.setter
+    def progress(self, value: float):
+        with self._progress_lock:
+            self._progress = value
+
+    @property
+    def message(self) -> str:
+        with self._progress_lock:
+            return self._message
+
+    @message.setter
+    def message(self, value: str):
+        with self._progress_lock:
+            self._message = value
+
+    @property
+    def hardware_info(self) -> str:
+        with self._progress_lock:
+            return self._hardware_info
+
+    @hardware_info.setter
+    def hardware_info(self, value: str):
+        with self._progress_lock:
+            self._hardware_info = value
+
+    @property
+    def mode_info(self) -> str:
+        with self._progress_lock:
+            return self._mode_info
+
+    @mode_info.setter
+    def mode_info(self, value: str):
+        with self._progress_lock:
+            self._mode_info = value
 
     async def show(self, optimization_function: Callable, *args, **kwargs):
         """
