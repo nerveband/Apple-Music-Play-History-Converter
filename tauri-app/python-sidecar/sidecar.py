@@ -46,6 +46,8 @@ except ImportError as e:
     }), file=sys.stderr, flush=True)
     sys.exit(1)
 
+from csv_validation import validate_csv_headers
+
 logger = get_logger(__name__)
 
 
@@ -145,13 +147,18 @@ class SidecarHandler:
             if not path.exists():
                 self.send_error(f"File not found: {file_path}", "analyze_csv")
                 return {}
-                
+
             # Use the ultra fast processor for analysis
             import pandas as pd
             
             # Quick analysis - read first few lines to detect format
             with open(path, 'r', encoding='utf-8-sig') as f:
                 first_line = f.readline().strip()
+
+            ok, err = validate_csv_headers(path)
+            if not ok:
+                self.send_error(err, "csv_validation")
+                return {}
                 
             # Count total lines
             with open(path, 'r', encoding='utf-8-sig') as f:
@@ -227,6 +234,11 @@ class SidecarHandler:
                 "type": "status",
                 "status": "Loading CSV file..."
             })
+
+            ok, err = validate_csv_headers(Path(file_path))
+            if not ok:
+                self.send_error(err, "csv_validation")
+                return False
             
             # Use pandas to load
             self.current_df = pd.read_csv(file_path, encoding='utf-8-sig')
