@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import "./index.css";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { isTestMode } from "./lib/testMode";
 
 // Hooks
 import { useTauri } from "./hooks/useTauri";
@@ -25,22 +26,6 @@ function App() {
   useEffect(() => {
     if (isTauri) {
       initializeSidecar().catch(console.error);
-
-      // AUTOMATED TEST: Load a file on startup
-      const testFilePath = "/Users/nerveband/wavedepth Dropbox/Ashraf Ali/Mac (2)/Documents/GitHub/Apple-Music-Play-History-Converter/_test_csvs/Apple Music - Recently Played Tracks.csv";
-      import("./lib/commands").then(({ analyzeCsv, startSearch }) => {
-        analyzeCsv(testFilePath).then(info => {
-          setFileInfo(info);
-          toast.info("Automated Test: File Loaded");
-
-          // Auto-start after short delay
-          setTimeout(() => {
-            toast.info("Automated Test: Starting Search...");
-            startSearch(testFilePath, "musicbrainz_api").catch(console.error);
-          }, 1000);
-
-        }).catch(err => console.error("Test Load Failed", err));
-      });
     }
   }, [isTauri]);
 
