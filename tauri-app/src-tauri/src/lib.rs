@@ -148,6 +148,60 @@ async fn get_database_status(state: State<'_, AppState>) -> Result<DatabaseStatu
 }
 
 #[tauri::command]
+async fn set_settings(state: State<'_, AppState>, settings: serde_json::Value) -> Result<(), String> {
+    let mut sidecar = state.sidecar.lock().map_err(|_| "Failed to lock sidecar")?;
+    sidecar.send(serde_json::json!({
+        "action": "setSettings",
+        "settings": settings
+    }))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn download_database(state: State<'_, AppState>) -> Result<(), String> {
+    let mut sidecar = state.sidecar.lock().map_err(|_| "Failed to lock sidecar")?;
+    sidecar.send(serde_json::json!({ "action": "downloadDatabase" }))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_database(state: State<'_, AppState>) -> Result<(), String> {
+    let mut sidecar = state.sidecar.lock().map_err(|_| "Failed to lock sidecar")?;
+    sidecar.send(serde_json::json!({ "action": "deleteDatabase" }))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_database_updates(state: State<'_, AppState>) -> Result<(), String> {
+    let mut sidecar = state.sidecar.lock().map_err(|_| "Failed to lock sidecar")?;
+    sidecar.send(serde_json::json!({ "action": "checkDatabaseUpdates" }))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_itunes_status(state: State<'_, AppState>) -> Result<(), String> {
+    let mut sidecar = state.sidecar.lock().map_err(|_| "Failed to lock sidecar")?;
+    sidecar.send(serde_json::json!({ "action": "checkItunesStatus" }))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_log_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn clear_cache(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn initialize_sidecar(state: State<'_, AppState>) -> Result<(), String> {
     let mut sidecar = state.sidecar.lock().map_err(|_| "Failed to lock sidecar")?;
     sidecar.send(serde_json::json!({ "action": "initialize" }))?;
@@ -216,7 +270,14 @@ pub fn run() {
             export_results,
             get_database_status,
             get_csv_preview,
-            initialize_sidecar
+            initialize_sidecar,
+            set_settings,
+            download_database,
+            delete_database,
+            check_database_updates,
+            check_itunes_status,
+            get_log_dir,
+            clear_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

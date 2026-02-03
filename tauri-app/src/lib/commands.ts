@@ -33,3 +33,31 @@ export async function initializeSidecar(): Promise<void> {
 export async function getCsvPreview(path: string): Promise<string[][]> {
     return await invoke<string[][]>("get_csv_preview", { path });
 }
+
+export async function setSettings(settings: Record<string, unknown>): Promise<void> {
+    return await invoke("set_settings", { settings });
+}
+
+export async function downloadDatabase(): Promise<void> {
+    return await invoke("download_database");
+}
+
+export async function deleteDatabase(): Promise<void> {
+    return await invoke("delete_database");
+}
+
+export async function checkDatabaseUpdates(): Promise<void> {
+    return await invoke("check_database_updates");
+}
+
+export async function checkItunesStatus(): Promise<void> {
+    return await invoke("check_itunes_status");
+}
+
+export async function getLogDir(): Promise<string> {
+    return await invoke<string>("get_log_dir");
+}
+
+export async function clearCache(): Promise<void> {
+    return await invoke("clear_cache");
+}

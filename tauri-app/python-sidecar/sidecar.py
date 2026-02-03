@@ -63,6 +63,7 @@ class SidecarHandler:
         self.stop_search = False
         self.pause_search = False
         self.result_queue = queue.Queue()
+        self.settings: Dict[str, Any] = {}
         
     def send_message(self, msg: Dict[str, Any]):
         """Send JSON message to stdout for Tauri to receive."""
@@ -96,12 +97,24 @@ class SidecarHandler:
             if self.music_service is None:
                 self.music_service = MusicSearchServiceV2()
                 self.csv_processor = UltraFastCSVProcessor()
+            if self.settings:
+                self.music_service.settings.update(self.settings)
             self.send_message({
                 "type": "initialized",
                 "success": True
             })
         except Exception as e:
             self.send_error(str(e), "initialize_service")
+
+    def apply_settings(self, settings: Dict[str, Any]):
+        """Apply settings from frontend to service."""
+        self.settings.update(settings)
+        if self.music_service:
+            self.music_service.settings.update(settings)
+            if "search_provider" in settings:
+                self.music_service.set_search_provider(settings["search_provider"])
+            if "apple_music_enabled" in settings:
+                self.music_service.apple_music_service = None
             
     def get_database_status(self) -> Dict[str, Any]:
         """Get status of available databases/APIs."""
@@ -444,6 +457,48 @@ class SidecarHandler:
                 self.send_message({
                     "type": "providerSet",
                     "provider": msg.get("provider", "musicbrainz")
+                })
+
+            elif action == "setSettings":
+                self.apply_settings(msg.get("settings", {}))
+                self.send_message({"type": "status", "status": "Settings updated"})
+
+            elif action == "checkItunesStatus":
+                try:
+                    import requests
+                    resp = requests.get("https://itunes.apple.com/search?term=test&limit=1", timeout=10)
+                    if resp.status_code == 200:
+                        self.send_message({"type": "status", "status": "iTunes API OK"})
+                    else:
+                        self.send_message({"type": "status", "status": f"iTunes API error {resp.status_code}"})
+                except Exception as e:
+                    self.send_error(str(e), "check_itunes_status")
+
+            elif action == "downloadDatabase":
+                if not self.music_service:
+                    self.initialize_service()
+                ok = self.music_service.download_database()
+                self.send_message({
+                    "type": "status",
+                    "status": "Database download complete" if ok else "Database download failed"
+                })
+
+            elif action == "deleteDatabase":
+                if not self.music_service:
+                    self.initialize_service()
+                ok = self.music_service.delete_database()
+                self.send_message({
+                    "type": "status",
+                    "status": "Database deleted" if ok else "Database delete failed"
+                })
+
+            elif action == "checkDatabaseUpdates":
+                if not self.music_service:
+                    self.initialize_service()
+                updated = self.music_service.check_for_updates()
+                self.send_message({
+                    "type": "status",
+                    "status": "Database updates available" if updated else "Database up to date"
                 })
                 
             elif action == "ping":
