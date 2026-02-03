@@ -1,0 +1,445 @@
+@import "tailwindcss";
+
+/* =============================================================================
+   APPLE MUSIC HISTORY CONVERTER - 6 Color Theme System
+   Inspired by craft-agents-oss design system
+   
+   Base colors:
+   - background: Light/dark surface
+   - foreground: Text and icons
+   - accent: Music brand color (Deep Red)
+   - info: Amber (warnings)
+   - success: Green (completed, found)
+   - destructive: Red (errors, failed)
+============================================================================= */
+
+/* Light Mode */
+:root {
+  /* === 6 BASE COLORS === */
+  /* Red/White Theme similar to Apple Music icon provided */
+  --background: oklch(0.97 0.01 10);
+  /* Very light reddish white */
+  --foreground: oklch(0.20 0.05 10);
+  /* Dark reddish grey */
+  --foreground-rgb: 40, 30, 30;
+
+  --accent: oklch(0.55 0.22 25);
+  /* Deep Music Red */
+  --accent-rgb: 200, 50, 50;
+
+  --info: oklch(0.75 0.16 70);
+  /* Amber - warnings */
+  --info-rgb: 180, 120, 40;
+
+  --success: oklch(0.55 0.17 145);
+  /* Green - found, complete */
+  --success-rgb: 34, 120, 60;
+
+  --destructive: oklch(0.58 0.24 28);
+  /* Red - errors, missing */
+  --destructive-rgb: 180, 60, 50;
+
+  /* === SHADOW OPACITY === */
+  --shadow-border-opacity: 0.08;
+  --shadow-blur-opacity: 0.06;
+
+  /* === MIX VARIANTS (solid interpolation toward background) === */
+  --foreground-5: color-mix(in oklch, var(--foreground) 5%, var(--background));
+  --foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
+  --foreground-20: color-mix(in oklch, var(--foreground) 20%, var(--background));
+  --foreground-30: color-mix(in oklch, var(--foreground) 30%, var(--background));
+  --foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
+  --foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
+  --foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
+  --foreground-70: color-mix(in oklch, var(--foreground) 70%, var(--background));
+  --foreground-80: color-mix(in oklch, var(--foreground) 80%, var(--background));
+  --foreground-90: color-mix(in oklch, var(--foreground) 90%, var(--background));
+
+  /* === TEXT VARIANTS (mixed toward foreground for contrast) === */
+  --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
+  --destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
+  --info-text: color-mix(in oklab, var(--info) 50%, var(--foreground));
+
+  /* === SEMANTIC COLORS === */
+  --secondary: oklch(from var(--foreground) l c h / 0.05);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(from var(--foreground) l c h / 0.05);
+  --muted-foreground: var(--foreground-50);
+  --card: var(--background);
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --border: oklch(from var(--foreground) l c h / 0.08);
+  --input: oklch(from var(--foreground) l c h / 0.1);
+  --ring: var(--accent);
+  --ring-width: 2px;
+  --ring-offset: 0px;
+
+  /* === FONTS === */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-default: var(--font-sans);
+
+  /* === LAYOUT === */
+  --font-size-base: 14px;
+  --radius: 0.5rem;
+  --sidebar-width: 280px;
+
+  /* === GRADIENT BACKGROUND === */
+  --bg-gradient: linear-gradient(135deg, oklch(0.99 0.01 10) 0%, oklch(0.95 0.03 10) 100%);
+}
+
+/* Dark Mode */
+.dark {
+  /* === 6 BASE COLORS === */
+  --background: oklch(0.15 0.02 10);
+  /* Dark Reddish Black */
+  --foreground: oklch(0.95 0.01 10);
+  /* Off white */
+  --foreground-rgb: 240, 230, 230;
+
+  --accent: oklch(0.60 0.22 25);
+  /* Slightly brighter red for dark mode */
+  --accent-rgb: 220, 80, 80;
+
+  --info: oklch(0.70 0.16 70);
+  --info-rgb: 200, 140, 60;
+
+  --success: oklch(0.60 0.17 145);
+  --success-rgb: 50, 140, 80;
+
+  --destructive: oklch(0.70 0.19 22);
+  --destructive-rgb: 200, 80, 70;
+
+  /* === SHADOW OPACITY (stronger in dark) === */
+  --shadow-border-opacity: 0.15;
+  --shadow-blur-opacity: 0.12;
+
+  /* === MIX VARIANTS === */
+  --foreground-5: color-mix(in oklch, var(--foreground) 5%, var(--background));
+  --foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
+  --foreground-20: color-mix(in oklch, var(--foreground) 20%, var(--background));
+  --foreground-30: color-mix(in oklch, var(--foreground) 30%, var(--background));
+  --foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
+  --foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
+  --foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
+  --foreground-70: color-mix(in oklch, var(--foreground) 70%, var(--background));
+  --foreground-80: color-mix(in oklch, var(--foreground) 80%, var(--background));
+  --foreground-90: color-mix(in oklch, var(--foreground) 90%, var(--background));
+
+  /* === TEXT VARIANTS === */
+  --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
+  --destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
+  --info-text: color-mix(in oklab, var(--info) 50%, var(--foreground));
+
+  /* === SEMANTIC COLORS === */
+  --secondary: oklch(from var(--foreground) l c h / 0.08);
+  --muted: oklch(from var(--foreground) l c h / 0.08);
+  --border: oklch(from var(--foreground) l c h / 0.1);
+  --input: oklch(from var(--foreground) l c h / 0.12);
+
+  --bg-gradient: linear-gradient(135deg, oklch(0.18 0.02 10) 0%, oklch(0.12 0.02 10) 100%);
+}
+
+/* =============================================================================
+   TAILWIND V4 THEME INTEGRATION
+============================================================================= */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-info: var(--info);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
+
+  --color-foreground-5: var(--foreground-5);
+  --color-foreground-10: var(--foreground-10);
+  --color-foreground-20: var(--foreground-20);
+  --color-foreground-30: var(--foreground-30);
+  --color-foreground-40: var(--foreground-40);
+  --color-foreground-50: var(--foreground-50);
+  --color-foreground-60: var(--foreground-60);
+  --color-foreground-70: var(--foreground-70);
+  --color-foreground-80: var(--foreground-80);
+  --color-foreground-90: var(--foreground-90);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+/* =============================================================================
+   BASE STYLES
+============================================================================= */
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  html {
+    font-size: var(--font-size-base);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: var(--font-default);
+    background: var(--bg-gradient);
+    /* Use gradient here */
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+
+  /* Focus ring */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 var(--ring-width) var(--ring);
+  }
+}
+
+/* =============================================================================
+   UTILITY CLASSES
+============================================================================= */
+
+@layer utilities {
+
+  /* Hide scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Shadows - craft-agents style */
+  .shadow-minimal {
+    box-shadow:
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+      rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+      rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px;
+  }
+
+  .shadow-medium {
+    box-shadow:
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+      rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+      rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+      rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+      rgba(0, 0, 0, 0.04) 0px 12px 12px -6px;
+  }
+
+  .shadow-strong {
+    box-shadow:
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+      rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+      rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+      rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+      rgba(0, 0, 0, 0.04) 0px 12px 12px -6px,
+      rgba(0, 0, 0, 0.04) 0px 24px 24px -12px;
+  }
+
+  /* Card styles */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+  }
+
+  /* Button base */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    border-radius: var(--radius);
+    padding: 0.5rem 1rem;
+    transition: all 150ms ease;
+    cursor: pointer;
+    border: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-secondary {
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+
+  .btn-secondary:hover {
+    background: var(--foreground-10);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--foreground);
+  }
+
+  .btn-ghost:hover {
+    background: var(--foreground-5);
+  }
+
+  /* Status colors */
+  .text-success {
+    color: var(--success-text);
+  }
+
+  .text-destructive {
+    color: var(--destructive-text);
+  }
+
+  .text-info {
+    color: var(--info-text);
+  }
+
+  .bg-success {
+    background: var(--success);
+  }
+
+  .bg-destructive {
+    background: var(--destructive);
+  }
+
+  .bg-info {
+    background: var(--info);
+  }
+}
+
+/* =============================================================================
+   SPINNER ANIMATION
+============================================================================= */
+
+.spinner {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 1em;
+  height: 1em;
+  gap: 0.08em;
+}
+
+.spinner-cube {
+  background-color: currentColor;
+  animation: spinner-grid 1.3s infinite ease-in-out;
+  transform: scale3d(0.5, 0.5, 1);
+}
+
+.spinner-cube:nth-child(1) {
+  animation-delay: 0.2s;
+}
+
+.spinner-cube:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.spinner-cube:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.spinner-cube:nth-child(4) {
+  animation-delay: 0.1s;
+}
+
+.spinner-cube:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+.spinner-cube:nth-child(6) {
+  animation-delay: 0.3s;
+}
+
+.spinner-cube:nth-child(7) {
+  animation-delay: 0s;
+}
+
+.spinner-cube:nth-child(8) {
+  animation-delay: 0.1s;
+}
+
+.spinner-cube:nth-child(9) {
+  animation-delay: 0.2s;
+}
+
+@keyframes spinner-grid {
+
+  0%,
+  70%,
+  100% {
+    transform: scale3d(0.5, 0.5, 1);
+  }
+
+  35% {
+    transform: scale3d(0, 0, 1);
+  }
+}
+
+/* Progress bar animation */
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.progress-indeterminate::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: progress-indeterminate 1.5s ease-in-out infinite;
+}
