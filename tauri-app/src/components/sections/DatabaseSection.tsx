@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { AccordionSection } from "../ui/Accordion";
 import { Button } from "../ui/Button";
 import { DatabaseStatus } from "../../lib/types";
-import { getDatabaseStatus } from "../../lib/commands";
+import { checkDatabaseUpdates, deleteDatabase, downloadDatabase, getDatabaseStatus } from "../../lib/commands";
 import { Database, DownloadSimple, Trash, ArrowCounterClockwise } from "@phosphor-icons/react";
+import { listen } from "@tauri-apps/api/event";
 
 interface DatabaseSectionProps {
     expanded: boolean;
@@ -19,6 +20,15 @@ export function DatabaseSection({ expanded, onToggle }: DatabaseSectionProps) {
             loadStatus();
         }
     }, [expanded]);
+
+    useEffect(() => {
+        const unlisten = listen<DatabaseStatus>("database_status", (event) => {
+            setStatus(event.payload);
+        });
+        return () => {
+            unlisten.then((fn) => fn());
+        };
+    }, []);
 
     const loadStatus = async () => {
         try {
@@ -55,12 +65,28 @@ export function DatabaseSection({ expanded, onToggle }: DatabaseSectionProps) {
                     className="w-full"
                     variant={status?.downloaded ? "secondary" : "primary"}
                     icon={<DownloadSimple size={16} />}
+                    onClick={async () => {
+                        setLoading(true);
+                        await downloadDatabase();
+                        await loadStatus();
+                        setLoading(false);
+                    }}
                 >
                     {status?.downloaded ? "Re-download Database" : "Download Database (~2GB)"}
                 </Button>
 
                 <div className="grid grid-cols-2 gap-2">
-                    <Button variant="ghost" size="sm" onClick={loadStatus} icon={<ArrowCounterClockwise />}>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                            setLoading(true);
+                            await checkDatabaseUpdates();
+                            await loadStatus();
+                            setLoading(false);
+                        }}
+                        icon={<ArrowCounterClockwise />}
+                    >
                         Check Updates
                     </Button>
                     <Button
@@ -69,6 +95,12 @@ export function DatabaseSection({ expanded, onToggle }: DatabaseSectionProps) {
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
                         disabled={!status?.downloaded}
                         icon={<Trash />}
+                        onClick={async () => {
+                            setLoading(true);
+                            await deleteDatabase();
+                            await loadStatus();
+                            setLoading(false);
+                        }}
                     >
                         Delete DB
                     </Button>
