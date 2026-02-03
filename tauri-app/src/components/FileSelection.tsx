@@ -10,9 +10,18 @@ interface FileSelectionProps {
     onClear: () => void;
     currentFile: FileInfo | null;
     disabled?: boolean;
+    testPath?: string | null;
+    onTestSelect?: (info: FileInfo) => void;
 }
 
-export function FileSelection({ onFileSelect, onClear, currentFile, disabled }: FileSelectionProps) {
+export function FileSelection({
+    onFileSelect,
+    onClear,
+    currentFile,
+    disabled,
+    testPath,
+    onTestSelect
+}: FileSelectionProps) {
     const isTauri = useTauri();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -39,6 +48,21 @@ export function FileSelection({ onFileSelect, onClear, currentFile, disabled }: 
         } catch (err) {
             console.error(err);
             setError(`Failed to load file: ${err}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleTestSelect = async () => {
+        if (!testPath || !onTestSelect) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const info = await analyzeCsv(testPath);
+            onTestSelect(info);
+        } catch (err) {
+            console.error(err);
+            setError(`Failed to load test file: ${err}`);
         } finally {
             setLoading(false);
         }
@@ -95,6 +119,17 @@ export function FileSelection({ onFileSelect, onClear, currentFile, disabled }: 
                     </>
                 )}
             </button>
+            {testPath && onTestSelect && (
+                <button
+                    onClick={handleTestSelect}
+                    disabled={loading || disabled}
+                    className="mt-3 w-full h-12 border border-accent/40 rounded-lg
+                       flex items-center justify-center gap-2 text-sm font-medium
+                       hover:bg-accent/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Use Test CSV
+                </button>
+            )}
             {error && <p className="mt-2 text-sm text-destructive text-center">{error}</p>}
         </div>
     );

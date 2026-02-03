@@ -14,6 +14,7 @@ import { FileSelection } from "./components/FileSelection";
 import { ResultsPanel } from "./components/ResultsPanel";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { PreviewTable } from "./components/PreviewTable";
+import { TestDashboard } from "./components/TestDashboard";
 // import { LogPanel } from "./components/LogPanel"; // FUTURE: Extract logs too
 
 // Types
@@ -22,6 +23,7 @@ import { initializeSidecar } from "./lib/commands";
 
 function App() {
   const isTauri = useTauri();
+  const testMode = isTestMode();
 
   useEffect(() => {
     if (isTauri) {
@@ -87,6 +89,19 @@ function App() {
           {/* Left/Top Panel: File & Controls */}
           <div className="flex-1 flex flex-col overflow-auto border-r border-border">
             <div className="p-4 space-y-4">
+              {testMode && (
+                <TestDashboard
+                  provider={provider}
+                  exportFormat={exportFormat}
+                  progress={progress}
+                  onFileLoaded={(info) => {
+                    setFileInfo(info);
+                    toast.success(`Loaded ${info.name}`);
+                  }}
+                  onSearchStatusChange={handleStatusChange}
+                />
+              )}
+
               <FileSelection
                 onFileSelect={handleFileSelect}
                 onClear={handleClearFile}
