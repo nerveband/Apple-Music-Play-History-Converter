@@ -16,11 +16,12 @@ import { ResultsPanel } from "./components/ResultsPanel";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { PreviewTable } from "./components/PreviewTable";
 import { TestDashboard } from "./components/TestDashboard";
-// import { LogPanel } from "./components/LogPanel"; // FUTURE: Extract logs too
+import { LogPanel } from "./components/LogPanel";
 
 // Types
 import { FileInfo, SearchProvider, ExportFormat, SidecarError } from "./lib/types";
 import { initializeSidecar } from "./lib/commands";
+import { useLogs } from "./hooks/useLogs";
 
 function App() {
   const isTauri = useTauri();
@@ -36,12 +37,23 @@ function App() {
     if (!isTauri) return;
     const unlisten = listen<SidecarError>("sidecar_error", (event) => {
       toast.error(`Sidecar error: ${event.payload.error}`);
+      addLog("error", event.payload.error);
       resetProgress();
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [isTauri, resetProgress]);
+  }, [isTauri, resetProgress, addLog]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = listen<{ status: string }>("sidecar_status", (event) => {
+      addLog("info", event.payload.status);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [isTauri, addLog]);
 
   // App State
   const [isDark, setIsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -52,6 +64,8 @@ function App() {
   // Search State
   const [provider, setProvider] = useState<SearchProvider>("musicbrainz_api");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("lastfm");
+  const [lastExportPath, setLastExportPath] = useState<string | null>(null);
+  const { logs, add: addLog, clear: clearLogs } = useLogs();
 
   const {
     progress,
@@ -74,6 +88,13 @@ function App() {
   const handleClearFile = () => {
     setFileInfo(null);
     resetProgress();
+  };
+
+  const handleSearchStatus = (searching: boolean, paused: boolean) => {
+    handleStatusChange(searching, paused);
+    if (searching && !paused) addLog("info", "Search started");
+    if (paused) addLog("warning", "Search paused");
+    if (!searching) addLog("info", "Search stopped");
   };
 
   return (
@@ -128,8 +149,13 @@ function App() {
                   isSearching={isSearching}
                   isPaused={isPaused}
                   filePath={fileInfo.path}
-                  onSearchStatusChange={handleStatusChange}
+                  onSearchStatusChange={handleSearchStatus}
                   exportFormat={exportFormat}
+                  lastExportPath={lastExportPath}
+                  onExported={(path) => {
+                    setLastExportPath(path);
+                    addLog("success", `Exported to ${path}`);
+                  }}
                 />
               )}
             </div>
@@ -138,6 +164,7 @@ function App() {
             <div className="flex-1 border-t border-border min-h-[300px]">
               <PreviewTable filePath={fileInfo ? fileInfo.path : null} />
             </div>
+            <LogPanel logs={logs} onClear={clearLogs} />
           </div>
         </div>
       </main>
