@@ -20,6 +20,8 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+!tauri-app/src/lib/
+!tauri-app/src/lib/**
 
 # Virtual environments
 venv/
