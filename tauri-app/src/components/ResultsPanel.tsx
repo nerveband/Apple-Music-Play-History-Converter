@@ -14,6 +14,8 @@ interface ResultsPanelProps {
     filePath: string;
     onSearchStatusChange: (searching: boolean, paused: boolean) => void;
     exportFormat: ExportFormat;
+    lastExportPath: string | null;
+    onExported: (path: string) => void;
 }
 
 export function ResultsPanel({
@@ -23,7 +25,9 @@ export function ResultsPanel({
     isPaused,
     filePath,
     onSearchStatusChange,
-    exportFormat
+    exportFormat,
+    lastExportPath,
+    onExported
 }: ResultsPanelProps) {
     const [exporting, setExporting] = useState(false);
 
@@ -61,6 +65,7 @@ export function ResultsPanel({
 
             if (outputPath) {
                 await exportResults(exportFormat, outputPath);
+                onExported(outputPath);
             }
         } catch (err) {
             console.error(err);
@@ -81,6 +86,17 @@ export function ResultsPanel({
 
     return (
         <div className="p-4 border-b border-border bg-foreground-5/30 space-y-4">
+            <div className="text-xs text-muted-foreground">
+                {lastExportPath ? `Last export: ${lastExportPath}` : "Save required to enable search"}
+                {lastExportPath && (
+                    <button
+                        onClick={() => navigator.clipboard.writeText(lastExportPath)}
+                        className="ml-2 text-xs px-2 py-0.5 rounded border border-border hover:bg-foreground-5"
+                    >
+                        Copy Path
+                    </button>
+                )}
+            </div>
             <div className="flex items-center gap-4">
                 {isSearching && (
                     <>
