@@ -17,6 +17,7 @@ import { SettingsSidebar } from "./components/SettingsSidebar";
 import { PreviewTable } from "./components/PreviewTable";
 import { TestDashboard } from "./components/TestDashboard";
 import { LogPanel } from "./components/LogPanel";
+import { Dialogs } from "./components/Dialogs";
 
 // Types
 import { FileInfo, SearchProvider, ExportFormat, SidecarError } from "./lib/types";
@@ -66,6 +67,8 @@ function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("lastfm");
   const [lastExportPath, setLastExportPath] = useState<string | null>(null);
   const { logs, add: addLog, clear: clearLogs } = useLogs();
+  const [showHowTo, setShowHowTo] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const {
     progress,
@@ -108,12 +111,26 @@ function App() {
               <MusicNotes size={32} className="text-accent" />
               Play History Converter
             </h1>
-            {!isTauri && (
-              <span className="flex items-center gap-1 text-xs bg-warning/20 text-warning px-2 py-1 rounded border border-warning/30">
-                <WarningCircle size={14} weight="fill" />
-                Browser Mode (Limited)
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHowTo(true)}
+                className="text-xs px-3 py-1.5 rounded border border-border hover:bg-foreground-5"
+              >
+                How to Use
+              </button>
+              <button
+                onClick={() => setShowAbout(true)}
+                className="text-xs px-3 py-1.5 rounded border border-border hover:bg-foreground-5"
+              >
+                About
+              </button>
+              {!isTauri && (
+                <span className="flex items-center gap-1 text-xs bg-warning/20 text-warning px-2 py-1 rounded border border-warning/30">
+                  <WarningCircle size={14} weight="fill" />
+                  Browser Mode (Limited)
+                </span>
+              )}
+            </div>
           </div>
         </header>
 
@@ -191,6 +208,12 @@ function App() {
         pauseOnFocusLoss
         draggable
         pauseOnHover
+      />
+      <Dialogs
+        showHowTo={showHowTo}
+        onCloseHowTo={() => setShowHowTo(false)}
+        showAbout={showAbout}
+        onCloseAbout={() => setShowAbout(false)}
       />
     </div>
   );
