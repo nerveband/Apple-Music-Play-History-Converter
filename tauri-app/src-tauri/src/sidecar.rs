@@ -1,8 +1,9 @@
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tauri::{Emitter, WebviewWindow};
+use tauri::{Emitter, WebviewWindow, Manager};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,14 +89,17 @@ impl SidecarManager {
     }
 
     pub fn start(&mut self, window: WebviewWindow) -> Result<(), String> {
-        // Path to sidecar - adjusting for dev vs prod would happen here
-        // For now, assuming dev environment structure relative to src-tauri
+        let resource_dir = window.app_handle().path().resource_dir().ok();
+        let sidecar_path = resolve_sidecar_path(resource_dir.clone())?;
         let mut command = Command::new("python3");
         command
-            .arg("../python-sidecar/sidecar.py") // Adjust path as needed
+            .arg(&sidecar_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(dir) = resource_dir {
+            command.env("APP_RESOURCE_DIR", dir);
+        }
 
         let mut child = command.spawn().map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 
@@ -191,9 +195,23 @@ impl SidecarManager {
     }
 }
 
+fn resolve_sidecar_path(resource_dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(dir) = resource_dir {
+        let bundled = dir.join("python-sidecar").join("sidecar.py");
+        if bundled.exists() {
+            return Ok(bundled);
+        }
+        return Err(format!("Bundled sidecar not found at {}", bundled.display()));
+    }
+
+    let dev = PathBuf::from("../python-sidecar/sidecar.py");
+    Ok(dev)
+}
+
 #[cfg(test)]
 mod tests {
     use super::SidecarMessage;
+    use super::resolve_sidecar_path;
 
     #[test]
     fn parses_pause_message() {
@@ -203,5 +221,11 @@ mod tests {
             SidecarMessage::SearchPaused(p) => assert!(p.paused),
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn falls_back_to_dev_path() {
+        let dev = resolve_sidecar_path(None).unwrap();
+        assert!(dev.ends_with("python-sidecar/sidecar.py"));
     }
 }

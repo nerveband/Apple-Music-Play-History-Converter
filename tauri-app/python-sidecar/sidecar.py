@@ -16,7 +16,19 @@ import threading
 import queue
 
 # Add the source directory to the path
-# Go up 3 levels to reach project root, then into src/apple_music_history_converter
+# Prefer bundled resources when available
+resource_dir = os.getenv("APP_RESOURCE_DIR")
+if resource_dir:
+    resource_path = Path(resource_dir)
+    bundled_src = resource_path / "src" / "apple_music_history_converter"
+    if bundled_src.exists():
+        sys.path.insert(0, str(bundled_src))
+    else:
+        alt_src = resource_path / "apple_music_history_converter"
+        if alt_src.exists():
+            sys.path.insert(0, str(alt_src))
+
+# Dev fallback (repo layout)
 src_dir = Path(__file__).parent.parent.parent / "src" / "apple_music_history_converter"
 sys.path.insert(0, str(src_dir))
 
