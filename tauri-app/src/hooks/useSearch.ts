@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { SearchProgress } from "../lib/types";
+import { SearchPaused, SearchStopped } from "../lib/types";
 
 export function useSearch(isTauri: boolean) {
     const [progress, setProgress] = useState<SearchProgress | null>(null);
@@ -10,7 +11,7 @@ export function useSearch(isTauri: boolean) {
     useEffect(() => {
         if (!isTauri) return;
 
-        const unlisten = listen<SearchProgress>("search_progress", (event) => {
+        const unlistenProgress = listen<SearchProgress>("search_progress", (event) => {
             setProgress(event.payload);
             if (event.payload.status === "Complete") {
                 setIsSearching(false);
@@ -18,8 +19,19 @@ export function useSearch(isTauri: boolean) {
             }
         });
 
+        const unlistenPaused = listen<SearchPaused>("search_paused", (event) => {
+            setIsPaused(event.payload.paused);
+        });
+
+        const unlistenStopped = listen<SearchStopped>("search_stopped", () => {
+            setIsSearching(false);
+            setIsPaused(false);
+        });
+
         return () => {
-            unlisten.then((fn) => fn());
+            unlistenProgress.then((fn) => fn());
+            unlistenPaused.then((fn) => fn());
+            unlistenStopped.then((fn) => fn());
         };
     }, [isTauri]);
 

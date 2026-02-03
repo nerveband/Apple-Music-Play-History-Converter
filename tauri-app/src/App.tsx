@@ -3,6 +3,7 @@ import "./index.css";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { isTestMode } from "./lib/testMode";
+import { listen } from "@tauri-apps/api/event";
 
 // Hooks
 import { useTauri } from "./hooks/useTauri";
@@ -18,7 +19,7 @@ import { TestDashboard } from "./components/TestDashboard";
 // import { LogPanel } from "./components/LogPanel"; // FUTURE: Extract logs too
 
 // Types
-import { FileInfo, SearchProvider, ExportFormat } from "./lib/types";
+import { FileInfo, SearchProvider, ExportFormat, SidecarError } from "./lib/types";
 import { initializeSidecar } from "./lib/commands";
 
 function App() {
@@ -30,6 +31,17 @@ function App() {
       initializeSidecar().catch(console.error);
     }
   }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = listen<SidecarError>("sidecar_error", (event) => {
+      toast.error(`Sidecar error: ${event.payload.error}`);
+      resetProgress();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [isTauri, resetProgress]);
 
   // App State
   const [isDark, setIsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);

@@ -6,6 +6,43 @@ use tauri::{Emitter, WebviewWindow};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchPaused {
+    pub paused: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchStopped {
+    pub current: usize,
+    pub total: usize,
+    pub found: usize,
+    pub missing: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CsvPreview {
+    pub path: String,
+    pub rows: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CsvLoaded {
+    pub success: bool,
+    #[serde(rename = "rowCount")]
+    pub row_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SidecarError {
+    pub error: String,
+    pub context: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SidecarStatus {
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum SidecarMessage {
     #[serde(rename = "ready")]
@@ -21,12 +58,20 @@ pub enum SidecarMessage {
         missing: usize,
         provider: String,
     },
+    #[serde(rename = "searchPaused")]
+    SearchPaused(SearchPaused),
+    #[serde(rename = "searchStopped")]
+    SearchStopped(SearchStopped),
     #[serde(rename = "error")]
-    Error { error: String, context: String },
+    Error(SidecarError),
     #[serde(rename = "status")]
-    Status { status: String },
+    Status(SidecarStatus),
     #[serde(rename = "databaseStatus")]
     DatabaseStatus(crate::DatabaseStatus),
+    #[serde(rename = "csvPreview")]
+    CsvPreview(CsvPreview),
+    #[serde(rename = "csvLoaded")]
+    CsvLoaded(CsvLoaded),
     #[serde(rename = "pong")]
     Pong,
     #[serde(other)]
@@ -86,6 +131,27 @@ impl SidecarManager {
                                         estimated_remaining_seconds: None,
                                     });
                                 }
+                                SidecarMessage::SearchPaused(p) => {
+                                    let _ = window_clone.emit("search_paused", p);
+                                }
+                                SidecarMessage::SearchStopped(s) => {
+                                    let _ = window_clone.emit("search_stopped", s);
+                                }
+                                SidecarMessage::Error(e) => {
+                                    let _ = window_clone.emit("sidecar_error", e);
+                                }
+                                SidecarMessage::Status(s) => {
+                                    let _ = window_clone.emit("sidecar_status", s);
+                                }
+                                SidecarMessage::FileAnalysis(f) => {
+                                    let _ = window_clone.emit("file_analysis", f);
+                                }
+                                SidecarMessage::CsvPreview(p) => {
+                                    let _ = window_clone.emit("csv_preview", p);
+                                }
+                                SidecarMessage::CsvLoaded(l) => {
+                                    let _ = window_clone.emit("csv_loaded", l);
+                                }
                                 _ => {
                                     println!("[Sidecar] JSON: {:?}", msg);
                                 }
@@ -122,5 +188,20 @@ impl SidecarManager {
             }
         }
         Err("Sidecar not running or stdin not available".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SidecarMessage;
+
+    #[test]
+    fn parses_pause_message() {
+        let json = r#"{"type":"searchPaused","paused":true}"#;
+        let msg: SidecarMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            SidecarMessage::SearchPaused(p) => assert!(p.paused),
+            _ => panic!("wrong variant"),
+        }
     }
 }

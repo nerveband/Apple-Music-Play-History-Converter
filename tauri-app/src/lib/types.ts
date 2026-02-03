@@ -18,6 +18,22 @@ export interface SearchProgress {
     estimatedRemainingSeconds?: number;
 }
 
+export interface SearchPaused {
+    paused: boolean;
+}
+
+export interface SearchStopped {
+    current: number;
+    total: number;
+    found: number;
+    missing: number;
+}
+
+export interface SidecarError {
+    error: string;
+    context: string;
+}
+
 export interface DatabaseStatus {
     downloaded: boolean;
     trackCount: number;
