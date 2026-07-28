@@ -45,13 +45,23 @@ Download the latest release for your platform from the [Releases](https://github
 4. Click **Search** and watch progress in real-time
 5. Export your results in your preferred format
 
+### External storage
+
+Open **Services → App Storage** to place MusicBrainz data, the track-mapping
+cache, temporary cache, and logs on an external drive. The app validates that
+the selected folder is writable and restarts its sidecar to apply the change.
+Leave the field blank to restore platform-default storage.
+
+Automation can set the same location before launch with the
+`APPLE_MUSIC_CONVERTER_STORAGE_ROOT` environment variable.
+
 ## Building from Source
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 24.15+ (Node 24 LTS)
 - Rust toolchain (via [rustup](https://rustup.rs))
-- Python 3.8+ for sidecar packaging and tests
+- Python 3.11+ for sidecar packaging and tests
 
 ### Setup
 

@@ -1318,6 +1318,8 @@ class MusicSearchServiceV2:
             if hasattr(self, 'musicbrainz_manager') and self.musicbrainz_manager:
                 if hasattr(self.musicbrainz_manager, 'close'):
                     self.musicbrainz_manager.close()
+            if hasattr(self, '_mapping_cache') and self._mapping_cache:
+                self._mapping_cache.close()
             logger.print_always("[OK] MusicSearchService closed successfully")
         except Exception as e:
             logger.print_always(f"[!]  Error closing MusicSearchService: {e}")

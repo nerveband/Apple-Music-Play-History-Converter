@@ -70,6 +70,7 @@ if not getattr(sys, "frozen", False):
 try:
     from apple_music_history_converter.music_search_service_v2 import MusicSearchServiceV2
     from apple_music_history_converter import export_formats
+    from apple_music_history_converter.app_directories import get_settings_path, get_storage_root
     from apple_music_history_converter.logging_config import get_logger
 except ImportError as e:
     print(json.dumps({
@@ -83,6 +84,7 @@ logger = get_logger(__name__)
 
 # Default shared Cloudflare Worker proxy URL for Apple Music API
 DEFAULT_APPLE_MUSIC_PROXY_URL = "https://am-proxy.wavedepth.workers.dev"
+APP_VERSION = "3.0.3"
 
 # Pre-compiled emoji pattern for Windows compatibility
 _EMOJI_RE = re.compile(
@@ -552,14 +554,7 @@ class SidecarHandler:
     # ------------------------------------------------------------------
     def _get_settings_path(self) -> Path:
         """Get platform-specific settings file path."""
-        if sys.platform == "darwin":
-            settings_dir = Path.home() / "Library" / "Application Support" / "AppleMusicConverter"
-        elif sys.platform == "win32":
-            settings_dir = Path(os.getenv("LOCALAPPDATA", str(Path.home()))) / "AppleMusicConverter"
-        else:
-            settings_dir = Path.home() / ".apple_music_converter"
-        settings_dir.mkdir(parents=True, exist_ok=True)
-        return settings_dir / "settings.json"
+        return get_settings_path()
 
     def _load_settings(self):
         """Load settings from disk."""
@@ -1060,6 +1055,23 @@ class SidecarHandler:
 
     def apply_settings(self, settings: Dict[str, Any]):
         """Apply settings from frontend to service."""
+        if "storage_root" in settings:
+            storage_root = settings["storage_root"]
+            if storage_root is None:
+                settings["storage_root"] = ""
+            elif not isinstance(storage_root, str):
+                raise ValueError("Storage location must be a path")
+            else:
+                storage_root = storage_root.strip()
+                if storage_root:
+                    storage_path = Path(storage_root).expanduser()
+                    if not storage_path.is_absolute():
+                        raise ValueError("Storage location must be an absolute path")
+                    storage_path.mkdir(parents=True, exist_ok=True)
+                    probe = storage_path / ".apple-music-converter-write-test"
+                    probe.write_text("ok", encoding="utf-8")
+                    probe.unlink()
+                    settings["storage_root"] = str(storage_path)
         self.settings.update(settings)
         self._save_settings()
         if self.music_service:
@@ -2689,9 +2701,13 @@ class SidecarHandler:
 
     def get_settings(self):
         """Return current settings to frontend."""
+        settings = dict(self.settings)
+        effective_storage_root = get_storage_root()
+        if effective_storage_root is not None:
+            settings["storage_root"] = str(effective_storage_root)
         self.send_message({
             "type": "settingsLoaded",
-            "settings": self.settings,
+            "settings": settings,
         })
 
     # ------------------------------------------------------------------
@@ -2711,7 +2727,7 @@ class SidecarHandler:
         self._probe_api_status(
             label="MusicBrainz API",
             url="https://musicbrainz.org/ws/2/recording?query=test&limit=1&fmt=json",
-            headers={"User-Agent": "AppleMusicConverter/3.0.1 (nerveband@gmail.com)"},
+            headers={"User-Agent": f"AppleMusicConverter/{APP_VERSION} (nerveband@gmail.com)"},
             rate_limited_codes={503},
             context="check_musicbrainz_api_status",
         )
@@ -2949,7 +2965,7 @@ def main():
 
     handler.send_message({
         "type": "ready",
-        "version": "3.0.1",
+        "version": APP_VERSION,
     })
 
     for line in sys.stdin:

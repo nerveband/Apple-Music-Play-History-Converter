@@ -118,7 +118,7 @@ function ensureVenv(python) {
 function ensureBuildEnvironment() {
   if (!existsSync(pyInstallerMarker)) {
     run(venvPythonCommand.command, [...venvPythonCommand.baseArgs, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], { cwd: sidecarDir });
-    run(venvPythonCommand.command, [...venvPythonCommand.baseArgs, "-m", "pip", "install", "-r", requirementsPath, "pyinstaller"], { cwd: sidecarDir });
+    run(venvPythonCommand.command, [...venvPythonCommand.baseArgs, "-m", "pip", "install", "-r", requirementsPath, "pyinstaller==6.21.0"], { cwd: sidecarDir });
   } else {
     run(venvPythonCommand.command, [...venvPythonCommand.baseArgs, "-m", "pip", "install", "--disable-pip-version-check", "-r", requirementsPath], { cwd: sidecarDir });
   }

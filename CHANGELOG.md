@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.3
+
+- Move the mutable user-track mapping cache from DuckDB to SQLite to prevent
+  fatal duplicate-primary-key failures on large histories with repeated tracks.
+- Import readable legacy DuckDB mappings once and rebuild a corrupt SQLite
+  mapping cache without preventing application startup.
+- Add a first-class external storage location for MusicBrainz data, caches, and
+  logs, including an environment override for automation.
+- Reload saved progress after an automatic Python sidecar restart.
+- Synchronize all application version sources and add an automated drift check.
+- Refresh Node, React, Vite, Tauri, Rust, Python, and packaged dependencies.
+
 ## 3.0.2
 
 ### Fixed

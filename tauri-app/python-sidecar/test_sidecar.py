@@ -8,18 +8,20 @@ import json
 import subprocess
 import sys
 import os
+import queue
+import threading
 import time
 from pathlib import Path
 
 # Project paths
 SIDECAR_PATH = Path(__file__).parent / "sidecar.py"
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-TEST_CSVS = PROJECT_ROOT / "_test_csvs"
+TEST_CSVS = Path(__file__).parent / "fixtures"
 
 # Test CSV files
-PLAY_ACTIVITY_CSV = TEST_CSVS / "Apple Music Play Activity small.csv"
-RECENTLY_PLAYED_CSV = TEST_CSVS / "Apple Music - Recently Played Tracks.csv"
-DAILY_TRACKS_CSV = TEST_CSVS / "Apple Music - Play History Daily Tracks.csv"
+PLAY_ACTIVITY_CSV = TEST_CSVS / "play_activity.csv"
+RECENTLY_PLAYED_CSV = TEST_CSVS / "recently_played.csv"
+DAILY_TRACKS_CSV = TEST_CSVS / "daily_tracks.csv"
 
 passed = 0
 failed = 0
@@ -53,6 +55,8 @@ class SidecarProcess:
 
     def __init__(self):
         self.proc = None
+        self.messages = queue.Queue()
+        self.reader_thread = None
 
     def start(self):
         self.proc = subprocess.Popen(
@@ -64,10 +68,18 @@ class SidecarProcess:
             text=True,
             bufsize=1,
         )
+        self.reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
+        self.reader_thread.start()
         # Read the "ready" message
-        ready = self.read_message()
+        ready = self.read_message(timeout=120.0)
         assert ready.get("type") == "ready", f"Expected ready, got: {ready}"
         return ready
+
+    def _read_stdout(self):
+        for line in self.proc.stdout:
+            line = line.strip()
+            if line:
+                self.messages.put(line)
 
     def send(self, msg: dict):
         line = json.dumps(msg) + "\n"
@@ -76,17 +88,15 @@ class SidecarProcess:
 
     def read_message(self, timeout: float = 10.0) -> dict:
         """Read one JSON message from stdout."""
-        import select
-        start = time.time()
-        while time.time() - start < timeout:
-            # Use a simple readline with timeout
-            line = self.proc.stdout.readline()
-            if line:
-                line = line.strip()
-                if line:
-                    return json.loads(line)
-            time.sleep(0.01)
-        raise TimeoutError(f"No message received within {timeout}s")
+        try:
+            return json.loads(self.messages.get(timeout=timeout))
+        except queue.Empty:
+            if self.proc.poll() is not None:
+                stderr = self.proc.stderr.read()
+                raise RuntimeError(
+                    f"Sidecar exited with {self.proc.returncode}: {stderr}"
+                )
+            raise TimeoutError(f"No message received within {timeout}s")
 
     def read_messages_until(self, msg_type: str, timeout: float = 15.0) -> list:
         """Read messages until we get one of the specified type."""
@@ -124,7 +134,7 @@ def test_ping():
     try:
         ready = sidecar.start()
         assert ready["type"] == "ready"
-        assert "version" in ready
+        assert ready["version"] == "3.0.3", f"Unexpected sidecar version: {ready}"
 
         sidecar.send({"action": "ping"})
         resp = sidecar.read_message()
@@ -142,7 +152,7 @@ def test_analyze_play_activity():
     try:
         sidecar.start()
         sidecar.send({"action": "analyzeCSV", "path": str(PLAY_ACTIVITY_CSV)})
-        msgs = sidecar.read_messages_until("fileAnalysis", timeout=10)
+        msgs = sidecar.read_messages_until("fileAnalysis", timeout=30)
         analyses = [m for m in msgs if m.get("type") == "fileAnalysis"]
         assert len(analyses) == 1, f"Got types: {[m.get('type') for m in msgs]}"
         resp = analyses[0]
@@ -162,7 +172,7 @@ def test_analyze_recently_played():
     try:
         sidecar.start()
         sidecar.send({"action": "analyzeCSV", "path": str(RECENTLY_PLAYED_CSV)})
-        msgs = sidecar.read_messages_until("fileAnalysis", timeout=10)
+        msgs = sidecar.read_messages_until("fileAnalysis", timeout=30)
         analyses = [m for m in msgs if m.get("type") == "fileAnalysis"]
         assert len(analyses) == 1, f"Got types: {[m.get('type') for m in msgs]}"
         resp = analyses[0]
@@ -181,7 +191,7 @@ def test_analyze_daily_tracks():
     try:
         sidecar.start()
         sidecar.send({"action": "analyzeCSV", "path": str(DAILY_TRACKS_CSV)})
-        msgs = sidecar.read_messages_until("fileAnalysis", timeout=10)
+        msgs = sidecar.read_messages_until("fileAnalysis", timeout=30)
         analyses = [m for m in msgs if m.get("type") == "fileAnalysis"]
         assert len(analyses) == 1, f"Got types: {[m.get('type') for m in msgs]}"
         resp = analyses[0]
@@ -200,7 +210,7 @@ def test_preview_play_activity():
     try:
         sidecar.start()
         sidecar.send({"action": "getPreview", "path": str(PLAY_ACTIVITY_CSV)})
-        msgs = sidecar.read_messages_until("csvPreview", timeout=10)
+        msgs = sidecar.read_messages_until("csvPreview", timeout=30)
         previews = [m for m in msgs if m.get("type") == "csvPreview"]
         assert len(previews) == 1, f"Got types: {[m.get('type') for m in msgs]}"
         resp = previews[0]
@@ -225,7 +235,7 @@ def test_preview_recently_played():
     try:
         sidecar.start()
         sidecar.send({"action": "getPreview", "path": str(RECENTLY_PLAYED_CSV)})
-        msgs = sidecar.read_messages_until("csvPreview", timeout=10)
+        msgs = sidecar.read_messages_until("csvPreview", timeout=30)
         previews = [m for m in msgs if m.get("type") == "csvPreview"]
         assert len(previews) == 1, f"Got types: {[m.get('type') for m in msgs]}"
         resp = previews[0]
@@ -249,7 +259,7 @@ def test_load_csv():
     try:
         sidecar.start()
         sidecar.send({"action": "loadCSV", "path": str(PLAY_ACTIVITY_CSV)})
-        msgs = sidecar.read_messages_until("csvLoaded", timeout=10)
+        msgs = sidecar.read_messages_until("csvLoaded", timeout=30)
         csv_loaded = [m for m in msgs if m.get("type") == "csvLoaded"]
         assert len(csv_loaded) == 1, f"Expected csvLoaded, got: {[m.get('type') for m in msgs]}"
         assert csv_loaded[0]["success"] is True

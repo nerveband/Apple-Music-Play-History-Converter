@@ -25,9 +25,9 @@ Update the version in all of these places before building a release:
 
 ### Common Tooling
 
-- Node.js 20+
+- Node.js 24.15+ (Node 24 LTS)
 - Rust toolchain
-- Python 3.8+
+- Python 3.11+
 - GitHub CLI authenticated to `nerveband/Apple-Music-Play-History-Converter`
 
 ### macOS Signing and Notarization

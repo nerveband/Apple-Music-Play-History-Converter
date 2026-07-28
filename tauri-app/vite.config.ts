@@ -13,6 +13,10 @@ export default defineConfig(async () => ({
     globals: true,
     environment: "jsdom",
     setupFiles: [],
+    // External-volume and CI runners can have slow cold imports; keep failures
+    // bounded without turning normal async assertions into flaky 5s races.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

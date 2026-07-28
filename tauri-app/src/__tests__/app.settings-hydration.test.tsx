@@ -170,4 +170,17 @@ describe("App settings hydration", () => {
     expect(await screen.findByText("Backend Issue")).toBeTruthy();
     expect(screen.getByText(/Bundled sidecar binary is missing/)).toBeTruthy();
   });
+
+  it("reloads resumable state and settings after a sidecar crash restart", async () => {
+    render(<App />);
+    await waitFor(() => expect(commandMocks.getResumeState).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      emitEvent("sidecar_terminated", {});
+    });
+
+    await waitFor(() => expect(commandMocks.restartSidecar).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(commandMocks.getResumeState).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(commandMocks.getSettings).toHaveBeenCalledTimes(2));
+  });
 });

@@ -13,12 +13,46 @@ Platform-specific paths:
 - Linux: ~/.local/share/AppleMusicConverter, ~/.cache/AppleMusicConverter/log
 """
 
+import json
+import os
 from pathlib import Path
+from typing import Optional
 import platformdirs
 
 # Application metadata
 APP_NAME = "AppleMusicConverter"
 APP_AUTHOR = "nerveband"
+STORAGE_ROOT_ENV = "APPLE_MUSIC_CONVERTER_STORAGE_ROOT"
+
+
+def get_default_user_data_dir() -> Path:
+    """Return the platform default data directory without applying overrides."""
+    return Path(platformdirs.user_data_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+
+
+def get_storage_root() -> Optional[Path]:
+    """Resolve the optional first-class storage root.
+
+    The environment variable is useful for automation and portable deployments.
+    Otherwise the small bootstrap settings file remains in the platform default
+    location so the app can find the external storage location on next launch.
+    """
+    configured = os.environ.get(STORAGE_ROOT_ENV, "").strip()
+    if not configured:
+        settings_path = get_default_user_data_dir() / "settings.json"
+        try:
+            if settings_path.exists():
+                value = json.loads(settings_path.read_text(encoding="utf-8")).get("storage_root", "")
+                if isinstance(value, str):
+                    configured = value.strip()
+        except (OSError, ValueError, TypeError):
+            configured = ""
+    if not configured:
+        return None
+    path = Path(configured).expanduser()
+    if not path.is_absolute():
+        return None
+    return path
 
 def get_user_data_dir() -> Path:
     """
@@ -34,7 +68,8 @@ def get_user_data_dir() -> Path:
         - Windows: C:\\Users\\<user>\\AppData\\Local\\AppleMusicConverter
         - Linux: ~/.local/share/AppleMusicConverter
     """
-    data_dir = Path(platformdirs.user_data_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    storage_root = get_storage_root()
+    data_dir = storage_root / "data" if storage_root else get_default_user_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
@@ -53,7 +88,12 @@ def get_user_log_dir() -> Path:
         - Windows: C:\\Users\\<user>\\AppData\\Local\\AppleMusicConverter\\Logs
         - Linux: ~/.cache/AppleMusicConverter/log
     """
-    log_dir = Path(platformdirs.user_log_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    storage_root = get_storage_root()
+    log_dir = (
+        storage_root / "logs"
+        if storage_root
+        else Path(platformdirs.user_log_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    )
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 
@@ -72,7 +112,12 @@ def get_user_cache_dir() -> Path:
         - Windows: C:\\Users\\<user>\\AppData\\Local\\AppleMusicConverter\\Cache
         - Linux: ~/.cache/AppleMusicConverter
     """
-    cache_dir = Path(platformdirs.user_cache_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    storage_root = get_storage_root()
+    cache_dir = (
+        storage_root / "cache"
+        if storage_root
+        else Path(platformdirs.user_cache_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    )
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
@@ -84,7 +129,9 @@ def get_settings_path() -> Path:
     Returns:
         Path: Path to settings.json file in the user data directory
     """
-    return get_user_data_dir() / "settings.json"
+    settings_dir = get_default_user_data_dir()
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    return settings_dir / "settings.json"
 
 
 def get_database_dir() -> Path:

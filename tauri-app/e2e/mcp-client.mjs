@@ -1,6 +1,7 @@
 // E2E test MCP client — talks directly to the tauri-plugin-mcp Unix socket
 // On Windows, uses named pipe; on macOS/Linux, uses Unix socket
 import * as net from 'net';
+import * as fs from 'fs';
 
 const IS_WINDOWS = process.platform === 'win32';
 const SOCKET_PATH = process.env.TAURI_MCP_IPC_PATH ||
@@ -12,6 +13,7 @@ class MCPClient {
     this.buffer = '';
     this.callbacks = new Map();
     this.reqId = 0;
+    this.authToken = process.env.TAURI_MCP_AUTH_TOKEN || null;
   }
 
   async connect(retries = 5, delayMs = 2000) {
@@ -57,10 +59,21 @@ class MCPClient {
   }
 
   async send(command, payload = {}) {
+    if (!this.authToken && !IS_WINDOWS) {
+      const tokenPath = `${SOCKET_PATH}.token`;
+      if (fs.existsSync(tokenPath)) {
+        this.authToken = fs.readFileSync(tokenPath, 'utf8').trim();
+      }
+    }
     const id = `req_${++this.reqId}`;
     return new Promise((resolve, reject) => {
       this.callbacks.set(id, { resolve, reject });
-      const msg = JSON.stringify({ command, payload, id }) + '\n';
+      const msg = JSON.stringify({
+        command,
+        payload,
+        id,
+        ...(this.authToken ? { authToken: this.authToken } : {}),
+      }) + '\n';
       this.client.write(msg);
       setTimeout(() => {
         if (this.callbacks.has(id)) {

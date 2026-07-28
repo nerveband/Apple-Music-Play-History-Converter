@@ -51,9 +51,10 @@ function App() {
     const unlisten = listen("sidecar_terminated", () => {
       toast.warning("Python sidecar stopped unexpectedly. Restarting...");
       restartSidecar()
+        .then(() => Promise.all([getResumeState(), getSettings()]))
         .then(() => {
           setStartupIssue(null);
-          toast.success("Sidecar restarted successfully");
+          toast.success("Sidecar restarted. Saved search progress is ready to resume.");
         })
         .catch((err) => {
           console.error("Failed to restart sidecar:", err);

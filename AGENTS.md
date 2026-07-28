@@ -27,9 +27,9 @@ cd tauri-app && npm run tauri build
 
 ### Common
 
-- Node.js 20+
+- Node.js 24.15+ (Node 24 LTS)
 - Rust toolchain via `rustup`
-- Python 3.8+ available as `python3`, `python`, or `py -3`
+- Python 3.11+ available as `python3`, `python`, or `py -3`
 - `gh` authenticated for `nerveband/Apple-Music-Play-History-Converter`
 
 ### macOS Release Builds

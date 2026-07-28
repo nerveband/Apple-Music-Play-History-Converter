@@ -38,6 +38,8 @@ const {
     setSettings: vi.fn(async () => undefined),
     checkItunesStatus: vi.fn(async () => undefined),
     checkMusicBrainzApiStatus: vi.fn(async () => undefined),
+    checkAppleMusicApiStatus: vi.fn(async () => undefined),
+    restartSidecar: vi.fn(async () => undefined),
   };
 
   return {
@@ -115,6 +117,28 @@ describe("ServicesSection parity wiring", () => {
       expect(countrySelect.value).toBe("jp");
       expect(screen.getByDisplayValue("37")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Resume Rate Limiting" })).toBeTruthy();
+    });
+  });
+
+  it("hydrates and applies an external app storage location", async () => {
+    renderServices();
+    await waitFor(() => expect(listeners.size).toBeGreaterThan(0));
+
+    act(() => {
+      emitEvent("settings_loaded", {
+        storage_root: "/Volumes/ExternalSSD/AppleMusicConverter",
+      });
+    });
+
+    const input = await screen.findByLabelText("App storage location");
+    expect((input as HTMLInputElement).value).toBe("/Volumes/ExternalSSD/AppleMusicConverter");
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(commandMocks.setSettings).toHaveBeenCalledWith({
+        storage_root: "/Volumes/ExternalSSD/AppleMusicConverter",
+      });
+      expect(commandMocks.restartSidecar).toHaveBeenCalledTimes(1);
     });
   });
 

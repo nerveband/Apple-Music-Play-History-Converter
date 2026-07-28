@@ -1,0 +1,76 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        working-directory: tauri-app
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: tauri-app/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: tauri-app/python-sidecar/requirements.txt
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-app/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm.cmd ci
+
+      - name: Run frontend tests
+        run: npm.cmd run test
+
+      - name: Run version consistency check
+        run: npm.cmd run test:versions
+
+      - name: Run Python sidecar tests
+        working-directory: tauri-app/python-sidecar
+        run: python test_sidecar.py
+
+      - name: Check Rust host
+        working-directory: tauri-app/src-tauri
+        run: cargo check
+
+      - name: Build Windows installers
+        run: npm.cmd run tauri build
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-music-history-converter-windows-${{ github.ref_name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            tauri-app/src-tauri/target/release/bundle/msi/*.msi
+            tauri-app/src-tauri/target/release/bundle/nsis/*.exe

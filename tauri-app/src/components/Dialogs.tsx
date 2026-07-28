@@ -107,7 +107,7 @@ export function Dialogs({ showHowTo, onCloseHowTo, showAbout, onCloseAbout, conf
         <div className="text-sm space-y-4">
           <div>
             <div className="text-lg font-semibold">Apple Music History Converter</div>
-            <div className="text-muted-foreground">Version 3.0.1</div>
+            <div className="text-muted-foreground">Version 3.0.3</div>
           </div>
 
           <div>

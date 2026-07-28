@@ -1,8 +1,12 @@
 {
   "name": "tauri-app",
   "private": true,
-  "version": "3.0.2",
+  "version": "3.0.3",
   "type": "module",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "npm": ">=11.8.0 <12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -10,32 +14,33 @@
     "build:release": "npm run build && npm run build:sidecar",
     "preview": "vite preview",
     "tauri": "tauri",
-    "dev:mcp": "CARGO_FLAGS='--features dev-debug' tauri dev",
+    "dev:mcp": "tauri dev --features dev-debug",
     "test": "vitest run",
+    "test:versions": "node ./scripts/check-versions.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-toastify": "^11.0.5"
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-toastify": "^11.1.0"
   },
   "devDependencies": {
-    "@tailwindcss/typography": "^0.5.19",
-    "@tailwindcss/vite": "^4.1.18",
-    "@tauri-apps/cli": "^2.10.1",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@tailwindcss/typography": "^0.5.20",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "jsdom": "^28.0.0",
-    "tailwindcss": "^4.1.18",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "tauri-plugin-mcp": "^0.1.0",
-    "vitest": "^4.0.18"
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "jsdom": "^30.0.0",
+    "tailwindcss": "^4.3.3",
+    "tauri-plugin-mcp": "^0.3.1",
+    "typescript": "~7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   }
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { AccordionSection } from "../ui/Accordion";
 import { SearchProvider, ExportFormat, PROVIDERS, EXPORT_FORMATS, ITUNES_COUNTRIES, AppleMusicStatus } from "../../lib/types";
-import { Warning, GlobeSimple, Key, TestTube, CheckCircle, XCircle, CaretDown, Timer, Pause, Play, Info } from "@phosphor-icons/react";
+import { Warning, GlobeSimple, Key, TestTube, CheckCircle, XCircle, CaretDown, Timer, Pause, Play, Info, FolderOpen } from "@phosphor-icons/react";
 import {
     configureAppleMusic,
     testAppleMusicCredentials,
@@ -11,6 +11,7 @@ import {
     checkItunesStatus,
     checkMusicBrainzApiStatus,
     checkAppleMusicApiStatus,
+    restartSidecar,
 } from "../../lib/commands";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -99,6 +100,8 @@ export function ServicesSection({
     const [itunesApiStatus, setItunesApiStatus] = useState<ApiStatus>("idle");
     const [musicBrainzApiStatus, setMusicBrainzApiStatus] = useState<ApiStatus>("idle");
     const [appleMusicApiStatus, setAppleMusicApiStatus] = useState<ApiStatus>("idle");
+    const [storageRoot, setStorageRoot] = useState("");
+    const [savingStorage, setSavingStorage] = useState(false);
 
     // Load Apple Music status and auto-check all API statuses on mount
     const didInit = useRef(false);
@@ -190,6 +193,10 @@ export function ServicesSection({
                     setMbApiRateLimit(String(settings.musicbrainz_api_rate_limit));
                 } else if (typeof settings.musicbrainz_api_rate_limit === "string") {
                     setMbApiRateLimit(settings.musicbrainz_api_rate_limit);
+                }
+
+                if (typeof settings.storage_root === "string") {
+                    setStorageRoot(settings.storage_root);
                 }
 
                 if (typeof settings.apple_music_team_id === "string") {
@@ -340,6 +347,32 @@ export function ServicesSection({
         }
     };
 
+    const handleBrowseStorage = async () => {
+        try {
+            const path = await open({ multiple: false, directory: true });
+            if (path) setStorageRoot(path as string);
+        } catch (err) {
+            console.error(err);
+            toast.error("Could not select the storage folder");
+        }
+    };
+
+    const handleSaveStorage = async () => {
+        setSavingStorage(true);
+        try {
+            await setSettings({ storage_root: storageRoot.trim() });
+            await restartSidecar();
+            toast.success(storageRoot.trim()
+                ? "Storage location saved. The sidecar restarted using the new location."
+                : "Default storage location restored.");
+        } catch (err) {
+            console.error(err);
+            toast.error("Could not apply the storage location");
+        } finally {
+            setSavingStorage(false);
+        }
+    };
+
     const handleCountryChange = async (country: string) => {
         setItunesCountry(country);
         try {
@@ -430,6 +463,45 @@ export function ServicesSection({
     return (
         <AccordionSection title="Services" expanded={expanded} onToggle={onToggle}>
             <div className="space-y-4">
+                <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+                        <FolderOpen size={12} />
+                        App Storage
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-2">
+                        Store MusicBrainz data, mapping cache, temporary cache, and logs on another drive.
+                        Leave blank to use the system default.
+                    </p>
+                    <div className="flex gap-2">
+                        <input
+                            value={storageRoot}
+                            onChange={(event) => setStorageRoot(event.target.value)}
+                            disabled={isSearching || savingStorage}
+                            placeholder="System default"
+                            aria-label="App storage location"
+                            className="min-w-0 flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                        />
+                        <button
+                            type="button"
+                            onClick={handleBrowseStorage}
+                            disabled={isSearching || savingStorage}
+                            className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-foreground-5 disabled:opacity-50"
+                        >
+                            Browse
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSaveStorage}
+                            disabled={isSearching || savingStorage}
+                            className="px-3 py-2 rounded-lg bg-accent text-accent-foreground text-sm font-medium disabled:opacity-50"
+                        >
+                            {savingStorage ? "Applying..." : "Apply"}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="border-t border-border" />
+
                 {/* Search Provider Selection */}
                 <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">

@@ -3,8 +3,10 @@
 import MCPClient from './mcp-client.mjs';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
-const SCREENSHOT_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), 'screenshots');
+const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR ||
+  path.join(os.tmpdir(), 'apple-music-converter-e2e-screenshots');
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 const results = [];
@@ -60,9 +62,9 @@ async function runTests() {
     );
   });
 
-  await test('App version is 3.0.1', async () => {
+  await test('App version is 3.0.3', async () => {
     const info = await client.appInfo();
-    assert(info.app.version === '3.0.1', `Version: ${info.app.version}`);
+    assert(info.app.version === '3.0.3', `Version: ${info.app.version}`);
   });
 
   await test('Main window is visible', async () => {
@@ -194,6 +196,16 @@ async function runTests() {
     );
   });
 
+  await test('External app storage control is visible', async () => {
+    const text = await js('return document.body.innerText');
+    assert(text.toLowerCase().includes('app storage'), 'App Storage control not found');
+    const data = await jsJson(`
+      var input = document.querySelector('[aria-label="App storage location"]');
+      return JSON.stringify({ found: !!input });
+    `);
+    assert(data.found, 'App storage path input not found');
+  });
+
   await test('Export format selector visible', async () => {
     const text = await js('return document.body.innerText');
     assert(
@@ -245,11 +257,13 @@ async function runTests() {
   // ----------------------------------------------------------
   console.log('\n=== TABS ===');
 
-  await test('Preview or Results tabs exist', async () => {
+  await test('Initial content state is valid before a CSV is loaded', async () => {
     const text = await js('return document.body.innerText');
+    const normalized = text.toLowerCase();
     assert(
-      text.includes('Preview') || text.includes('Results') || text.includes('Table'),
-      'Tab navigation not found'
+      normalized.includes('preview') || normalized.includes('results') ||
+      normalized.includes('table') || normalized.includes('select or drop csv'),
+      'Neither file-selection nor loaded-results state was found'
     );
   });
 
