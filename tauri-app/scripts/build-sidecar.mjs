@@ -28,15 +28,17 @@ const venvPythonCommand = process.platform === "darwin" && targetArch === "x86_6
   : { command: venvPython, baseArgs: [] };
 
 function normalizeArch(arch) {
-  if (arch === "x64" || arch === "x86_64") {
+  const normalized = arch.toLowerCase();
+
+  if (normalized === "x64" || normalized === "x86_64" || normalized === "amd64") {
     return "x86_64";
   }
 
-  if (arch === "aarch64" || arch === "arm64") {
+  if (normalized === "aarch64" || normalized === "arm64") {
     return "arm64";
   }
 
-  return arch;
+  return normalized;
 }
 
 function run(command, args, options = {}) {
@@ -62,7 +64,9 @@ function probePython(command, baseArgs, expectedArch) {
         "import platform",
         "import sys",
         `expected = ${JSON.stringify(expectedArch)}`,
-        "actual = platform.machine()",
+        "machine = platform.machine().lower()",
+        "aliases = {'x64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'arm64'}",
+        "actual = aliases.get(machine, machine)",
         "print(actual)",
         "sys.exit(0 if actual == expected else 1)",
       ].join("; "),
