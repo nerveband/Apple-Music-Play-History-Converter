@@ -1963,6 +1963,9 @@ class SidecarHandler:
         _PROGRESS_THROTTLE_SECS = 0.5
         _last_progress_time = 0.0
 
+        # Play history repeats tracks. Search each unique track once in this run.
+        search_results: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+
         for i in range(start_index, total):
             track = tracks_for_run[i]
             output_index = index_map[i]
@@ -2170,15 +2173,28 @@ class SidecarHandler:
             if iso_country:
                 track_storefront = ISO_TO_STOREFRONT.get(iso_country)
 
-            # Perform search with bounded retries for transient network errors.
-            result = await self._search_with_backoff(
-                song_name=title,
-                artist_name=artist if artist else None,
-                album_name=album if album else None,
-                isrc=None if skip_single_isrc_lookup else (normalized_isrc if normalized_isrc else None),
-                timeout_seconds=15.0,
-                storefront=track_storefront,
-            )
+            search_isrc = None if skip_single_isrc_lookup else (normalized_isrc if normalized_isrc else None)
+            search_key = (title, artist, album, search_isrc, track_storefront)
+            result = search_results.get(search_key)
+            if result is None:
+                # Perform search with bounded retries for transient network errors.
+                result = await self._search_with_backoff(
+                    song_name=title,
+                    artist_name=artist if artist else None,
+                    album_name=album if album else None,
+                    isrc=search_isrc,
+                    timeout_seconds=15.0,
+                    storefront=track_storefront,
+                )
+                # Do not reuse rate-limited or transient failures. A later search can succeed.
+                error_msg = result.get("error", "") if result else ""
+                if result and (
+                    result.get("success")
+                    or not ("403" in error_msg or "rate" in error_msg.lower()
+                            or self._is_transient_search_error(error_msg)
+                            or error_msg == "Search stopped")
+                ):
+                    search_results[search_key] = result
 
             if result and result.get("success"):
                 found += 1
