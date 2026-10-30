@@ -1160,9 +1160,9 @@ class SidecarHandler:
                     status["downloaded"] = db_available
 
                     if db_available:
-                        if hasattr(mb, 'get_track_count'):
+                        if hasattr(mb, 'get_database_info'):
                             try:
-                                status["trackCount"] = mb.get_track_count() or 0
+                                status["trackCount"] = mb.get_database_info().get("track_count") or 0
                             except Exception:
                                 pass
 
@@ -2686,6 +2686,16 @@ class SidecarHandler:
             started = self.music_service.start_progressive_loading()
             if started:
                 self.send_status("Database optimization started")
+                mb = self.music_service.musicbrainz_manager
+
+                # The optimization runs in a background thread. Push the final status when it stops.
+                def report_when_done():
+                    while mb._optimization_in_progress:
+                        time.sleep(1)
+                    self.send_status("Database optimization complete" if mb.is_ready() else "Database optimization failed")
+                    self.get_database_status()
+
+                threading.Thread(target=report_when_done, daemon=True).start()
             else:
                 self.send_status("Database optimization could not be started")
             self.get_database_status()
