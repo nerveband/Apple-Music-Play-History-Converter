@@ -12,6 +12,18 @@ except ImportError:
 
 logger = get_logger(__name__)
 
+# ListenBrainz does not accept listened_at values before 2002-10-01.
+LISTENBRAINZ_MINIMUM_TS = 1033430400
+
+
+def _to_unix_timestamp(value) -> int | None:
+    """Convert a timestamp value to Unix epoch seconds (UTC). Return None if it does not parse."""
+    try:
+        return int(pd.to_datetime(value, utc=True).timestamp())
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 def _get_track_value(track: Dict, *keys: str) -> str:
     for key in keys:
         if key in track and track.get(key) not in (None, ""):
@@ -80,29 +92,18 @@ def export_listenbrainz_json(tracks: List[Dict], output_path: str) -> bool:
     try:
         import json
 
-        # Convert timestamps to Unix epoch
         listenbrainz_data = []
+        skipped = 0
         for track in tracks:
-            # Parse timestamp and convert to Unix epoch
             timestamp_str = track.get('timestamp', '')
+            unix_timestamp = _to_unix_timestamp(timestamp_str)
 
-            try:
-                # Handle ISO 8601 format (e.g., "2023-12-12 13:18:00")
-                if isinstance(timestamp_str, str):
-                    if 'T' in timestamp_str:
-                        # ISO format: "2023-12-12T13:18:00Z" or "2023-12-12T13:18:00"
-                        dt = pd.to_datetime(timestamp_str, utc=True)
-                    else:
-                        # Space-separated: "2023-12-12 13:18:00"
-                        dt = pd.to_datetime(timestamp_str, utc=True)
-                else:
-                    dt = pd.to_datetime(timestamp_str, utc=True)
-
-                unix_timestamp = int(dt.timestamp())
-            except Exception:
-                # Fallback to current time if parsing fails
-                logger.warning(f"[EXPORT] Timestamp parse failed: '{timestamp_str}', using current time")
-                unix_timestamp = int(pd.Timestamp.now().timestamp())
+            # ListenBrainz rejects the whole import if one listen has a bad time.
+            # Skip the row. Do not use the current time, which makes a false listen.
+            if unix_timestamp is None or unix_timestamp < LISTENBRAINZ_MINIMUM_TS:
+                skipped += 1
+                logger.warning(f"[EXPORT] Skipped listen with invalid timestamp: '{timestamp_str}'")
+                continue
 
             # Build ListenBrainz format
             listenbrainz_data.append({
@@ -118,7 +119,10 @@ def export_listenbrainz_json(tracks: List[Dict], output_path: str) -> bool:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(listenbrainz_data, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"[EXPORT] ListenBrainz JSON: {len(tracks)} tracks -> {output_path}")
+        logger.info(
+            f"[EXPORT] ListenBrainz JSON: {len(listenbrainz_data)} tracks -> {output_path}"
+            f" ({skipped} skipped)"
+        )
         return True
 
     except Exception as e:
