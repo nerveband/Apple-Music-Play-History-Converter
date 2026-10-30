@@ -282,6 +282,56 @@ def test_search_with_backoff_retries_transient_errors():
     assert sleep_calls == [2.0], f"Expected one backoff sleep of 2s: {sleep_calls}"
 
 
+def run_search_with_responses(tracks, responses):
+    """Run _run_search over tracks with fake responses. Return (service, messages)."""
+    handler = make_handler()
+    handler.current_tracks = tracks
+    messages = []
+    handler.send_message = lambda msg: messages.append(msg)  # type: ignore[assignment]
+    handler.send_log = lambda message, level="info": None  # type: ignore[assignment]
+    handler.music_service = FakeMusicService(responses)
+    asyncio.run(handler._run_search(provider="itunes"))  # type: ignore[call-arg]
+    return handler.music_service, messages
+
+
+@sidecar_test("duplicate tracks are searched once and the result is reused")
+def test_run_search_reuses_result_for_duplicate_tracks():
+    tracks = [
+        {"artist": "A", "track": "One", "album": "X"},
+        {"artist": "B", "track": "Two", "album": ""},
+        {"artist": "A", "track": "One", "album": "X"},
+        {"artist": "B", "track": "Two", "album": ""},
+    ]
+    service, messages = run_search_with_responses(tracks, [
+        {"success": True, "source": "itunes", "artist": "A2", "album": "X2"},
+        {"success": False, "error": "No match found"},
+    ])
+
+    assert len(service.calls) == 2, f"Expected 2 searches, got: {service.calls}"
+    track_results = [m for m in messages if m.get("type") == "trackResult"]
+    assert [m["index"] for m in track_results] == [0, 1, 2, 3], f"Unexpected trackResults: {track_results}"
+    assert tracks[2]["_found"] is True and tracks[2]["artist"] == "A2", f"Duplicate not filled: {tracks[2]}"
+    assert tracks[3]["_found"] is False, f"Duplicate miss not filled: {tracks[3]}"
+    summary = [m for m in messages if m.get("type") == "searchComplete"][0]
+    assert summary["found"] == 2 and summary["missing"] == 2, f"Unexpected summary: {summary}"
+
+
+@sidecar_test("rate-limited results are not reused for duplicate tracks")
+def test_run_search_does_not_reuse_rate_limited_result():
+    tracks = [
+        {"artist": "A", "track": "One", "album": ""},
+        {"artist": "A", "track": "One", "album": ""},
+    ]
+    service, messages = run_search_with_responses(tracks, [
+        {"success": False, "error": "403 rate limit"},
+        {"success": True, "source": "itunes", "artist": "A2", "album": ""},
+    ])
+
+    assert len(service.calls) == 2, f"Expected 2 searches, got: {service.calls}"
+    summary = [m for m in messages if m.get("type") == "searchComplete"][0]
+    assert summary["found"] == 1 and summary["rateLimited"] == 1, f"Unexpected summary: {summary}"
+
+
 def main():
     """Run retry tests."""
     global passed, failed, errors
@@ -298,6 +348,8 @@ def main():
         test_unknown_csv_mapping_inference,
         test_preview_edits_applied_on_load_csv,
         test_search_with_backoff_retries_transient_errors,
+        test_run_search_reuses_result_for_duplicate_tracks,
+        test_run_search_does_not_reuse_rate_limited_result,
     ]
 
     for test in tests:
