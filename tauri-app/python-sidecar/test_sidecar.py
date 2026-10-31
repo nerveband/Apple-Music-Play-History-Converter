@@ -134,7 +134,7 @@ def test_ping():
     try:
         ready = sidecar.start()
         assert ready["type"] == "ready"
-        assert ready["version"] == "3.0.3", f"Unexpected sidecar version: {ready}"
+        assert ready["version"] == "3.0.4", f"Unexpected sidecar version: {ready}"
 
         sidecar.send({"action": "ping"})
         resp = sidecar.read_message()
