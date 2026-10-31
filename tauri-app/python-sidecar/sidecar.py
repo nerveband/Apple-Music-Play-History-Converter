@@ -84,7 +84,7 @@ logger = get_logger(__name__)
 
 # Default shared Cloudflare Worker proxy URL for Apple Music API
 DEFAULT_APPLE_MUSIC_PROXY_URL = "https://am-proxy.wavedepth.workers.dev"
-APP_VERSION = "3.0.3"
+APP_VERSION = "3.0.4"
 
 # Pre-compiled emoji pattern for Windows compatibility
 _EMOJI_RE = re.compile(

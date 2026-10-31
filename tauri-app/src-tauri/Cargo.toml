@@ -1,6 +1,6 @@
 [package]
 name = "apple-music-history-converter"
-version = "3.0.3"
+version = "3.0.4"
 description = "Convert Apple Music CSV files to Last.fm, ListenBrainz, and Spotify formats"
 authors = ["Ashraf Ali <nerveband@gmail.com>"]
 license = "MIT"

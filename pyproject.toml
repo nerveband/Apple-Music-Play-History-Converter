@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apple-music-history-converter-backend"
-version = "3.0.3"
+version = "3.0.4"
 description = "Shared Python backend modules for the Tauri Apple Music Play History Converter"
 readme = "README.md"
 license = { file = "LICENSE" }

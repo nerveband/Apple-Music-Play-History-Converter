@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.4
+
+- Fix the Database & MusicBrainz panel showing 0 tracks and no "Optimized"
+  status after a successful optimization (#16, thanks @gmr).
+- Search each unique track once per run instead of once per row, which saves
+  rate-limit waits on repeated plays (#18, thanks @gmr).
+- ListenBrainz JSON export skips rows with no valid timestamp instead of using
+  the current time, and enforces ListenBrainz's minimum listen time (#19,
+  thanks @gmr).
+
 ## 3.0.3
 
 - Move the mutable user-track mapping cache from DuckDB to SQLite to prevent
